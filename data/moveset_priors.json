@@ -1,0 +1,3787 @@
+{
+  "abomasnow": {
+    "auroraveil": 338,
+    "blizzard": 332,
+    "earthquake": 139,
+    "flamethrower": 6,
+    "hypervoice": 1,
+    "iceshard": 123,
+    "poltergeist": 1,
+    "woodhammer": 86
+  },
+  "alcremie": {
+    "acidarmor": 521,
+    "alluringvoice": 459,
+    "calmmind": 845,
+    "darkpulse": 1,
+    "dazzlinggleam": 445,
+    "focusblast": 1,
+    "recover": 532
+  },
+  "alomomola": {
+    "flipturn": 555,
+    "protect": 374,
+    "scald": 743,
+    "wish": 553
+  },
+  "altaria": {
+    "bravebird": 368,
+    "defog": 40,
+    "dragondance": 187,
+    "earthquake": 205,
+    "haze": 37,
+    "hypervoice": 2,
+    "roost": 247,
+    "willowisp": 58
+  },
+  "ambipom": {
+    "bittermalice": 2,
+    "doubleedge": 263,
+    "fakeout": 253,
+    "focusblast": 1,
+    "knockoff": 302,
+    "lowkick": 83,
+    "tripleaxel": 120,
+    "uturn": 137
+  },
+  "amoonguss": {
+    "clearsmog": 28,
+    "gigadrain": 317,
+    "nastyplot": 2,
+    "psychic": 4,
+    "sludgebomb": 416,
+    "spore": 362,
+    "stompingtantrum": 113,
+    "toxic": 52
+  },
+  "ampharos": {
+    "agility": 47,
+    "dazzlinggleam": 235,
+    "discharge": 102,
+    "dragontail": 80,
+    "focusblast": 92,
+    "hypervoice": 1,
+    "thunderbolt": 289,
+    "voltswitch": 154
+  },
+  "annihilape": {
+    "bittermalice": 3,
+    "bulkup": 398,
+    "drainpunch": 354,
+    "gunkshot": 38,
+    "hypervoice": 3,
+    "ragefist": 331,
+    "rest": 41,
+    "taunt": 24
+  },
+  "appletun": {
+    "appleacid": 482,
+    "dracometeor": 107,
+    "dragonpulse": 158,
+    "leechseed": 359,
+    "recover": 221
+  },
+  "araquanid": {
+    "focusblast": 3,
+    "hydropump": 76,
+    "leechlife": 260,
+    "liquidation": 277,
+    "mirrorcoat": 30,
+    "poltergeist": 2,
+    "stickyweb": 269,
+    "willowisp": 1
+  },
+  "arbok": {
+    "coil": 212,
+    "earthquake": 229,
+    "glare": 55,
+    "gunkshot": 307,
+    "knockoff": 58,
+    "suckerpunch": 131,
+    "toxicspikes": 39,
+    "trailblaze": 112
+  },
+  "arboliva": {
+    "earthpower": 124,
+    "energyball": 166,
+    "hypervoice": 486,
+    "leechseed": 356,
+    "protect": 338,
+    "sludgebomb": 1,
+    "strengthsap": 140,
+    "substitute": 260
+  },
+  "arcanine": {
+    "closecombat": 100,
+    "extremespeed": 197,
+    "flareblitz": 342,
+    "headsmash": 184,
+    "morningsun": 134,
+    "roar": 38,
+    "wildcharge": 15,
+    "willowisp": 54
+  },
+  "arceus": {
+    "bodypress": 228,
+    "calmmind": 679,
+    "cosmicpower": 401,
+    "earthpower": 200,
+    "earthquake": 213,
+    "judgment": 986,
+    "recover": 840,
+    "storedpower": 186
+  },
+  "archaludon": {
+    "bodypress": 228,
+    "dracometeor": 97,
+    "earthquake": 83,
+    "flashcannon": 147,
+    "ironhead": 129,
+    "outrage": 122,
+    "swordsdance": 140,
+    "thunderbolt": 43
+  },
+  "ariados": {
+    "knockoff": 78,
+    "megahorn": 217,
+    "nastyplot": 1,
+    "poisonjab": 226,
+    "stickyweb": 330,
+    "suckerpunch": 98,
+    "toxicspikes": 78
+  },
+  "armarouge": {
+    "armorcannon": 215,
+    "aurasphere": 18,
+    "energyball": 99,
+    "focusblast": 10,
+    "meteorbeam": 130,
+    "psyshock": 141
+  },
+  "articuno": {
+    "bravebird": 193,
+    "calmmind": 283,
+    "freezedry": 425,
+    "freezingglare": 309,
+    "hurricane": 223,
+    "recover": 192,
+    "roost": 175,
+    "substitute": 88
+  },
+  "avalugg": {
+    "avalanche": 291,
+    "bodypress": 216,
+    "curse": 20,
+    "rapidspin": 126,
+    "recover": 108,
+    "stoneedge": 72
+  },
+  "azelf": {
+    "dazzlinggleam": 66,
+    "fireblast": 149,
+    "knockoff": 93,
+    "psychic": 283,
+    "psyshock": 86,
+    "stealthrock": 34,
+    "thunderbolt": 72,
+    "uturn": 78
+  },
+  "azumarill": {
+    "aquajet": 255,
+    "bellydrum": 55,
+    "icespinner": 13,
+    "knockoff": 56,
+    "liquidation": 247,
+    "playrough": 272,
+    "struggle": 2,
+    "superpower": 25
+  },
+  "banette": {
+    "gunkshot": 177,
+    "poltergeist": 295,
+    "shadowsneak": 251,
+    "swordsdance": 68,
+    "thunderwave": 106,
+    "willowisp": 1
+  },
+  "barraskewda": {
+    "closecombat": 177,
+    "flipturn": 216,
+    "poisonjab": 40,
+    "poltergeist": 1,
+    "psychicfangs": 48,
+    "throatchop": 34,
+    "waterfall": 384,
+    "willowisp": 1
+  },
+  "basculegion": {
+    "aquajet": 91,
+    "flipturn": 204,
+    "hydropump": 77,
+    "icebeam": 24,
+    "shadowball": 289,
+    "wavecrash": 187
+  },
+  "basculin": {
+    "aquajet": 119,
+    "doubleedge": 85,
+    "flipturn": 161,
+    "hypervoice": 1,
+    "wavecrash": 308
+  },
+  "bastiodon": {
+    "bodypress": 472,
+    "foulplay": 224,
+    "irondefense": 355,
+    "poltergeist": 1,
+    "rest": 120
+  },
+  "baxcalibur": {
+    "dragondance": 78,
+    "earthquake": 127,
+    "glaiverush": 105,
+    "iceshard": 42,
+    "iciclecrash": 149,
+    "iciclespear": 58,
+    "scaleshot": 76,
+    "swordsdance": 57
+  },
+  "beartic": {
+    "aquajet": 98,
+    "closecombat": 137,
+    "earthquake": 125,
+    "hypervoice": 1,
+    "iciclecrash": 336,
+    "snowscape": 99,
+    "swordsdance": 95
+  },
+  "bellibolt": {
+    "darkpulse": 5,
+    "muddywater": 431,
+    "nastyplot": 2,
+    "slackoff": 275,
+    "sludgebomb": 2,
+    "thunderbolt": 588,
+    "toxic": 206,
+    "voltswitch": 151
+  },
+  "bellossom": {
+    "focusblast": 2,
+    "gigadrain": 602,
+    "moonblast": 117,
+    "quiverdance": 792,
+    "sleeppowder": 207,
+    "sludgebomb": 48,
+    "strengthsap": 474,
+    "terablast": 81
+  },
+  "blastoise": {
+    "earthquake": 136,
+    "hydropump": 348,
+    "icebeam": 240,
+    "shellsmash": 308,
+    "terablast": 71
+  },
+  "blaziken": {
+    "closecombat": 185,
+    "flareblitz": 163,
+    "hypervoice": 1,
+    "knockoff": 86,
+    "protect": 33,
+    "stoneedge": 11,
+    "swordsdance": 166
+  },
+  "blissey": {
+    "healbell": 62,
+    "seismictoss": 1263,
+    "sludgebomb": 1,
+    "softboiled": 279,
+    "stealthrock": 133,
+    "struggle": 1,
+    "thunderwave": 589
+  },
+  "bombirdier": {
+    "bittermalice": 1,
+    "bravebird": 277,
+    "knockoff": 341,
+    "roost": 55,
+    "stealthrock": 25,
+    "stoneedge": 83,
+    "suckerpunch": 58,
+    "uturn": 69
+  },
+  "brambleghast": {
+    "hypervoice": 1,
+    "leechseed": 136,
+    "poltergeist": 383,
+    "powerwhip": 274,
+    "rapidspin": 64,
+    "spikes": 118,
+    "strengthsap": 185,
+    "substitute": 151
+  },
+  "braviary": {
+    "bravebird": 192,
+    "bulkup": 204,
+    "calmmind": 42,
+    "closecombat": 84,
+    "esperwing": 177,
+    "hurricane": 131,
+    "psychic": 41,
+    "roost": 143
+  },
+  "breloom": {
+    "bulletseed": 147,
+    "machpunch": 234,
+    "rocktomb": 148,
+    "spore": 128,
+    "swordsdance": 69
+  },
+  "bronzong": {
+    "bodypress": 265,
+    "earthquake": 90,
+    "hypnosis": 121,
+    "irondefense": 223,
+    "ironhead": 196,
+    "psychic": 72,
+    "psychicnoise": 211,
+    "stealthrock": 70
+  },
+  "brutebonnet": {
+    "closecombat": 130,
+    "crunch": 231,
+    "hypervoice": 2,
+    "seedbomb": 313,
+    "spore": 299,
+    "suckerpunch": 292
+  },
+  "bruxish": {
+    "aquajet": 27,
+    "crunch": 91,
+    "flipturn": 48,
+    "icefang": 18,
+    "psychicfangs": 302,
+    "swordsdance": 25,
+    "wavecrash": 187
+  },
+  "cacturne": {
+    "drainpunch": 43,
+    "knockoff": 193,
+    "leafstorm": 76,
+    "seedbomb": 80,
+    "spikes": 25,
+    "suckerpunch": 283,
+    "swordsdance": 92,
+    "toxicspikes": 19
+  },
+  "calyrex": {
+    "agility": 49,
+    "astralbarrage": 133,
+    "gigadrain": 97,
+    "glaciallance": 134,
+    "highhorsepower": 75,
+    "leechseed": 83,
+    "psychic": 52,
+    "psyshock": 130
+  },
+  "camerupt": {
+    "earthquake": 250,
+    "overheat": 183,
+    "roar": 119,
+    "stealthrock": 211,
+    "willowisp": 102
+  },
+  "carbink": {
+    "bittermalice": 1,
+    "bodypress": 489,
+    "hypervoice": 1,
+    "irondefense": 429,
+    "moonblast": 390,
+    "psychic": 1,
+    "rest": 106,
+    "rockpolish": 117
+  },
+  "ceruledge": {
+    "bitterblade": 292,
+    "closecombat": 88,
+    "focusblast": 2,
+    "hypervoice": 1,
+    "poltergeist": 242,
+    "shadowsneak": 74,
+    "swordsdance": 223,
+    "willowisp": 1
+  },
+  "cetitan": {
+    "bellydrum": 97,
+    "earthquake": 137,
+    "iceshard": 278,
+    "icespinner": 96,
+    "iciclecrash": 136,
+    "liquidation": 55,
+    "sludgebomb": 3,
+    "superpower": 37
+  },
+  "chandelure": {
+    "calmmind": 77,
+    "energyball": 107,
+    "fireblast": 288,
+    "painsplit": 10,
+    "shadowball": 260,
+    "substitute": 12,
+    "trick": 71,
+    "willowisp": 8
+  },
+  "chansey": {
+    "bittermalice": 3,
+    "healbell": 84,
+    "hypervoice": 2,
+    "seismictoss": 1115,
+    "softboiled": 390,
+    "stealthrock": 164,
+    "thunderwave": 506,
+    "trick": 1
+  },
+  "charizard": {
+    "dragondance": 72,
+    "earthquake": 192,
+    "flamethrower": 184,
+    "flareblitz": 122,
+    "hurricane": 156,
+    "outrage": 84,
+    "swordsdance": 45,
+    "willowisp": 45
+  },
+  "chesnaught": {
+    "bodypress": 429,
+    "irondefense": 287,
+    "knockoff": 77,
+    "spikes": 84,
+    "struggle": 5,
+    "synthesis": 187,
+    "trailblaze": 343,
+    "woodhammer": 99
+  },
+  "chi": {
+    "darkpulse": 323,
+    "fireblast": 94,
+    "flamethrower": 132,
+    "nastyplot": 61,
+    "overheat": 76,
+    "psychic": 48,
+    "willowisp": 37
+  },
+  "chien": {
+    "crunch": 57,
+    "iceshard": 67,
+    "iciclecrash": 253,
+    "sacredsword": 133,
+    "suckerpunch": 19,
+    "swordsdance": 80,
+    "throatchop": 166
+  },
+  "chimecho": {
+    "calmmind": 147,
+    "cosmicpower": 438,
+    "dazzlinggleam": 297,
+    "knockoff": 82,
+    "psychicnoise": 343,
+    "recover": 388,
+    "storedpower": 290,
+    "thunderwave": 89
+  },
+  "cinccino": {
+    "bulletseed": 191,
+    "tailslap": 327,
+    "tidyup": 134,
+    "tripleaxel": 227,
+    "uturn": 94
+  },
+  "cinderace": {
+    "courtchange": 24,
+    "gunkshot": 72,
+    "highjumpkick": 193,
+    "pyroball": 376,
+    "suckerpunch": 81,
+    "uturn": 97
+  },
+  "clawitzer": {
+    "aurasphere": 150,
+    "darkpulse": 104,
+    "dragonpulse": 164,
+    "struggle": 1,
+    "uturn": 115,
+    "waterpulse": 360
+  },
+  "clefable": {
+    "calmmind": 226,
+    "fireblast": 145,
+    "knockoff": 109,
+    "moonblast": 682,
+    "moonlight": 315,
+    "stealthrock": 66,
+    "thunderwave": 97
+  },
+  "clodsire": {
+    "curse": 85,
+    "earthquake": 417,
+    "gunkshot": 218,
+    "poisonjab": 183,
+    "recover": 293,
+    "spikes": 114,
+    "toxic": 120,
+    "toxicspikes": 86
+  },
+  "cloyster": {
+    "drillrun": 55,
+    "hydropump": 77,
+    "iciclespear": 272,
+    "rockblast": 131,
+    "shellsmash": 213
+  },
+  "coalossal": {
+    "flamethrower": 131,
+    "overheat": 87,
+    "poltergeist": 1,
+    "rapidspin": 123,
+    "spikes": 92,
+    "stealthrock": 67,
+    "stoneedge": 219,
+    "willowisp": 62
+  },
+  "cobalion": {
+    "aurasphere": 131,
+    "bodypress": 141,
+    "calmmind": 100,
+    "closecombat": 91,
+    "flashcannon": 97,
+    "ironhead": 234,
+    "swordsdance": 77,
+    "thunderwave": 62
+  },
+  "comfey": {
+    "calmmind": 712,
+    "drainingkiss": 730,
+    "encore": 24,
+    "gigadrain": 159,
+    "storedpower": 139,
+    "synthesis": 8,
+    "taunt": 25,
+    "terablast": 81
+  },
+  "conkeldurr": {
+    "bittermalice": 1,
+    "closecombat": 111,
+    "facade": 223,
+    "knockoff": 204,
+    "machpunch": 288
+  },
+  "copperajah": {
+    "earthquake": 80,
+    "heatcrash": 72,
+    "heavyslam": 162,
+    "ironhead": 151,
+    "knockoff": 40,
+    "playrough": 81,
+    "stealthrock": 45,
+    "superpower": 31
+  },
+  "corviknight": {
+    "bodypress": 244,
+    "bravebird": 503,
+    "defog": 108,
+    "nastyplot": 1,
+    "roost": 244,
+    "struggle": 4,
+    "uturn": 221
+  },
+  "crabominable": {
+    "closecombat": 27,
+    "drainpunch": 191,
+    "earthquake": 76,
+    "gunkshot": 14,
+    "icehammer": 220,
+    "knockoff": 114
+  },
+  "cramorant": {
+    "bravebird": 333,
+    "defog": 61,
+    "roost": 160,
+    "surf": 399
+  },
+  "crawdaunt": {
+    "aquajet": 160,
+    "closecombat": 52,
+    "crabhammer": 149,
+    "dragondance": 148,
+    "knockoff": 204
+  },
+  "cresselia": {
+    "calmmind": 772,
+    "hypervoice": 1,
+    "moonblast": 280,
+    "moonlight": 496,
+    "poltergeist": 1,
+    "psyshock": 659,
+    "thunderbolt": 311,
+    "willowisp": 2
+  },
+  "cryogonal": {
+    "flashcannon": 107,
+    "freezedry": 507,
+    "haze": 86,
+    "icebeam": 338,
+    "rapidspin": 157,
+    "recover": 265,
+    "terablast": 111
+  },
+  "cyclizar": {
+    "dracometeor": 259,
+    "flamethrower": 3,
+    "hypervoice": 2,
+    "knockoff": 151,
+    "rapidspin": 102,
+    "shedtail": 307,
+    "taunt": 84,
+    "willowisp": 2
+  },
+  "dachsbun": {
+    "bodypress": 231,
+    "playrough": 769,
+    "protect": 388,
+    "stompingtantrum": 208,
+    "wish": 540
+  },
+  "darkrai": {
+    "darkpulse": 451,
+    "focusblast": 56,
+    "hypnosis": 104,
+    "nastyplot": 194,
+    "sludgebomb": 233,
+    "substitute": 111
+  },
+  "decidueye": {
+    "knockoff": 76,
+    "leafblade": 178,
+    "poltergeist": 56,
+    "roost": 84,
+    "shadowsneak": 66,
+    "spiritshackle": 75,
+    "swordsdance": 116,
+    "triplearrows": 271
+  },
+  "dedenne": {
+    "darkpulse": 1,
+    "dazzlinggleam": 290,
+    "focusblast": 1,
+    "nastyplot": 1,
+    "nuzzle": 235,
+    "superfang": 246,
+    "thunderbolt": 420,
+    "uturn": 283
+  },
+  "delibird": {
+    "bravebird": 173,
+    "drillrun": 61,
+    "freezedry": 131,
+    "iceshard": 40,
+    "icespinner": 79,
+    "rapidspin": 51,
+    "spikes": 139
+  },
+  "delphox": {
+    "fireblast": 381,
+    "focusblast": 51,
+    "grassknot": 68,
+    "nastyplot": 99,
+    "psyshock": 329,
+    "struggle": 3
+  },
+  "deoxys": {
+    "cosmicpower": 408,
+    "knockoff": 344,
+    "nightshade": 228,
+    "psychicnoise": 126,
+    "psychoboost": 368,
+    "recover": 259,
+    "storedpower": 168,
+    "superpower": 161
+  },
+  "dewgong": {
+    "encore": 106,
+    "flipturn": 172,
+    "hydropump": 77,
+    "icebeam": 162,
+    "knockoff": 238,
+    "surf": 187,
+    "tripleaxel": 167
+  },
+  "dialga": {
+    "darkpulse": 3,
+    "dracometeor": 211,
+    "dragontail": 115,
+    "fireblast": 137,
+    "flashcannon": 76,
+    "heavyslam": 294,
+    "stealthrock": 93,
+    "thunderwave": 93
+  },
+  "diancie": {
+    "bodypress": 95,
+    "calmmind": 127,
+    "diamondstorm": 413,
+    "drainingkiss": 156,
+    "earthpower": 100,
+    "moonblast": 91,
+    "rockpolish": 43,
+    "stealthrock": 34
+  },
+  "dipplin": {
+    "dragonpulse": 517,
+    "dragontail": 249,
+    "gigadrain": 464,
+    "poltergeist": 1,
+    "recover": 230,
+    "struggle": 4,
+    "suckerpunch": 131,
+    "willowisp": 1
+  },
+  "ditto": {
+    "closecombat": 45,
+    "dazzlinggleam": 23,
+    "earthquake": 64,
+    "hurricane": 35,
+    "knockoff": 27,
+    "shadowball": 35,
+    "terablast": 24,
+    "thunderbolt": 25
+  },
+  "dodrio": {
+    "bravebird": 285,
+    "doubleedge": 113,
+    "drillrun": 117,
+    "knockoff": 137,
+    "quickattack": 16,
+    "swordsdance": 62
+  },
+  "dondozo": {
+    "curse": 691,
+    "darkpulse": 1,
+    "nastyplot": 1,
+    "rest": 445,
+    "sleeptalk": 503,
+    "sludgebomb": 1,
+    "struggle": 14,
+    "wavecrash": 770
+  },
+  "donphan": {
+    "darkpulse": 3,
+    "earthquake": 318,
+    "iceshard": 126,
+    "icespinner": 165,
+    "knockoff": 140,
+    "rapidspin": 176,
+    "sludgebomb": 1,
+    "stealthrock": 99
+  },
+  "dragalge": {
+    "dracometeor": 183,
+    "dragontail": 72,
+    "flipturn": 30,
+    "focusblast": 116,
+    "sludgewave": 330,
+    "toxic": 52,
+    "toxicspikes": 47
+  },
+  "dragapult": {
+    "dracometeor": 83,
+    "dragondance": 72,
+    "dragondarts": 276,
+    "fireblast": 123,
+    "hex": 97,
+    "shadowball": 88,
+    "uturn": 135,
+    "willowisp": 100
+  },
+  "dragonite": {
+    "dragondance": 357,
+    "earthquake": 197,
+    "ironhead": 54,
+    "outrage": 272,
+    "roost": 82,
+    "sludgebomb": 1,
+    "terablast": 33
+  },
+  "drednaw": {
+    "crunch": 111,
+    "earthquake": 73,
+    "hypervoice": 1,
+    "liquidation": 196,
+    "shellsmash": 240,
+    "stoneedge": 139,
+    "willowisp": 1
+  },
+  "drifblim": {
+    "airslash": 425,
+    "calmmind": 292,
+    "darkpulse": 2,
+    "defog": 39,
+    "shadowball": 471,
+    "strengthsap": 498
+  },
+  "dudunsparce": {
+    "boomburst": 396,
+    "calmmind": 367,
+    "earthpower": 102,
+    "earthquake": 121,
+    "glare": 218,
+    "headbutt": 353,
+    "roost": 303,
+    "shadowball": 105
+  },
+  "dugtrio": {
+    "earthquake": 359,
+    "ironhead": 122,
+    "stealthrock": 23,
+    "stoneedge": 80,
+    "suckerpunch": 91,
+    "swordsdance": 77,
+    "throatchop": 22
+  },
+  "dunsparce": {
+    "bodyslam": 870,
+    "coil": 601,
+    "earthquake": 345,
+    "roost": 491,
+    "sludgebomb": 1
+  },
+  "duraludon": {
+    "bodypress": 318,
+    "dracometeor": 256,
+    "dragontail": 81,
+    "flashcannon": 307,
+    "irondefense": 83,
+    "stealthrock": 52,
+    "thunderwave": 78
+  },
+  "dusknoir": {
+    "earthquake": 138,
+    "focuspunch": 137,
+    "leechlife": 42,
+    "painsplit": 206,
+    "poltergeist": 549,
+    "shadowsneak": 168,
+    "substitute": 144,
+    "willowisp": 96
+  },
+  "eelektross": {
+    "coil": 212,
+    "discharge": 210,
+    "drainpunch": 250,
+    "firepunch": 70,
+    "flamethrower": 64,
+    "knockoff": 169,
+    "supercellslam": 148,
+    "uturn": 120
+  },
+  "eiscue": {
+    "bellydrum": 265,
+    "icespinner": 344,
+    "ironhead": 26,
+    "liquidation": 215,
+    "terablast": 49,
+    "zenheadbutt": 50
+  },
+  "electivire": {
+    "bulkup": 124,
+    "earthquake": 194,
+    "flamethrower": 49,
+    "icepunch": 175,
+    "knockoff": 98,
+    "supercellslam": 242,
+    "voltswitch": 35
+  },
+  "electrode": {
+    "foulplay": 58,
+    "gigadrain": 141,
+    "leechseed": 127,
+    "substitute": 190,
+    "taunt": 96,
+    "thunderbolt": 420,
+    "thunderwave": 71,
+    "voltswitch": 127
+  },
+  "emboar": {
+    "bulkup": 79,
+    "closecombat": 114,
+    "drainpunch": 89,
+    "flareblitz": 242,
+    "knockoff": 77,
+    "scald": 36,
+    "suckerpunch": 29,
+    "trailblaze": 88
+  },
+  "empoleon": {
+    "flipturn": 78,
+    "icebeam": 127,
+    "knockoff": 155,
+    "roar": 114,
+    "roost": 183,
+    "stealthrock": 99,
+    "surf": 448,
+    "yawn": 135
+  },
+  "enamorus": {
+    "agility": 59,
+    "calmmind": 46,
+    "earthpower": 99,
+    "moonblast": 294,
+    "mysticalfire": 83,
+    "playrough": 58,
+    "substitute": 36,
+    "superpower": 126
+  },
+  "entei": {
+    "extremespeed": 265,
+    "flamethrower": 1,
+    "flareblitz": 173,
+    "focusblast": 1,
+    "sacredfire": 439,
+    "stompingtantrum": 74,
+    "stoneedge": 59,
+    "struggle": 4
+  },
+  "espathra": {
+    "calmmind": 301,
+    "dazzlinggleam": 175,
+    "luminacrash": 264,
+    "protect": 80,
+    "roost": 61,
+    "storedpower": 211,
+    "substitute": 53,
+    "uturn": 33
+  },
+  "espeon": {
+    "alluringvoice": 176,
+    "calmmind": 145,
+    "morningsun": 82,
+    "psychic": 161,
+    "psyshock": 177,
+    "shadowball": 157,
+    "thunderwave": 13,
+    "trick": 51
+  },
+  "eternatus": {
+    "dynamaxcannon": 306,
+    "fireblast": 104,
+    "flamethrower": 72,
+    "meteorbeam": 83,
+    "recover": 121,
+    "sludgebomb": 182,
+    "toxic": 41,
+    "toxicspikes": 38
+  },
+  "excadrill": {
+    "earthquake": 293,
+    "ironhead": 310,
+    "rapidspin": 199,
+    "rockslide": 57,
+    "swordsdance": 86
+  },
+  "exeggutor": {
+    "calmmind": 100,
+    "flamethrower": 94,
+    "gigadrain": 173,
+    "leechseed": 142,
+    "protect": 122,
+    "psychic": 55,
+    "psychicnoise": 166,
+    "substitute": 218
+  },
+  "falinks": {
+    "closecombat": 263,
+    "ironhead": 199,
+    "knockoff": 256,
+    "noretreat": 267
+  },
+  "farigiraf": {
+    "bodyslam": 337,
+    "futuresight": 275,
+    "hypervoice": 300,
+    "protect": 400,
+    "psychicnoise": 278,
+    "struggle": 3,
+    "wish": 460
+  },
+  "feraligatr": {
+    "crunch": 79,
+    "dragondance": 287,
+    "hypervoice": 1,
+    "icepunch": 137,
+    "liquidation": 309,
+    "trailblaze": 111
+  },
+  "fezandipiti": {
+    "beatup": 169,
+    "gunkshot": 366,
+    "moonblast": 309,
+    "playrough": 108,
+    "roost": 63,
+    "swordsdance": 85,
+    "terablast": 59,
+    "uturn": 197
+  },
+  "flamigo": {
+    "bravebird": 237,
+    "closecombat": 194,
+    "roost": 18,
+    "struggle": 1,
+    "swordsdance": 55,
+    "throatchop": 58,
+    "uturn": 55
+  },
+  "flapple": {
+    "dragondance": 148,
+    "gravapple": 246,
+    "outrage": 229,
+    "suckerpunch": 66,
+    "terablast": 39,
+    "uturn": 31
+  },
+  "flareon": {
+    "facade": 252,
+    "flareblitz": 185,
+    "quickattack": 81,
+    "trailblaze": 155,
+    "willowisp": 78
+  },
+  "floatzel": {
+    "bulkup": 142,
+    "crunch": 79,
+    "flipturn": 78,
+    "icespinner": 163,
+    "taunt": 74,
+    "wavecrash": 370
+  },
+  "florges": {
+    "calmmind": 562,
+    "moonblast": 834,
+    "nastyplot": 2,
+    "protect": 218,
+    "struggle": 3,
+    "synthesis": 106,
+    "terablast": 102,
+    "wish": 257
+  },
+  "fluttermane": {
+    "calmmind": 89,
+    "moonblast": 424,
+    "mysticalfire": 101,
+    "psyshock": 66,
+    "shadowball": 211,
+    "sludgebomb": 2,
+    "struggle": 1,
+    "thunderbolt": 47
+  },
+  "flygon": {
+    "dragondance": 165,
+    "earthquake": 315,
+    "outrage": 182,
+    "scaleshot": 41,
+    "stoneedge": 121,
+    "uturn": 99
+  },
+  "forretress": {
+    "bodypress": 122,
+    "ironhead": 323,
+    "rapidspin": 141,
+    "spikes": 146,
+    "stealthrock": 154,
+    "toxicspikes": 150,
+    "voltswitch": 88
+  },
+  "froslass": {
+    "darkpulse": 1,
+    "destinybond": 114,
+    "poltergeist": 312,
+    "spikes": 121,
+    "taunt": 84,
+    "tripleaxel": 304,
+    "willowisp": 101
+  },
+  "frosmoth": {
+    "bittermalice": 1,
+    "bugbuzz": 140,
+    "focusblast": 3,
+    "gigadrain": 119,
+    "hurricane": 63,
+    "icebeam": 311,
+    "quiverdance": 431,
+    "terablast": 59
+  },
+  "furret": {
+    "brickbreak": 82,
+    "doubleedge": 339,
+    "hypervoice": 5,
+    "knockoff": 261,
+    "struggle": 2,
+    "tidyup": 129,
+    "trick": 56,
+    "uturn": 87
+  },
+  "gallade": {
+    "agility": 75,
+    "darkpulse": 1,
+    "leafblade": 41,
+    "nightslash": 141,
+    "psychocut": 185,
+    "sacredsword": 222
+  },
+  "galvantula": {
+    "bugbuzz": 238,
+    "gigadrain": 67,
+    "stickyweb": 292,
+    "thunder": 364,
+    "voltswitch": 92
+  },
+  "garchomp": {
+    "dragontail": 52,
+    "earthquake": 229,
+    "ironhead": 31,
+    "outrage": 122,
+    "scaleshot": 147,
+    "spikes": 51,
+    "stealthrock": 61,
+    "swordsdance": 107
+  },
+  "gardevoir": {
+    "calmmind": 62,
+    "focusblast": 51,
+    "healingwish": 4,
+    "moonblast": 421,
+    "mysticalfire": 146,
+    "psychic": 101,
+    "psyshock": 124,
+    "trick": 42
+  },
+  "garganacl": {
+    "bodypress": 168,
+    "earthquake": 170,
+    "irondefense": 131,
+    "protect": 360,
+    "recover": 370,
+    "saltcure": 965,
+    "stealthrock": 103
+  },
+  "gastrodon": {
+    "clearsmog": 87,
+    "earthquake": 540,
+    "icebeam": 172,
+    "recover": 247,
+    "sludgebomb": 205,
+    "spikes": 55,
+    "stealthrock": 130,
+    "surf": 280
+  },
+  "gengar": {
+    "encore": 38,
+    "focusblast": 110,
+    "nastyplot": 37,
+    "shadowball": 250,
+    "sludgewave": 251,
+    "toxicspikes": 38,
+    "trick": 32,
+    "willowisp": 41
+  },
+  "gholdengo": {
+    "focusblast": 64,
+    "makeitrain": 196,
+    "nastyplot": 132,
+    "recover": 87,
+    "shadowball": 339,
+    "thunderwave": 95,
+    "trick": 39
+  },
+  "girafarig": {
+    "dazzlinggleam": 51,
+    "hypervoice": 141,
+    "nastyplot": 248,
+    "psychic": 93,
+    "psyshock": 207,
+    "shadowball": 52,
+    "thunderbolt": 205
+  },
+  "giratina": {
+    "calmmind": 183,
+    "dragonpulse": 222,
+    "dragontail": 196,
+    "poltergeist": 252,
+    "rest": 161,
+    "shadowball": 329,
+    "sleeptalk": 182,
+    "willowisp": 213
+  },
+  "glaceon": {
+    "calmmind": 181,
+    "darkpulse": 1,
+    "freezedry": 680,
+    "hypervoice": 1,
+    "mudshot": 218,
+    "protect": 240,
+    "willowisp": 1,
+    "wish": 312
+  },
+  "glalie": {
+    "disable": 61,
+    "earthquake": 271,
+    "freezedry": 382,
+    "spikes": 254,
+    "taunt": 78
+  },
+  "glastrier": {
+    "bittermalice": 1,
+    "closecombat": 105,
+    "heavyslam": 117,
+    "highhorsepower": 116,
+    "iciclecrash": 347,
+    "swordsdance": 85
+  },
+  "glimmora": {
+    "earthpower": 127,
+    "energyball": 63,
+    "meteorbeam": 106,
+    "mortalspin": 26,
+    "powergem": 40,
+    "sludgewave": 144,
+    "spikes": 40,
+    "stealthrock": 26
+  },
+  "gliscor": {
+    "earthquake": 607,
+    "knockoff": 241,
+    "protect": 929,
+    "struggle": 6,
+    "substitute": 399,
+    "toxic": 476,
+    "toxicspikes": 82
+  },
+  "gogoat": {
+    "bulkup": 684,
+    "earthquake": 287,
+    "hornleech": 682,
+    "milkdrink": 276,
+    "rockslide": 97,
+    "struggle": 5
+  },
+  "golduck": {
+    "encore": 35,
+    "flipturn": 42,
+    "grassknot": 119,
+    "hydropump": 417,
+    "icebeam": 216,
+    "nastyplot": 174,
+    "struggle": 2
+  },
+  "golem": {
+    "doubleedge": 97,
+    "earthquake": 203,
+    "explosion": 63,
+    "poltergeist": 1,
+    "rockpolish": 101,
+    "stealthrock": 48,
+    "stoneedge": 125,
+    "willowisp": 1
+  },
+  "golurk": {
+    "dynamicpunch": 211,
+    "earthquake": 132,
+    "hypervoice": 1,
+    "poltergeist": 225,
+    "stealthrock": 79,
+    "stoneedge": 61
+  },
+  "goodra": {
+    "dracometeor": 203,
+    "dragontail": 116,
+    "earthquake": 165,
+    "fireblast": 97,
+    "heavyslam": 200,
+    "knockoff": 96,
+    "scald": 65,
+    "sludgebomb": 76
+  },
+  "gothitelle": {
+    "calmmind": 151,
+    "darkpulse": 177,
+    "focusblast": 155,
+    "psychic": 259,
+    "psychicnoise": 203,
+    "thunderbolt": 47,
+    "trick": 96
+  },
+  "gougingfire": {
+    "dragondance": 394,
+    "earthquake": 90,
+    "heatcrash": 335,
+    "morningsun": 119,
+    "outrage": 301
+  },
+  "grafaiai": {
+    "encore": 75,
+    "gunkshot": 267,
+    "knockoff": 343,
+    "lowkick": 50,
+    "partingshot": 148,
+    "superfang": 40,
+    "swordsdance": 32,
+    "uturn": 62
+  },
+  "granbull": {
+    "earthquake": 301,
+    "encore": 80,
+    "playrough": 452,
+    "roar": 98,
+    "thunderwave": 399
+  },
+  "greattusk": {
+    "bulkup": 125,
+    "closecombat": 213,
+    "earthquake": 163,
+    "headlongrush": 105,
+    "knockoff": 25,
+    "rapidspin": 158,
+    "stealthrock": 23,
+    "stoneedge": 51
+  },
+  "greedent": {
+    "bodyslam": 254,
+    "doubleedge": 194,
+    "earthquake": 198,
+    "knockoff": 262,
+    "swordsdance": 259
+  },
+  "greninja": {
+    "darkpulse": 232,
+    "grassknot": 21,
+    "gunkshot": 168,
+    "hydropump": 253,
+    "icebeam": 123,
+    "spikes": 19,
+    "toxicspikes": 13,
+    "uturn": 50
+  },
+  "grimmsnarl": {
+    "lightscreen": 147,
+    "partingshot": 331,
+    "reflect": 157,
+    "spiritbreak": 534,
+    "suckerpunch": 160,
+    "taunt": 113,
+    "thunderwave": 239,
+    "willowisp": 1
+  },
+  "groudon": {
+    "heatcrash": 366,
+    "precipiceblades": 315,
+    "spikes": 47,
+    "stealthrock": 28,
+    "stoneedge": 32,
+    "swordsdance": 108,
+    "thunderwave": 68,
+    "willowisp": 28
+  },
+  "grumpig": {
+    "dazzlinggleam": 54,
+    "earthpower": 110,
+    "focusblast": 86,
+    "nastyplot": 97,
+    "psychic": 155,
+    "psyshock": 186,
+    "shadowball": 167,
+    "trick": 80
+  },
+  "gumshoos": {
+    "doubleedge": 244,
+    "earthquake": 119,
+    "knockoff": 180,
+    "uturn": 67
+  },
+  "gurdurr": {
+    "bulkup": 212,
+    "darkpulse": 4,
+    "defog": 26,
+    "drainpunch": 485,
+    "knockoff": 398,
+    "machpunch": 289,
+    "poltergeist": 1
+  },
+  "gyarados": {
+    "dragondance": 383,
+    "earthquake": 233,
+    "poltergeist": 1,
+    "stoneedge": 48,
+    "temperflare": 53,
+    "terablast": 64,
+    "waterfall": 321
+  },
+  "hariyama": {
+    "bulletpunch": 73,
+    "closecombat": 209,
+    "facade": 127,
+    "fakeout": 59,
+    "headlongrush": 34,
+    "heavyslam": 85,
+    "knockoff": 272,
+    "stoneedge": 17
+  },
+  "hatterene": {
+    "calmmind": 167,
+    "drainingkiss": 361,
+    "mysticalfire": 262,
+    "nuzzle": 145,
+    "psychic": 120,
+    "psychicnoise": 66,
+    "psyshock": 35,
+    "thunderwave": 21
+  },
+  "hawlucha": {
+    "acrobatics": 160,
+    "bravebird": 139,
+    "closecombat": 313,
+    "encore": 38,
+    "flamethrower": 1,
+    "stoneedge": 15,
+    "swordsdance": 221,
+    "throatchop": 38
+  },
+  "haxorus": {
+    "closecombat": 56,
+    "dragondance": 146,
+    "earthquake": 70,
+    "ironhead": 163,
+    "outrage": 159,
+    "scaleshot": 155,
+    "swordsdance": 103
+  },
+  "heatran": {
+    "earthpower": 228,
+    "flashcannon": 79,
+    "heavyslam": 116,
+    "lavaplume": 198,
+    "magmastorm": 158,
+    "stealthrock": 218
+  },
+  "heracross": {
+    "closecombat": 222,
+    "earthquake": 54,
+    "facade": 164,
+    "knockoff": 150,
+    "megahorn": 96,
+    "stoneedge": 53,
+    "trailblaze": 134,
+    "trick": 1
+  },
+  "hippowdon": {
+    "curse": 156,
+    "darkpulse": 1,
+    "earthquake": 496,
+    "slackoff": 216,
+    "stealthrock": 78,
+    "stoneedge": 235,
+    "whirlwind": 136
+  },
+  "hitmonchan": {
+    "bulkup": 152,
+    "closecombat": 51,
+    "drainpunch": 247,
+    "knockoff": 294,
+    "machpunch": 35,
+    "poisonjab": 67,
+    "rapidspin": 55,
+    "swordsdance": 84
+  },
+  "hitmonlee": {
+    "closecombat": 148,
+    "highjumpkick": 160,
+    "knockoff": 236,
+    "machpunch": 57,
+    "poisonjab": 83,
+    "sludgebomb": 1,
+    "stoneedge": 48,
+    "swordsdance": 85
+  },
+  "hitmontop": {
+    "bulkup": 135,
+    "closecombat": 301,
+    "earthquake": 107,
+    "encore": 1,
+    "rapidspin": 220,
+    "stoneedge": 88,
+    "suckerpunch": 83,
+    "tripleaxel": 197
+  },
+  "ho": {
+    "bravebird": 312,
+    "earthquake": 278,
+    "focusblast": 2,
+    "poltergeist": 1,
+    "recover": 192,
+    "sacredfire": 546
+  },
+  "honchkrow": {
+    "bravebird": 347,
+    "darkpulse": 1,
+    "heatwave": 96,
+    "lashout": 112,
+    "suckerpunch": 301,
+    "thunderwave": 51,
+    "uturn": 93
+  },
+  "hoopa": {
+    "focusblast": 101,
+    "gunkshot": 34,
+    "hyperspacefury": 151,
+    "nastyplot": 28,
+    "psychic": 123,
+    "psyshock": 66,
+    "shadowball": 157,
+    "trick": 75
+  },
+  "houndoom": {
+    "darkpulse": 335,
+    "fireblast": 220,
+    "nastyplot": 100,
+    "poltergeist": 1,
+    "sludgebomb": 142,
+    "suckerpunch": 107
+  },
+  "houndstone": {
+    "bodypress": 458,
+    "playrough": 117,
+    "poltergeist": 586,
+    "rest": 123,
+    "roar": 14,
+    "shadowsneak": 197,
+    "sleeptalk": 129,
+    "willowisp": 34
+  },
+  "hydrapple": {
+    "dracometeor": 19,
+    "dragontail": 95,
+    "earthpower": 192,
+    "ficklebeam": 366,
+    "gigadrain": 113,
+    "leafstorm": 86,
+    "nastyplot": 91,
+    "recover": 25
+  },
+  "hydreigon": {
+    "darkpulse": 347,
+    "dracometeor": 200,
+    "fireblast": 102,
+    "flamethrower": 1,
+    "flashcannon": 49,
+    "nastyplot": 74,
+    "uturn": 38
+  },
+  "hypno": {
+    "encore": 110,
+    "focusblast": 165,
+    "knockoff": 209,
+    "protect": 223,
+    "psychicnoise": 499,
+    "thunderwave": 113,
+    "toxic": 288
+  },
+  "illumise": {
+    "bugbuzz": 972,
+    "encore": 403,
+    "roost": 466,
+    "thunderwave": 595
+  },
+  "incineroar": {
+    "closecombat": 68,
+    "flareblitz": 121,
+    "knockoff": 311,
+    "overheat": 55,
+    "partingshot": 53,
+    "swordsdance": 49,
+    "trailblaze": 74,
+    "uturn": 69
+  },
+  "indeedee": {
+    "calmmind": 55,
+    "dazzlinggleam": 84,
+    "expandingforce": 222,
+    "healingwish": 15,
+    "hypervoice": 80,
+    "psychic": 150,
+    "psyshock": 86,
+    "shadowball": 77
+  },
+  "infernape": {
+    "closecombat": 208,
+    "flareblitz": 154,
+    "gunkshot": 29,
+    "knockoff": 98,
+    "machpunch": 40,
+    "overheat": 104,
+    "stoneedge": 48,
+    "uturn": 21
+  },
+  "inteleon": {
+    "darkpulse": 72,
+    "hydropump": 379,
+    "icebeam": 181,
+    "scald": 142,
+    "struggle": 1,
+    "uturn": 134
+  },
+  "ironboulder": {
+    "closecombat": 178,
+    "mightycleave": 279,
+    "swordsdance": 148,
+    "zenheadbutt": 140
+  },
+  "ironbundle": {
+    "encore": 72,
+    "flipturn": 63,
+    "freezedry": 298,
+    "hydropump": 384,
+    "icebeam": 225,
+    "substitute": 93
+  },
+  "ironcrown": {
+    "calmmind": 165,
+    "focusblast": 117,
+    "psyshock": 230,
+    "tachyoncutter": 302,
+    "voltswitch": 77
+  },
+  "ironhands": {
+    "closecombat": 64,
+    "drainpunch": 275,
+    "fakeout": 64,
+    "icepunch": 118,
+    "swordsdance": 106,
+    "thunderpunch": 135,
+    "voltswitch": 112,
+    "wildcharge": 111
+  },
+  "ironjugulis": {
+    "bittermalice": 2,
+    "darkpulse": 381,
+    "earthpower": 152,
+    "fireblast": 8,
+    "hurricane": 261,
+    "hydropump": 8,
+    "meteorbeam": 137,
+    "uturn": 27
+  },
+  "ironleaves": {
+    "closecombat": 112,
+    "leafblade": 225,
+    "megahorn": 46,
+    "psyblade": 206,
+    "swordsdance": 71
+  },
+  "ironmoth": {
+    "darkpulse": 7,
+    "energyball": 93,
+    "fierydance": 227,
+    "fireblast": 136,
+    "morningsun": 43,
+    "sludgewave": 221,
+    "toxicspikes": 58,
+    "uturn": 55
+  },
+  "ironthorns": {
+    "dragondance": 88,
+    "earthquake": 105,
+    "icepunch": 55,
+    "spikes": 52,
+    "stealthrock": 39,
+    "stoneedge": 213,
+    "voltswitch": 27,
+    "wildcharge": 151
+  },
+  "irontreads": {
+    "earthquake": 316,
+    "ironhead": 405,
+    "knockoff": 164,
+    "rapidspin": 173,
+    "stealthrock": 67,
+    "voltswitch": 131
+  },
+  "ironvaliant": {
+    "calmmind": 46,
+    "closecombat": 175,
+    "encore": 31,
+    "knockoff": 157,
+    "moonblast": 171,
+    "psychic": 36,
+    "spiritbreak": 79,
+    "swordsdance": 55
+  },
+  "jirachi": {
+    "bodyslam": 359,
+    "drainpunch": 110,
+    "ironhead": 1071,
+    "protect": 178,
+    "psychic": 88,
+    "stealthrock": 56,
+    "uturn": 151,
+    "wish": 220
+  },
+  "jolteon": {
+    "alluringvoice": 133,
+    "calmmind": 244,
+    "shadowball": 78,
+    "substitute": 148,
+    "terablast": 132,
+    "thunderbolt": 451,
+    "voltswitch": 48
+  },
+  "jumpluff": {
+    "acrobatics": 750,
+    "encore": 79,
+    "hypervoice": 1,
+    "leechseed": 339,
+    "sleeppowder": 215,
+    "strengthsap": 496,
+    "substitute": 390,
+    "uturn": 155
+  },
+  "keldeo": {
+    "airslash": 69,
+    "calmmind": 161,
+    "flipturn": 32,
+    "hydropump": 226,
+    "secretsword": 376,
+    "substitute": 86,
+    "surf": 72,
+    "vacuumwave": 21
+  },
+  "kilowattrel": {
+    "discharge": 151,
+    "hurricane": 509,
+    "roost": 166,
+    "thunderbolt": 287,
+    "thunderwave": 77,
+    "uturn": 385
+  },
+  "kingambit": {
+    "ironhead": 183,
+    "kowtowcleave": 260,
+    "suckerpunch": 348,
+    "swordsdance": 170
+  },
+  "kingdra": {
+    "dracometeor": 57,
+    "dragondance": 242,
+    "hurricane": 85,
+    "ironhead": 78,
+    "outrage": 221,
+    "raindance": 90,
+    "waterfall": 58,
+    "wavecrash": 221
+  },
+  "klawf": {
+    "crabhammer": 133,
+    "highhorsepower": 117,
+    "knockoff": 143,
+    "stealthrock": 37,
+    "stoneedge": 259,
+    "swordsdance": 74
+  },
+  "kleavor": {
+    "closecombat": 77,
+    "defog": 12,
+    "poltergeist": 1,
+    "stoneaxe": 343,
+    "swordsdance": 37,
+    "uturn": 54,
+    "xscissor": 184
+  },
+  "klefki": {
+    "dazzlinggleam": 132,
+    "foulplay": 104,
+    "magnetrise": 79,
+    "playrough": 257,
+    "spikes": 502,
+    "thunderwave": 392
+  },
+  "komala": {
+    "bodyslam": 184,
+    "doubleedge": 135,
+    "earthquake": 122,
+    "knockoff": 295,
+    "rapidspin": 62,
+    "superpower": 27,
+    "uturn": 49,
+    "woodhammer": 14
+  },
+  "kommo": {
+    "boomburst": 72,
+    "clangingscales": 108,
+    "clangoroussoul": 105,
+    "closecombat": 166,
+    "darkpulse": 4,
+    "ironhead": 82,
+    "scaleshot": 137,
+    "swordsdance": 95
+  },
+  "koraidon": {
+    "closecombat": 71,
+    "collisioncourse": 79,
+    "flamethrower": 2,
+    "flareblitz": 232,
+    "outrage": 77,
+    "scaleshot": 130,
+    "swordsdance": 87,
+    "uturn": 61
+  },
+  "kricketune": {
+    "knockoff": 245,
+    "pounce": 280,
+    "stickyweb": 266,
+    "swordsdance": 2,
+    "taunt": 140,
+    "willowisp": 2
+  },
+  "krookodile": {
+    "bulkup": 46,
+    "earthquake": 276,
+    "gunkshot": 118,
+    "knockoff": 286,
+    "nastyplot": 1,
+    "stealthrock": 55,
+    "stoneedge": 27
+  },
+  "kyogre": {
+    "calmmind": 120,
+    "flamethrower": 1,
+    "icebeam": 147,
+    "originpulse": 253,
+    "struggle": 2,
+    "thunder": 251,
+    "waterspout": 246
+  },
+  "kyurem": {
+    "dracometeor": 55,
+    "dragondance": 128,
+    "earthpower": 75,
+    "freezedry": 164,
+    "fusionflare": 46,
+    "icebeam": 71,
+    "iciclespear": 168,
+    "scaleshot": 86
+  },
+  "landorus": {
+    "earthpower": 169,
+    "earthquake": 194,
+    "psychic": 44,
+    "sludgewave": 82,
+    "stealthrock": 90,
+    "stoneedge": 64,
+    "taunt": 58,
+    "uturn": 135
+  },
+  "lanturn": {
+    "flamethrower": 1,
+    "icebeam": 50,
+    "nastyplot": 1,
+    "scald": 410,
+    "thunderbolt": 394,
+    "thunderwave": 268,
+    "voltswitch": 279
+  },
+  "lapras": {
+    "dragondance": 157,
+    "earthquake": 91,
+    "freezedry": 300,
+    "icebeam": 75,
+    "iciclespear": 145,
+    "sleeptalk": 88,
+    "sparklingaria": 246,
+    "waterfall": 85
+  },
+  "latias": {
+    "calmmind": 474,
+    "dracometeor": 260,
+    "hypervoice": 1,
+    "psyshock": 368,
+    "recover": 235
+  },
+  "latios": {
+    "aurasphere": 60,
+    "calmmind": 274,
+    "dracometeor": 213,
+    "flipturn": 29,
+    "lusterpurge": 172,
+    "psyshock": 221,
+    "recover": 132
+  },
+  "leafeon": {
+    "doubleedge": 139,
+    "knockoff": 204,
+    "leafblade": 288,
+    "poltergeist": 1,
+    "substitute": 63,
+    "swordsdance": 197,
+    "synthesis": 62,
+    "willowisp": 1
+  },
+  "leavanny": {
+    "bulletseed": 98,
+    "focusblast": 1,
+    "knockoff": 187,
+    "leafblade": 87,
+    "lunge": 123,
+    "stickyweb": 212,
+    "swordsdance": 5,
+    "tripleaxel": 77
+  },
+  "lilligant": {
+    "alluringvoice": 68,
+    "closecombat": 114,
+    "gigadrain": 92,
+    "leafblade": 116,
+    "petaldance": 75,
+    "quiverdance": 195,
+    "sleeppowder": 243,
+    "victorydance": 155
+  },
+  "lokix": {
+    "firstimpression": 264,
+    "knockoff": 306,
+    "leechlife": 147,
+    "suckerpunch": 176,
+    "swordsdance": 62,
+    "uturn": 100
+  },
+  "lucario": {
+    "aurasphere": 59,
+    "closecombat": 99,
+    "extremespeed": 136,
+    "flashcannon": 105,
+    "meteormash": 145,
+    "nastyplot": 79,
+    "swordsdance": 40,
+    "vacuumwave": 77
+  },
+  "ludicolo": {
+    "gigadrain": 228,
+    "hydropump": 281,
+    "icebeam": 171,
+    "leafstorm": 43,
+    "raindance": 114
+  },
+  "lugia": {
+    "aeroblast": 612,
+    "calmmind": 594,
+    "earthpower": 219,
+    "psychicnoise": 167,
+    "recover": 380,
+    "struggle": 1
+  },
+  "lumineon": {
+    "alluringvoice": 125,
+    "encore": 230,
+    "hydropump": 439,
+    "icebeam": 289,
+    "uturn": 209
+  },
+  "lunala": {
+    "calmmind": 478,
+    "darkpulse": 6,
+    "focusblast": 53,
+    "moonblast": 117,
+    "moongeistbeam": 444,
+    "moonlight": 207,
+    "nastyplot": 5,
+    "psyshock": 136
+  },
+  "lurantis": {
+    "defog": 8,
+    "knockoff": 121,
+    "leafstorm": 222,
+    "leechlife": 60,
+    "superpower": 344,
+    "synthesis": 81
+  },
+  "luvdisc": {
+    "endeavor": 303,
+    "substitute": 499,
+    "surf": 304,
+    "whirlpool": 263
+  },
+  "luxray": {
+    "facade": 171,
+    "icefang": 43,
+    "playrough": 129,
+    "supercellslam": 92,
+    "throatchop": 89,
+    "trailblaze": 149,
+    "voltswitch": 162,
+    "wildcharge": 142
+  },
+  "lycanroc": {
+    "accelerock": 129,
+    "closecombat": 208,
+    "crunch": 23,
+    "psychicfangs": 50,
+    "stealthrock": 21,
+    "stoneedge": 218,
+    "suckerpunch": 36,
+    "swordsdance": 72
+  },
+  "mabosstiff": {
+    "crunch": 472,
+    "playrough": 202,
+    "psychicfangs": 77,
+    "struggle": 1,
+    "wildcharge": 106
+  },
+  "magcargo": {
+    "earthpower": 72,
+    "fireblast": 100,
+    "lavaplume": 160,
+    "powergem": 207,
+    "recover": 55,
+    "shellsmash": 124,
+    "stealthrock": 57,
+    "yawn": 76
+  },
+  "magearna": {
+    "aurasphere": 48,
+    "calmmind": 113,
+    "flashcannon": 229,
+    "fleurcannon": 259,
+    "ironhead": 119,
+    "shiftgear": 188,
+    "spikes": 56,
+    "voltswitch": 40
+  },
+  "magmortar": {
+    "earthquake": 57,
+    "fireblast": 354,
+    "focusblast": 75,
+    "knockoff": 151,
+    "scorchingsands": 69,
+    "taunt": 45,
+    "thunderbolt": 166,
+    "willowisp": 47
+  },
+  "magnezone": {
+    "bodypress": 201,
+    "discharge": 106,
+    "flashcannon": 202,
+    "irondefense": 72,
+    "mirrorcoat": 18,
+    "thunderbolt": 201,
+    "voltswitch": 143
+  },
+  "malamar": {
+    "darkpulse": 1,
+    "knockoff": 301,
+    "psychocut": 66,
+    "rest": 172,
+    "sleeptalk": 153,
+    "struggle": 1,
+    "superpower": 590
+  },
+  "mamoswine": {
+    "bittermalice": 1,
+    "earthquake": 272,
+    "focusblast": 2,
+    "iceshard": 207,
+    "iciclecrash": 208,
+    "knockoff": 91,
+    "sludgebomb": 1,
+    "stealthrock": 70
+  },
+  "manaphy": {
+    "energyball": 166,
+    "hydropump": 173,
+    "icebeam": 221,
+    "surf": 185,
+    "tailglow": 323
+  },
+  "mandibuzz": {
+    "bravebird": 213,
+    "defog": 68,
+    "foulplay": 475,
+    "knockoff": 156,
+    "roost": 381,
+    "toxic": 243,
+    "uturn": 132
+  },
+  "masquerain": {
+    "bugbuzz": 162,
+    "hurricane": 238,
+    "hydropump": 140,
+    "nastyplot": 1,
+    "quiverdance": 162,
+    "stickyweb": 126,
+    "stunspore": 42,
+    "uturn": 59
+  },
+  "maushold": {
+    "bite": 199,
+    "encore": 192,
+    "populationbomb": 599,
+    "tidyup": 449
+  },
+  "medicham": {
+    "bulletpunch": 92,
+    "closecombat": 232,
+    "darkpulse": 1,
+    "icepunch": 73,
+    "poisonjab": 76,
+    "zenheadbutt": 193
+  },
+  "meganium": {
+    "dragontail": 98,
+    "earthquake": 107,
+    "energyball": 238,
+    "knockoff": 470,
+    "leechseed": 77,
+    "petalblizzard": 137,
+    "swordsdance": 119,
+    "synthesis": 128
+  },
+  "meloetta": {
+    "calmmind": 48,
+    "closecombat": 97,
+    "focusblast": 79,
+    "hypervoice": 144,
+    "knockoff": 118,
+    "psyshock": 108,
+    "relicsong": 137,
+    "tripleaxel": 51
+  },
+  "meowscarada": {
+    "flowertrick": 234,
+    "knockoff": 231,
+    "toxicspikes": 82,
+    "tripleaxel": 118,
+    "uturn": 166
+  },
+  "meowstic": {
+    "alluringvoice": 126,
+    "darkpulse": 76,
+    "lightscreen": 107,
+    "nastyplot": 89,
+    "psychic": 79,
+    "psychicnoise": 170,
+    "psyshock": 75,
+    "reflect": 111
+  },
+  "mesprit": {
+    "drainpunch": 101,
+    "knockoff": 194,
+    "psychic": 134,
+    "psychicnoise": 306,
+    "stealthrock": 68,
+    "thunderbolt": 94,
+    "thunderwave": 113,
+    "uturn": 119
+  },
+  "metagross": {
+    "agility": 128,
+    "bulletpunch": 69,
+    "earthquake": 141,
+    "heavyslam": 311,
+    "knockoff": 141,
+    "psychicfangs": 113,
+    "stealthrock": 44
+  },
+  "mew": {
+    "knockoff": 93,
+    "nastyplot": 75,
+    "psychic": 145,
+    "psychicfangs": 85,
+    "psychicnoise": 82,
+    "psyshock": 64,
+    "swordsdance": 84,
+    "uturn": 65
+  },
+  "mewtwo": {
+    "aurasphere": 110,
+    "darkpulse": 123,
+    "fireblast": 99,
+    "nastyplot": 90,
+    "psystrike": 370,
+    "recover": 54
+  },
+  "mienshao": {
+    "closecombat": 176,
+    "fakeout": 164,
+    "highjumpkick": 124,
+    "knockoff": 289,
+    "poisonjab": 49,
+    "swordsdance": 50,
+    "tripleaxel": 22,
+    "uturn": 173
+  },
+  "mightyena": {
+    "crunch": 225,
+    "playrough": 145,
+    "poisonfang": 175,
+    "struggle": 2,
+    "suckerpunch": 176,
+    "superfang": 63,
+    "taunt": 54,
+    "throatchop": 202
+  },
+  "milotic": {
+    "dragontail": 209,
+    "haze": 119,
+    "icebeam": 363,
+    "recover": 397,
+    "scald": 912,
+    "struggle": 3
+  },
+  "mimikyu": {
+    "drainpunch": 74,
+    "hypervoice": 2,
+    "playrough": 327,
+    "shadowclaw": 147,
+    "shadowsneak": 278,
+    "swordsdance": 335,
+    "woodhammer": 25
+  },
+  "minior": {
+    "acrobatics": 289,
+    "earthquake": 141,
+    "powergem": 122,
+    "shellsmash": 264
+  },
+  "minun": {
+    "alluringvoice": 207,
+    "encore": 112,
+    "grassknot": 101,
+    "hypervoice": 1,
+    "nastyplot": 281,
+    "thunderbolt": 413
+  },
+  "miraidon": {
+    "calmmind": 99,
+    "dracometeor": 112,
+    "electrodrift": 351,
+    "overheat": 31,
+    "substitute": 85,
+    "voltswitch": 88
+  },
+  "misdreavus": {
+    "calmmind": 469,
+    "drainingkiss": 516,
+    "shadowball": 437,
+    "willowisp": 297
+  },
+  "mismagius": {
+    "dazzlinggleam": 92,
+    "mysticalfire": 131,
+    "nastyplot": 141,
+    "shadowball": 424,
+    "substitute": 127,
+    "terablast": 76,
+    "thunderbolt": 77,
+    "trick": 36
+  },
+  "moltres": {
+    "agility": 50,
+    "bravebird": 198,
+    "fierywrath": 235,
+    "fireblast": 162,
+    "hurricane": 134,
+    "nastyplot": 149,
+    "roost": 137,
+    "scorchingsands": 86
+  },
+  "morpeko": {
+    "aurawheel": 543,
+    "knockoff": 165,
+    "partingshot": 168,
+    "protect": 150,
+    "rapidspin": 103
+  },
+  "mudsdale": {
+    "earthquake": 552,
+    "heavyslam": 319,
+    "rest": 47,
+    "roar": 195,
+    "sleeptalk": 42,
+    "stealthrock": 137,
+    "stoneedge": 141
+  },
+  "muk": {
+    "drainpunch": 147,
+    "gunkshot": 129,
+    "haze": 8,
+    "icepunch": 98,
+    "knockoff": 372,
+    "poisonjab": 150,
+    "shadowsneak": 140,
+    "toxicspikes": 31
+  },
+  "munkidori": {
+    "fakeout": 226,
+    "focusblast": 68,
+    "nastyplot": 29,
+    "psychicnoise": 145,
+    "psyshock": 92,
+    "sludgewave": 246,
+    "struggle": 1,
+    "uturn": 208
+  },
+  "necrozma": {
+    "calmmind": 156,
+    "dragondance": 229,
+    "earthquake": 81,
+    "knockoff": 41,
+    "moongeistbeam": 117,
+    "moonlight": 98,
+    "photongeyser": 264,
+    "sunsteelstrike": 110
+  },
+  "ninetales": {
+    "auroraveil": 189,
+    "blizzard": 182,
+    "fireblast": 228,
+    "freezedry": 36,
+    "moonblast": 109,
+    "nastyplot": 125,
+    "scorchingsands": 122,
+    "solarbeam": 110
+  },
+  "noctowl": {
+    "calmmind": 115,
+    "defog": 37,
+    "hurricane": 460,
+    "hypervoice": 415,
+    "nastyplot": 76,
+    "roost": 244
+  },
+  "noivern": {
+    "boomburst": 149,
+    "defog": 13,
+    "dracometeor": 203,
+    "flamethrower": 130,
+    "hurricane": 339,
+    "roost": 40,
+    "uturn": 51
+  },
+  "ogerpon": {
+    "hornleech": 106,
+    "ivycudgel": 675,
+    "knockoff": 143,
+    "powerwhip": 110,
+    "superpower": 63,
+    "swordsdance": 190,
+    "synthesis": 98,
+    "uturn": 68
+  },
+  "oinkologne": {
+    "bodyslam": 542,
+    "curse": 425,
+    "doubleedge": 152,
+    "highhorsepower": 180,
+    "lashout": 136,
+    "rest": 137,
+    "sleeptalk": 150,
+    "struggle": 6
+  },
+  "okidogi": {
+    "bulkup": 148,
+    "drainpunch": 314,
+    "gunkshot": 163,
+    "highhorsepower": 30,
+    "knockoff": 257,
+    "psychicfangs": 43
+  },
+  "oranguru": {
+    "focusblast": 121,
+    "hypervoice": 116,
+    "nastyplot": 141,
+    "psychic": 120,
+    "psyshock": 197,
+    "thunderbolt": 195,
+    "trick": 35
+  },
+  "oricorio": {
+    "clangoroussoul": 1,
+    "darkpulse": 1,
+    "dragondance": 19,
+    "hurricane": 781,
+    "quiverdance": 832,
+    "revelationdance": 705,
+    "roost": 416,
+    "swordsdance": 26
+  },
+  "orthworm": {
+    "bodypress": 270,
+    "coil": 278,
+    "heavyslam": 101,
+    "irontail": 211,
+    "rest": 74,
+    "shedtail": 55,
+    "spikes": 79,
+    "stealthrock": 68
+  },
+  "overqwil": {
+    "aquajet": 31,
+    "crunch": 307,
+    "gunkshot": 239,
+    "hypervoice": 1,
+    "liquidation": 105,
+    "scaleshot": 130,
+    "swordsdance": 182
+  },
+  "pachirisu": {
+    "discharge": 265,
+    "encore": 126,
+    "nuzzle": 206,
+    "superfang": 438,
+    "thunderbolt": 227,
+    "uturn": 457
+  },
+  "palafin": {
+    "bulkup": 167,
+    "closecombat": 78,
+    "drainpunch": 138,
+    "flipturn": 144,
+    "icepunch": 66,
+    "jetpunch": 379,
+    "wavecrash": 162
+  },
+  "palkia": {
+    "dracometeor": 98,
+    "fireblast": 144,
+    "hydropump": 165,
+    "spacialrend": 293,
+    "thunderwave": 150
+  },
+  "palossand": {
+    "earthpower": 432,
+    "shadowball": 404,
+    "shoreup": 209,
+    "sludgebomb": 212,
+    "stealthrock": 144,
+    "trick": 1
+  },
+  "passimian": {
+    "bulkup": 120,
+    "closecombat": 123,
+    "drainpunch": 181,
+    "earthquake": 39,
+    "gunkshot": 122,
+    "knockoff": 237,
+    "rockslide": 19,
+    "uturn": 24
+  },
+  "pawmot": {
+    "bittermalice": 3,
+    "closecombat": 170,
+    "doubleshock": 217,
+    "hypervoice": 1,
+    "icepunch": 80,
+    "knockoff": 38,
+    "nuzzle": 59,
+    "revivalblessing": 156
+  },
+  "pecharunt": {
+    "malignantchain": 481,
+    "nastyplot": 117,
+    "partingshot": 186,
+    "recover": 266,
+    "shadowball": 334
+  },
+  "pelipper": {
+    "bittermalice": 1,
+    "hurricane": 428,
+    "hydropump": 93,
+    "knockoff": 50,
+    "roost": 45,
+    "surf": 75,
+    "uturn": 66,
+    "weatherball": 176
+  },
+  "perrserker": {
+    "closecombat": 104,
+    "ironhead": 178,
+    "knockoff": 115,
+    "stealthrock": 102,
+    "uturn": 78
+  },
+  "persian": {
+    "darkpulse": 232,
+    "doubleedge": 219,
+    "fakeout": 116,
+    "knockoff": 232,
+    "nastyplot": 111,
+    "partingshot": 69,
+    "thunderbolt": 104,
+    "uturn": 152
+  },
+  "phione": {
+    "grassknot": 78,
+    "icebeam": 129,
+    "rest": 200,
+    "scald": 835,
+    "sleeptalk": 203,
+    "struggle": 5,
+    "takeheart": 647
+  },
+  "pikachu": {
+    "fakeout": 214,
+    "focusblast": 1,
+    "knockoff": 131,
+    "playrough": 72,
+    "surf": 221,
+    "voltswitch": 115,
+    "volttackle": 232
+  },
+  "piloswine": {
+    "earthquake": 358,
+    "focusblast": 3,
+    "iceshard": 194,
+    "iciclecrash": 296,
+    "poltergeist": 1,
+    "roar": 167,
+    "stealthrock": 138,
+    "willowisp": 2
+  },
+  "pincurchin": {
+    "curse": 178,
+    "discharge": 163,
+    "liquidation": 143,
+    "recover": 264,
+    "scald": 157,
+    "thunderbolt": 112,
+    "toxicspikes": 84,
+    "zingzap": 284
+  },
+  "plusle": {
+    "alluringvoice": 205,
+    "encore": 82,
+    "grassknot": 87,
+    "nastyplot": 237,
+    "thunderbolt": 385
+  },
+  "politoed": {
+    "encore": 53,
+    "focusblast": 51,
+    "haze": 36,
+    "hydropump": 229,
+    "hypnosis": 97,
+    "icebeam": 229,
+    "surf": 124,
+    "weatherball": 299
+  },
+  "poliwrath": {
+    "bulkup": 97,
+    "circlethrow": 132,
+    "closecombat": 137,
+    "drainpunch": 90,
+    "knockoff": 294,
+    "liquidation": 293,
+    "poisonjab": 25,
+    "raindance": 94
+  },
+  "polteageist": {
+    "darkpulse": 3,
+    "gigadrain": 36,
+    "shadowball": 326,
+    "shellsmash": 314,
+    "storedpower": 189,
+    "strengthsap": 184,
+    "terablast": 58
+  },
+  "porygon": {
+    "agility": 49,
+    "icebeam": 67,
+    "nastyplot": 109,
+    "shadowball": 145,
+    "terablast": 150,
+    "thunderbolt": 55,
+    "triattack": 241,
+    "trick": 29
+  },
+  "porygon2": {
+    "discharge": 269,
+    "icebeam": 219,
+    "recover": 339,
+    "shadowball": 205,
+    "terablast": 259,
+    "thunderwave": 187,
+    "triattack": 354
+  },
+  "primarina": {
+    "calmmind": 239,
+    "drainingkiss": 217,
+    "flipturn": 36,
+    "hydropump": 83,
+    "moonblast": 214,
+    "psychic": 83,
+    "psychicnoise": 89,
+    "sparklingaria": 140
+  },
+  "probopass": {
+    "bodypress": 438,
+    "flashcannon": 187,
+    "irondefense": 347,
+    "powergem": 199,
+    "rest": 60,
+    "thunderwave": 129
+  },
+  "pyroar": {
+    "darkpulse": 134,
+    "fireblast": 293,
+    "hypervoice": 309,
+    "nastyplot": 1,
+    "taunt": 83,
+    "willowisp": 106,
+    "workup": 73
+  },
+  "quagsire": {
+    "earthquake": 420,
+    "icebeam": 163,
+    "poltergeist": 1,
+    "recover": 316,
+    "spikes": 199,
+    "toxic": 414
+  },
+  "quaquaval": {
+    "aquastep": 357,
+    "closecombat": 150,
+    "knockoff": 57,
+    "rapidspin": 19,
+    "roost": 31,
+    "swordsdance": 63,
+    "tripleaxel": 21,
+    "uturn": 28
+  },
+  "qwilfish": {
+    "crunch": 142,
+    "flipturn": 72,
+    "gunkshot": 273,
+    "spikes": 133,
+    "taunt": 69,
+    "thunderwave": 49,
+    "toxicspikes": 148,
+    "waterfall": 72
+  },
+  "rabsca": {
+    "bugbuzz": 232,
+    "earthpower": 37,
+    "psychic": 235,
+    "recover": 32,
+    "revivalblessing": 166,
+    "trickroom": 70
+  },
+  "ragingbolt": {
+    "calmmind": 203,
+    "discharge": 44,
+    "dracometeor": 202,
+    "dragonpulse": 62,
+    "thunderbolt": 248,
+    "thunderclap": 287,
+    "voltswitch": 87
+  },
+  "raichu": {
+    "alluringvoice": 45,
+    "focusblast": 68,
+    "nastyplot": 123,
+    "psyshock": 100,
+    "surf": 66,
+    "terablast": 36,
+    "thunderbolt": 341,
+    "voltswitch": 36
+  },
+  "raikou": {
+    "calmmind": 284,
+    "poltergeist": 1,
+    "scald": 339,
+    "shadowball": 94,
+    "substitute": 115,
+    "thunderbolt": 464,
+    "voltswitch": 61,
+    "willowisp": 1
+  },
+  "rampardos": {
+    "earthquake": 126,
+    "firepunch": 107,
+    "headsmash": 119,
+    "rockslide": 195,
+    "zenheadbutt": 37
+  },
+  "rayquaza": {
+    "dragonascent": 213,
+    "dragondance": 99,
+    "earthquake": 161,
+    "extremespeed": 87,
+    "outrage": 39,
+    "scaleshot": 66,
+    "swordsdance": 102,
+    "uturn": 20
+  },
+  "regice": {
+    "bodypress": 116,
+    "hypervoice": 1,
+    "icebeam": 680,
+    "rest": 132,
+    "sleeptalk": 148,
+    "thunderbolt": 366,
+    "thunderwave": 169
+  },
+  "regidrago": {
+    "dracometeor": 77,
+    "dragonclaw": 101,
+    "dragondance": 182,
+    "dragonenergy": 153,
+    "earthquake": 185,
+    "outrage": 152,
+    "struggle": 2,
+    "terablast": 20
+  },
+  "regieleki": {
+    "darkpulse": 1,
+    "explosion": 64,
+    "nastyplot": 1,
+    "rapidspin": 102,
+    "sludgebomb": 1,
+    "terablast": 92,
+    "thunderbolt": 424,
+    "voltswitch": 353
+  },
+  "regigigas": {
+    "bodyslam": 988,
+    "knockoff": 566,
+    "protect": 474,
+    "rest": 210,
+    "sleeptalk": 245,
+    "substitute": 283
+  },
+  "regirock": {
+    "bodypress": 394,
+    "curse": 56,
+    "irondefense": 191,
+    "rest": 44,
+    "stealthrock": 47,
+    "stoneedge": 264,
+    "thunderwave": 151
+  },
+  "registeel": {
+    "bodypress": 500,
+    "irondefense": 408,
+    "ironhead": 393,
+    "rest": 123,
+    "stealthrock": 50,
+    "struggle": 3,
+    "thunderwave": 150
+  },
+  "reshiram": {
+    "blueflare": 194,
+    "dracometeor": 61,
+    "dragondance": 130,
+    "earthpower": 87,
+    "flareblitz": 114,
+    "outrage": 135,
+    "stoneedge": 42,
+    "willowisp": 47
+  },
+  "reuniclus": {
+    "calmmind": 341,
+    "focusblast": 220,
+    "nastyplot": 1,
+    "psychic": 203,
+    "psyshock": 230,
+    "recover": 185,
+    "sludgebomb": 1
+  },
+  "revavroom": {
+    "focusblast": 1,
+    "gunkshot": 181,
+    "highhorsepower": 147,
+    "ironhead": 225,
+    "shiftgear": 257
+  },
+  "rhydon": {
+    "earthquake": 296,
+    "megahorn": 111,
+    "stealthrock": 63,
+    "stoneedge": 154,
+    "swordsdance": 84
+  },
+  "rhyperior": {
+    "dragontail": 63,
+    "earthquake": 318,
+    "icepunch": 87,
+    "megahorn": 96,
+    "rockpolish": 119,
+    "stoneedge": 170
+  },
+  "ribombee": {
+    "bugbuzz": 155,
+    "moonblast": 385,
+    "quiverdance": 164,
+    "stickyweb": 141,
+    "stunspore": 86,
+    "terablast": 62,
+    "uturn": 93
+  },
+  "rillaboom": {
+    "grassyglide": 309,
+    "highhorsepower": 53,
+    "knockoff": 85,
+    "swordsdance": 70,
+    "uturn": 88,
+    "woodhammer": 250
+  },
+  "roaringmoon": {
+    "acrobatics": 19,
+    "dragondance": 144,
+    "earthquake": 22,
+    "ironhead": 83,
+    "knockoff": 251,
+    "outrage": 227,
+    "roost": 4,
+    "uturn": 56
+  },
+  "rotom": {
+    "airslash": 130,
+    "hydropump": 116,
+    "nastyplot": 197,
+    "overheat": 104,
+    "shadowball": 167,
+    "thunderbolt": 648,
+    "voltswitch": 352,
+    "willowisp": 339
+  },
+  "sableye": {
+    "encore": 449,
+    "knockoff": 916,
+    "recover": 550,
+    "sludgebomb": 1,
+    "thunderwave": 244,
+    "willowisp": 303
+  },
+  "salamence": {
+    "dragondance": 277,
+    "dualwingbeat": 241,
+    "earthquake": 119,
+    "outrage": 204,
+    "roost": 37,
+    "struggle": 3
+  },
+  "salazzle": {
+    "fireblast": 102,
+    "flamethrower": 276,
+    "nastyplot": 72,
+    "protect": 354,
+    "sludgewave": 121,
+    "substitute": 241,
+    "terablast": 32,
+    "toxic": 234
+  },
+  "samurott": {
+    "aquajet": 34,
+    "ceaselessedge": 181,
+    "hydropump": 86,
+    "knockoff": 97,
+    "liquidation": 72,
+    "razorshell": 57,
+    "sacredsword": 67,
+    "swordsdance": 73
+  },
+  "sandaconda": {
+    "coil": 295,
+    "earthquake": 466,
+    "glare": 167,
+    "rest": 65,
+    "rockblast": 63,
+    "scaleshot": 88,
+    "stealthrock": 46,
+    "stoneedge": 187
+  },
+  "sandslash": {
+    "earthquake": 261,
+    "ironhead": 48,
+    "knockoff": 175,
+    "rapidspin": 164,
+    "spikes": 81,
+    "stoneedge": 88,
+    "swordsdance": 98,
+    "tripleaxel": 154
+  },
+  "sandyshocks": {
+    "darkpulse": 4,
+    "earthpower": 306,
+    "psychic": 2,
+    "spikes": 126,
+    "stealthrock": 94,
+    "thunderbolt": 239,
+    "thunderwave": 120,
+    "voltswitch": 134
+  },
+  "sawsbuck": {
+    "doubleedge": 127,
+    "headbutt": 125,
+    "highhorsepower": 138,
+    "hornleech": 250,
+    "swordsdance": 186
+  },
+  "sceptile": {
+    "earthquake": 113,
+    "focusblast": 144,
+    "gigadrain": 248,
+    "leafblade": 84,
+    "leechseed": 190,
+    "rockslide": 114,
+    "substitute": 215,
+    "swordsdance": 55
+  },
+  "scizor": {
+    "bugbite": 51,
+    "bulletpunch": 485,
+    "closecombat": 116,
+    "defog": 27,
+    "knockoff": 207,
+    "nastyplot": 1,
+    "swordsdance": 83,
+    "uturn": 181
+  },
+  "scovillain": {
+    "energyball": 131,
+    "fireblast": 111,
+    "flamethrower": 250,
+    "leechseed": 163,
+    "overheat": 53,
+    "protect": 154,
+    "substitute": 131,
+    "sunnyday": 89
+  },
+  "scrafty": {
+    "bulkup": 173,
+    "closecombat": 94,
+    "dragondance": 154,
+    "drainpunch": 198,
+    "hypervoice": 2,
+    "knockoff": 332,
+    "poisonjab": 95,
+    "rest": 57
+  },
+  "screamtail": {
+    "dazzlinggleam": 659,
+    "encore": 306,
+    "hypervoice": 1,
+    "playrough": 680,
+    "protect": 551,
+    "struggle": 7,
+    "thunderwave": 457,
+    "wish": 886
+  },
+  "scyther": {
+    "bugbite": 65,
+    "closecombat": 155,
+    "defog": 30,
+    "dualwingbeat": 370,
+    "swordsdance": 85,
+    "uturn": 131
+  },
+  "serperior": {
+    "dragonpulse": 84,
+    "glare": 114,
+    "leafstorm": 532,
+    "leechseed": 97,
+    "substitute": 190,
+    "synthesis": 77,
+    "terablast": 78
+  },
+  "seviper": {
+    "earthquake": 163,
+    "flamethrower": 28,
+    "gigadrain": 52,
+    "glare": 59,
+    "gunkshot": 262,
+    "knockoff": 61,
+    "swordsdance": 96,
+    "trailblaze": 139
+  },
+  "shaymin": {
+    "airslash": 666,
+    "dazzlinggleam": 9,
+    "earthpower": 133,
+    "leechseed": 200,
+    "poltergeist": 1,
+    "seedflare": 478,
+    "substitute": 262,
+    "synthesis": 61
+  },
+  "shiftry": {
+    "knockoff": 283,
+    "leafblade": 91,
+    "leafstorm": 35,
+    "lowkick": 41,
+    "suckerpunch": 114,
+    "swordsdance": 51,
+    "tailwind": 78,
+    "willowisp": 40
+  },
+  "sinistcha": {
+    "calmmind": 481,
+    "matchagotcha": 393,
+    "shadowball": 374,
+    "strengthsap": 379,
+    "struggle": 4
+  },
+  "skarmory": {
+    "bodypress": 316,
+    "bravebird": 460,
+    "irondefense": 147,
+    "roost": 282,
+    "spikes": 243,
+    "stealthrock": 109,
+    "struggle": 1,
+    "whirlwind": 163
+  },
+  "skeledirge": {
+    "flamecharge": 131,
+    "hex": 135,
+    "shadowball": 153,
+    "slackoff": 276,
+    "torchsong": 533,
+    "willowisp": 156
+  },
+  "skuntank": {
+    "fireblast": 111,
+    "gunkshot": 219,
+    "knockoff": 344,
+    "suckerpunch": 126,
+    "taunt": 65,
+    "toxicspikes": 112
+  },
+  "slaking": {
+    "darkpulse": 1,
+    "doubleedge": 199,
+    "earthquake": 161,
+    "gigaimpact": 247,
+    "knockoff": 193,
+    "sludgebomb": 3,
+    "struggle": 1
+  },
+  "slitherwing": {
+    "bulkup": 53,
+    "closecombat": 200,
+    "firstimpression": 78,
+    "flareblitz": 49,
+    "morningsun": 54,
+    "uturn": 161,
+    "wildcharge": 60,
+    "willowisp": 77
+  },
+  "slowbro": {
+    "bodypress": 92,
+    "earthquake": 72,
+    "irondefense": 82,
+    "psychic": 143,
+    "psychicnoise": 64,
+    "scald": 213,
+    "shellsidearm": 272,
+    "slackoff": 125
+  },
+  "slowking": {
+    "chillyreception": 93,
+    "futuresight": 161,
+    "psychicnoise": 187,
+    "psyshock": 88,
+    "scald": 229,
+    "slackoff": 124,
+    "sludgebomb": 201,
+    "thunderwave": 69
+  },
+  "smeargle": {
+    "ceaselessedge": 202,
+    "populationbomb": 224,
+    "powertrip": 91,
+    "shellsmash": 206,
+    "spore": 408,
+    "stealthrock": 40,
+    "stickyweb": 132,
+    "whirlwind": 55
+  },
+  "sneasler": {
+    "acrobatics": 107,
+    "closecombat": 213,
+    "direclaw": 201,
+    "gunkshot": 37,
+    "struggle": 2,
+    "swordsdance": 105,
+    "throatchop": 61,
+    "uturn": 67
+  },
+  "snorlax": {
+    "bodyslam": 993,
+    "crunch": 61,
+    "curse": 618,
+    "earthquake": 115,
+    "hypervoice": 2,
+    "rest": 296,
+    "sleeptalk": 287,
+    "struggle": 8
+  },
+  "solgaleo": {
+    "closecombat": 73,
+    "earthquake": 109,
+    "flamecharge": 173,
+    "knockoff": 173,
+    "morningsun": 120,
+    "psychic": 49,
+    "psychicfangs": 90,
+    "sunsteelstrike": 338
+  },
+  "spectrier": {
+    "darkpulse": 72,
+    "drainingkiss": 119,
+    "nastyplot": 240,
+    "shadowball": 472,
+    "substitute": 114,
+    "terablast": 100,
+    "willowisp": 63
+  },
+  "spidops": {
+    "bittermalice": 1,
+    "circlethrow": 181,
+    "knockoff": 180,
+    "spikes": 115,
+    "stickyweb": 287,
+    "toxicspikes": 89,
+    "trick": 1,
+    "uturn": 76
+  },
+  "spiritomb": {
+    "foulplay": 351,
+    "painsplit": 117,
+    "poltergeist": 448,
+    "shadowsneak": 126,
+    "suckerpunch": 122,
+    "toxic": 96,
+    "willowisp": 154
+  },
+  "squawkabilly": {
+    "bravebird": 279,
+    "doubleedge": 62,
+    "facade": 171,
+    "foulplay": 30,
+    "partingshot": 90,
+    "protect": 36,
+    "quickattack": 132,
+    "uturn": 47
+  },
+  "staraptor": {
+    "bravebird": 367,
+    "closecombat": 130,
+    "doubleedge": 74,
+    "quickattack": 74,
+    "uturn": 87
+  },
+  "stonjourner": {
+    "earthquake": 199,
+    "heatcrash": 158,
+    "rockpolish": 73,
+    "stealthrock": 58,
+    "stoneedge": 179
+  },
+  "sudowoodo": {
+    "earthquake": 116,
+    "headsmash": 338,
+    "stealthrock": 91,
+    "struggle": 3,
+    "suckerpunch": 137,
+    "woodhammer": 98
+  },
+  "suicune": {
+    "calmmind": 731,
+    "icebeam": 123,
+    "protect": 268,
+    "rest": 173,
+    "scald": 1012,
+    "sleeptalk": 197,
+    "struggle": 13,
+    "substitute": 286
+  },
+  "sunflora": {
+    "darkpulse": 5,
+    "dazzlinggleam": 66,
+    "earthpower": 157,
+    "leafstorm": 83,
+    "sludgebomb": 108,
+    "solarbeam": 102,
+    "sunnyday": 142,
+    "weatherball": 139
+  },
+  "swalot": {
+    "earthquake": 277,
+    "gunkshot": 107,
+    "knockoff": 266,
+    "protect": 169,
+    "sludgebomb": 239,
+    "swordsdance": 75,
+    "toxic": 115,
+    "toxicspikes": 24
+  },
+  "swampert": {
+    "earthquake": 344,
+    "flipturn": 185,
+    "icebeam": 153,
+    "knockoff": 162,
+    "roar": 94,
+    "stealthrock": 117,
+    "yawn": 163
+  },
+  "swanna": {
+    "bravebird": 418,
+    "defog": 60,
+    "hydropump": 313,
+    "hypervoice": 1,
+    "knockoff": 25,
+    "poltergeist": 1,
+    "roost": 144,
+    "willowisp": 1
+  },
+  "sylveon": {
+    "calmmind": 505,
+    "focusblast": 2,
+    "hypervoice": 734,
+    "protect": 355,
+    "wish": 370
+  },
+  "talonflame": {
+    "bravebird": 399,
+    "flareblitz": 76,
+    "overheat": 118,
+    "roost": 112,
+    "swordsdance": 98,
+    "taunt": 46,
+    "terablast": 50,
+    "uturn": 46
+  },
+  "tatsugiri": {
+    "bittermalice": 1,
+    "darkpulse": 2,
+    "dracometeor": 260,
+    "hydropump": 141,
+    "nastyplot": 216,
+    "rapidspin": 194,
+    "surf": 122
+  },
+  "tauros": {
+    "bodyslam": 252,
+    "bulkup": 230,
+    "closecombat": 556,
+    "earthquake": 86,
+    "liquidation": 112,
+    "stoneedge": 91,
+    "substitute": 119,
+    "throatchop": 149
+  },
+  "tentacruel": {
+    "flipturn": 51,
+    "haze": 31,
+    "knockoff": 87,
+    "rapidspin": 149,
+    "sludgebomb": 403,
+    "surf": 330,
+    "toxic": 62,
+    "toxicspikes": 55
+  },
+  "terapagos": {
+    "calmmind": 393,
+    "darkpulse": 118,
+    "earthpower": 82,
+    "flamethrower": 2,
+    "rapidspin": 72,
+    "rest": 85,
+    "terastarstorm": 488
+  },
+  "terrakion": {
+    "closecombat": 223,
+    "earthquake": 146,
+    "hypervoice": 1,
+    "quickattack": 30,
+    "stoneedge": 210,
+    "struggle": 1,
+    "swordsdance": 64
+  },
+  "thundurus": {
+    "acrobatics": 49,
+    "focusblast": 119,
+    "knockoff": 32,
+    "nastyplot": 121,
+    "psychic": 28,
+    "sludgewave": 69,
+    "terablast": 63,
+    "thunderbolt": 346
+  },
+  "ting": {
+    "earthquake": 325,
+    "heavyslam": 70,
+    "payback": 100,
+    "ruination": 52,
+    "spikes": 205,
+    "stealthrock": 129,
+    "throatchop": 107,
+    "whirlwind": 142
+  },
+  "tinkaton": {
+    "encore": 96,
+    "gigatonhammer": 301,
+    "knockoff": 247,
+    "playrough": 331,
+    "stealthrock": 59,
+    "swordsdance": 108,
+    "thunderwave": 90
+  },
+  "toedscruel": {
+    "darkpulse": 1,
+    "earthpower": 254,
+    "gigadrain": 126,
+    "knockoff": 124,
+    "leafstorm": 88,
+    "rapidspin": 126,
+    "spore": 103,
+    "toxic": 79
+  },
+  "torkoal": {
+    "earthquake": 47,
+    "fireblast": 56,
+    "lavaplume": 343,
+    "rapidspin": 100,
+    "solarbeam": 143,
+    "stealthrock": 115,
+    "yawn": 142
+  },
+  "tornadus": {
+    "bleakwindstorm": 485,
+    "focusblast": 85,
+    "grassknot": 64,
+    "heatwave": 134,
+    "knockoff": 105,
+    "nastyplot": 59,
+    "sludgebomb": 1,
+    "uturn": 147
+  },
+  "torterra": {
+    "bulletseed": 249,
+    "headlongrush": 159,
+    "rockblast": 195,
+    "shellsmash": 278
+  },
+  "toucannon": {
+    "beakblast": 342,
+    "bittermalice": 4,
+    "boomburst": 271,
+    "bulletseed": 46,
+    "knockoff": 83,
+    "roost": 121,
+    "uturn": 49
+  },
+  "toxapex": {
+    "haze": 328,
+    "liquidation": 733,
+    "recover": 339,
+    "toxic": 284,
+    "toxicspikes": 239
+  },
+  "toxicroak": {
+    "closecombat": 223,
+    "earthquake": 90,
+    "gunkshot": 204,
+    "knockoff": 157,
+    "struggle": 1,
+    "suckerpunch": 65,
+    "swordsdance": 104
+  },
+  "toxtricity": {
+    "boomburst": 297,
+    "gunkshot": 68,
+    "overdrive": 282,
+    "shiftgear": 119,
+    "sludgewave": 72,
+    "struggle": 2,
+    "voltswitch": 63
+  },
+  "trevenant": {
+    "drainpunch": 275,
+    "hornleech": 56,
+    "poltergeist": 356,
+    "protect": 171,
+    "toxic": 159,
+    "trickroom": 35,
+    "willowisp": 19,
+    "woodhammer": 24
+  },
+  "tropius": {
+    "airslash": 373,
+    "dragondance": 218,
+    "dualwingbeat": 146,
+    "earthquake": 104,
+    "leafblade": 64,
+    "leechseed": 369,
+    "protect": 367,
+    "substitute": 313
+  },
+  "tsareena": {
+    "highjumpkick": 213,
+    "knockoff": 132,
+    "powerwhip": 305,
+    "rapidspin": 82,
+    "synthesis": 82,
+    "tripleaxel": 131,
+    "uturn": 143
+  },
+  "typhlosion": {
+    "calmmind": 50,
+    "eruption": 384,
+    "fireblast": 235,
+    "focusblast": 50,
+    "scorchingsands": 60,
+    "shadowball": 111,
+    "struggle": 7,
+    "substitute": 21
+  },
+  "tyranitar": {
+    "dragondance": 140,
+    "dragontail": 22,
+    "earthquake": 119,
+    "icepunch": 34,
+    "knockoff": 301,
+    "stealthrock": 22,
+    "stoneedge": 173,
+    "thunderwave": 47
+  },
+  "umbreon": {
+    "foulplay": 703,
+    "nastyplot": 1,
+    "protect": 635,
+    "toxic": 530,
+    "wish": 638
+  },
+  "ursaluna": {
+    "bloodmoon": 179,
+    "calmmind": 214,
+    "earthpower": 58,
+    "facade": 175,
+    "headlongrush": 66,
+    "moonlight": 98,
+    "trailblaze": 70,
+    "vacuumwave": 100
+  },
+  "ursaring": {
+    "bodyslam": 341,
+    "closecombat": 62,
+    "earthquake": 147,
+    "facade": 196,
+    "rest": 102,
+    "sleeptalk": 113,
+    "swordsdance": 99,
+    "throatchop": 70
+  },
+  "urshifu": {
+    "aquajet": 36,
+    "closecombat": 149,
+    "poisonjab": 27,
+    "suckerpunch": 31,
+    "surgingstrikes": 188,
+    "swordsdance": 42,
+    "uturn": 51,
+    "wickedblow": 152
+  },
+  "uxie": {
+    "encore": 140,
+    "knockoff": 222,
+    "psychicnoise": 548,
+    "stealthrock": 155,
+    "struggle": 2,
+    "thunderwave": 159,
+    "uturn": 251,
+    "yawn": 174
+  },
+  "vaporeon": {
+    "calmmind": 186,
+    "flipturn": 163,
+    "haze": 200,
+    "icebeam": 74,
+    "protect": 557,
+    "roar": 113,
+    "scald": 1028,
+    "wish": 666
+  },
+  "veluza": {
+    "aquacutter": 209,
+    "aquajet": 22,
+    "filletaway": 88,
+    "flipturn": 36,
+    "nastyplot": 1,
+    "nightslash": 132,
+    "psychic": 1,
+    "psychocut": 225
+  },
+  "venomoth": {
+    "bugbuzz": 225,
+    "quiverdance": 338,
+    "sleeppowder": 307,
+    "sludgewave": 273
+  },
+  "venusaur": {
+    "energyball": 71,
+    "gigadrain": 100,
+    "knockoff": 90,
+    "leechseed": 245,
+    "sleeppowder": 172,
+    "sludgebomb": 429,
+    "substitute": 246,
+    "synthesis": 78
+  },
+  "vespiquen": {
+    "airslash": 196,
+    "hurricane": 187,
+    "roost": 232,
+    "spikes": 139,
+    "toxic": 134,
+    "toxicspikes": 113,
+    "uturn": 169
+  },
+  "victreebel": {
+    "poisonjab": 82,
+    "powerwhip": 194,
+    "sleeppowder": 83,
+    "sludgewave": 154,
+    "strengthsap": 80,
+    "suckerpunch": 151,
+    "sunnyday": 69,
+    "weatherball": 74
+  },
+  "vigoroth": {
+    "bodyslam": 646,
+    "bulkup": 459,
+    "earthquake": 158,
+    "knockoff": 213,
+    "slackoff": 306
+  },
+  "vikavolt": {
+    "bugbuzz": 247,
+    "discharge": 145,
+    "energyball": 47,
+    "stickyweb": 298,
+    "thunderbolt": 128,
+    "voltswitch": 75
+  },
+  "vileplume": {
+    "gigadrain": 360,
+    "leechseed": 296,
+    "poltergeist": 1,
+    "sleeppowder": 206,
+    "sludgebomb": 463,
+    "strengthsap": 369
+  },
+  "virizion": {
+    "closecombat": 199,
+    "leafblade": 232,
+    "stoneedge": 151,
+    "swordsdance": 168
+  },
+  "vivillon": {
+    "bugbuzz": 93,
+    "hurricane": 334,
+    "nastyplot": 1,
+    "quiverdance": 297,
+    "sleeppowder": 260,
+    "terablast": 73
+  },
+  "volbeat": {
+    "encore": 409,
+    "focusblast": 1,
+    "lunge": 548,
+    "roost": 530,
+    "thunderwave": 593,
+    "uturn": 432
+  },
+  "volcanion": {
+    "bittermalice": 3,
+    "earthpower": 125,
+    "flamecharge": 91,
+    "flamethrower": 220,
+    "haze": 34,
+    "sludgebomb": 99,
+    "steameruption": 347
+  },
+  "volcarona": {
+    "bugbuzz": 125,
+    "fierydance": 167,
+    "fireblast": 147,
+    "gigadrain": 188,
+    "morningsun": 52,
+    "quiverdance": 399,
+    "terablast": 62,
+    "willowisp": 1
+  },
+  "walkingwake": {
+    "dracometeor": 198,
+    "flamethrower": 214,
+    "flipturn": 71,
+    "hydropump": 144,
+    "hydrosteam": 145,
+    "struggle": 2,
+    "sunnyday": 104
+  },
+  "weavile": {
+    "iceshard": 49,
+    "knockoff": 265,
+    "lowkick": 99,
+    "swordsdance": 77,
+    "tripleaxel": 276
+  },
+  "weezing": {
+    "defog": 67,
+    "fireblast": 217,
+    "gunkshot": 258,
+    "painsplit": 196,
+    "sludgebomb": 163,
+    "strangesteam": 242,
+    "toxicspikes": 70,
+    "willowisp": 195
+  },
+  "whimsicott": {
+    "encore": 193,
+    "gigadrain": 115,
+    "hurricane": 74,
+    "leechseed": 322,
+    "moonblast": 550,
+    "stunspore": 138,
+    "substitute": 383,
+    "uturn": 132
+  },
+  "whiscash": {
+    "dragondance": 168,
+    "earthquake": 251,
+    "hydropump": 97,
+    "icebeam": 107,
+    "liquidation": 90,
+    "spikes": 126,
+    "stealthrock": 77,
+    "stoneedge": 66
+  },
+  "wigglytuff": {
+    "alluringvoice": 302,
+    "darkpulse": 1,
+    "dazzlinggleam": 231,
+    "fireblast": 138,
+    "knockoff": 190,
+    "protect": 263,
+    "thunderwave": 178,
+    "wish": 301
+  },
+  "wo": {
+    "gigadrain": 150,
+    "knockoff": 518,
+    "leechseed": 345,
+    "protect": 310,
+    "ruination": 182,
+    "stunspore": 153
+  },
+  "wugtrio": {
+    "aquajet": 91,
+    "liquidation": 536,
+    "stompingtantrum": 134,
+    "struggle": 1,
+    "throatchop": 176
+  },
+  "wyrdeer": {
+    "bodyslam": 256,
+    "earthquake": 235,
+    "megahorn": 123,
+    "psychicnoise": 389,
+    "thunderwave": 221
+  },
+  "yanmega": {
+    "airslash": 443,
+    "bugbuzz": 351,
+    "gigadrain": 30,
+    "hypervoice": 1,
+    "protect": 114,
+    "terablast": 71,
+    "uturn": 50
+  },
+  "zacian": {
+    "behemothblade": 152,
+    "bittermalice": 2,
+    "closecombat": 156,
+    "crunch": 31,
+    "playrough": 282,
+    "psychicfangs": 20,
+    "swordsdance": 158,
+    "wildcharge": 21
+  },
+  "zamazenta": {
+    "bodypress": 380,
+    "closecombat": 85,
+    "crunch": 61,
+    "heavyslam": 125,
+    "irondefense": 251,
+    "ironhead": 111,
+    "psychicfangs": 26,
+    "stoneedge": 84
+  },
+  "zangoose": {
+    "closecombat": 61,
+    "facade": 271,
+    "knockoff": 201,
+    "quickattack": 121,
+    "swordsdance": 84,
+    "willowisp": 1
+  },
+  "zapdos": {
+    "bravebird": 142,
+    "closecombat": 100,
+    "discharge": 140,
+    "hurricane": 224,
+    "knockoff": 85,
+    "roost": 171,
+    "thunderbolt": 143,
+    "uturn": 141
+  },
+  "zarude": {
+    "closecombat": 93,
+    "hypervoice": 1,
+    "knockoff": 295,
+    "powerwhip": 184,
+    "swordsdance": 70,
+    "synthesis": 27,
+    "uturn": 83,
+    "willowisp": 1
+  },
+  "zebstrika": {
+    "bittermalice": 1,
+    "highhorsepower": 303,
+    "overheat": 195,
+    "sludgebomb": 1,
+    "supercellslam": 244,
+    "voltswitch": 252
+  },
+  "zekrom": {
+    "boltstrike": 316,
+    "dragondance": 323,
+    "outrage": 296,
+    "substitute": 198
+  },
+  "zoroark": {
+    "bittermalice": 8,
+    "darkpulse": 10,
+    "flamethrower": 1,
+    "focusblast": 5,
+    "hypervoice": 4,
+    "willowisp": 1
+  }
+}

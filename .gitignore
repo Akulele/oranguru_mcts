@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.dist/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Training artifacts / checkpoints
+checkpoints/
+*.pt
+*.ckpt
+*.pth
+*.onnx
+*.safetensors
+
+# Logs & misc
+*.log
+*.tmp
+.DS_Store
+logs/
+nohup.out
