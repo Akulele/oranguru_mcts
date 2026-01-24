@@ -146,6 +146,7 @@ class RuleBotPlayer(Player):
         "teleport",
         "chillyreception",
     }
+    ITEM_INFER = bool(int(os.getenv("ORANGURU_ITEM_INFER", "1")))
     SWITCH_IN_ABILITY_INFER = bool(int(os.getenv("ORANGURU_SWITCH_IN_ABILITY_INFER", "1")))
     SWITCH_IN_ABILITY_REVEAL = {
         "intimidate",
@@ -309,6 +310,12 @@ class RuleBotPlayer(Player):
         no_boots = flags.get("no_boots", False)
         must_choice = flags.get("choice_item", False)
         impossible_abilities = mem.get("opponent_impossible_abilities", {}).get(species, set())
+        if self.ITEM_INFER and not item_id:
+            known_item = normalize_name(str(flags.get("known_item") or ""))
+            if not known_item:
+                known_item = normalize_name(str(flags.get("removed_item") or ""))
+            if known_item:
+                item_id = known_item
 
         candidates: List[Tuple[dict, int]] = []
         for key, count in raw_sets.items():
@@ -814,6 +821,14 @@ class RuleBotPlayer(Player):
                     flags["no_boots"] = True
                 if "[from] item: life orb" in lower:
                     flags["no_choice"] = True
+                for part in event:
+                    if "item:" in part.lower():
+                        item_id = normalize_name(part.split("item:", 1)[1])
+                        if item_id:
+                            flags["known_item"] = item_id
+                        break
+                continue
+            if kind in {"-heal", "heal"} and self.ITEM_INFER:
                 for part in event:
                     if "item:" in part.lower():
                         item_id = normalize_name(part.split("item:", 1)[1])
