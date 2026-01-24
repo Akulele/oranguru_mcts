@@ -12,11 +12,15 @@ This should beat SimpleHeuristics by exploiting its predictable behavior.
 """
 
 import json
+import os
 from pathlib import Path
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 from poke_env.player import Player
 from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition
+from poke_env.battle.field import Field
+from poke_env.battle.weather import Weather
+from poke_env.battle.effect import Effect
 
 from src.utils.damage_calc import ABILITY_DAMAGE_MODS, normalize_name, get_type_effectiveness
 from src.utils.features import load_abilities, load_moves
@@ -92,6 +96,66 @@ class RuleBotPlayer(Player):
     OPP_KNOWN_MOVE_WEIGHT = 1.15
     OPP_SWITCH_MAX_WEIGHT = 0.6
     CHOICE_ITEMS = {"choiceband", "choicescarf", "choicespecs"}
+    UNLIKELY_CHOICE_INFER = bool(int(os.getenv("ORANGURU_UNLIKELY_CHOICE_INFER", "1")))
+    CHOICE_UNLIKELY_EXTENDED = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_EXTENDED", "0")))
+    CHOICE_UNLIKELY_PIVOT = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_PIVOT", "0")))
+    CHOICE_UNLIKELY_EXTRA = {
+        "protect",
+        "detect",
+        "endure",
+        "kingsshield",
+        "spikyshield",
+        "banefulbunker",
+        "silktrap",
+        "obstruct",
+        "substitute",
+        "roost",
+        "recover",
+        "wish",
+        "rest",
+        "healingwish",
+        "lunarblessing",
+        "morningsun",
+        "moonlight",
+        "synthesis",
+        "strengthsap",
+        "taunt",
+        "encore",
+        "haze",
+        "aromatherapy",
+        "healbell",
+        "trickroom",
+    }
+    CHOICE_UNLIKELY_HAZARDS = {
+        "stealthrock",
+        "spikes",
+        "toxicspikes",
+        "stickyweb",
+        "defog",
+        "rapidspin",
+        "mortalspin",
+        "tidyup",
+        "courtchange",
+    }
+    CHOICE_UNLIKELY_PIVOT_MOVES = {
+        "uturn",
+        "voltswitch",
+        "flipturn",
+        "partingshot",
+        "batonpass",
+        "teleport",
+        "chillyreception",
+    }
+    SWITCH_IN_ABILITY_INFER = bool(int(os.getenv("ORANGURU_SWITCH_IN_ABILITY_INFER", "1")))
+    SWITCH_IN_ABILITY_REVEAL = {
+        "intimidate",
+        "download",
+        "trace",
+        "pressure",
+        "neutralizinggas",
+        "unnerve",
+        "imposter",
+    }
 
     DEBUG_STATUS = True
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
@@ -130,6 +194,24 @@ class RuleBotPlayer(Player):
         mem.setdefault("opponent_item_flags", {})
         mem.setdefault("opponent_moves", {})
         mem.setdefault("last_item_turn", -1)
+        mem.setdefault("opponent_abilities", {})
+        mem.setdefault("last_ability_turn", -1)
+        mem.setdefault("opponent_impossible_abilities", {})
+        mem.setdefault("last_ability_constraint_turn", -1)
+        mem.setdefault("pending_wish", {"self": (0, 0), "opp": (0, 0)})
+        mem.setdefault("pending_future_sight", {"self": (0, ""), "opp": (0, "")})
+        mem.setdefault("last_field_turn", -1)
+        mem.setdefault("last_ability_infer_turn", -1)
+        mem.setdefault("switch_flags", {"self": {"baton": False, "shed": False}, "opp": {"baton": False, "shed": False}})
+        mem.setdefault("substitute_state", {"self": {}, "opp": {}})
+        mem.setdefault("last_substitute_turn", -1)
+        mem.setdefault("last_switch_flag_turn", -1)
+        mem.setdefault("weather_state", None)
+        mem.setdefault("terrain_state", None)
+        mem.setdefault("opp_switch_info", {})
+        mem.setdefault("opp_moves_since_switch", {})
+        mem.setdefault("last_switch_turn", -1)
+        mem.setdefault("last_opp_move_turn", -1)
         return mem
 
     @staticmethod
@@ -137,6 +219,22 @@ class RuleBotPlayer(Player):
     def _load_randombattle_sets() -> Dict[str, Dict[str, int]]:
         root = Path(__file__).resolve().parents[2]
         path = root / "third_party" / "foul-play" / "data" / "pkmn_sets_cache" / "gen9randombattle.json"
+        if not path.exists():
+            return {}
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+        return {}
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _load_pokedex() -> Dict[str, Dict]:
+        root = Path(__file__).resolve().parents[2]
+        path = root / "data" / "pokedex.json"
         if not path.exists():
             return {}
         try:
@@ -210,6 +308,7 @@ class RuleBotPlayer(Player):
         no_av = flags.get("no_assaultvest", False)
         no_boots = flags.get("no_boots", False)
         must_choice = flags.get("choice_item", False)
+        impossible_abilities = mem.get("opponent_impossible_abilities", {}).get(species, set())
 
         candidates: List[Tuple[dict, int]] = []
         for key, count in raw_sets.items():
@@ -233,6 +332,8 @@ class RuleBotPlayer(Player):
             if no_boots and parsed["item"] == "heavydutyboots":
                 continue
             if must_choice and parsed["item"] not in self.CHOICE_ITEMS:
+                continue
+            if impossible_abilities and parsed["ability"] in impossible_abilities:
                 continue
             if known_moves and not known_moves.issubset(set(parsed["moves"])):
                 continue
@@ -432,22 +533,28 @@ class RuleBotPlayer(Player):
         ):
             return
         observations = getattr(battle, "observations", {})
-        obs = observations.get(last_turn)
+        obs = observations.get(last_turn) if isinstance(observations, dict) else None
         if obs is None:
             return
         role = getattr(battle, "player_role", None)
         if not role:
             return
 
-        my_obs = self._extract_obs_active(obs.active_pokemon)
-        opp_obs = self._extract_obs_active(obs.opponent_active_pokemon)
+        my_obs = self._extract_obs_active(getattr(obs, "active_pokemon", None))
+        opp_obs = self._extract_obs_active(getattr(obs, "opponent_active_pokemon", None))
         if my_obs is None or opp_obs is None:
             return
-        if my_obs.boosts.get("spe", 0) != 0 or opp_obs.boosts.get("spe", 0) != 0:
+        my_boosts = getattr(my_obs, "boosts", {}) or {}
+        opp_boosts = getattr(opp_obs, "boosts", {}) or {}
+        if my_boosts.get("spe", 0) != 0 or opp_boosts.get("spe", 0) != 0:
             return
         if normalize_name(str(getattr(my_obs, "status", ""))) in {"par", "paralysis"}:
             return
         if normalize_name(str(getattr(opp_obs, "status", ""))) in {"par", "paralysis"}:
+            return
+        if self._can_have_speed_modified(battle, my_obs):
+            return
+        if self._can_have_speed_modified(battle, opp_obs):
             return
 
         saw_switch = False
@@ -455,7 +562,10 @@ class RuleBotPlayer(Player):
         opp_move_id = None
         self_idx = None
         opp_idx = None
-        for idx, event in enumerate(obs.events):
+        events = getattr(obs, "events", None)
+        if not isinstance(events, list):
+            return
+        for idx, event in enumerate(events):
             if len(event) < 3:
                 continue
             kind = event[1]
@@ -482,7 +592,6 @@ class RuleBotPlayer(Player):
             return
         if self._priority_from_move_id(self_move_id) != self._priority_from_move_id(opp_move_id):
             return
-
         faster = self_idx < opp_idx
         key_pair = f"{normalize_name(my_obs.species)}|{normalize_name(opp_obs.species)}"
         key_opp = f"opp:{normalize_name(opp_obs.species)}"
@@ -497,7 +606,10 @@ class RuleBotPlayer(Player):
 
         my_speed = None
         if my_obs.stats and my_obs.stats.get("spe"):
-            my_speed = int(my_obs.stats["spe"])
+            try:
+                my_speed = int(my_obs.stats["spe"])
+            except Exception:
+                my_speed = None
         if my_speed is None:
             return
         opp_species = normalize_name(opp_obs.species)
@@ -521,6 +633,123 @@ class RuleBotPlayer(Player):
         if ": " in event[2]:
             return normalize_name(event[2].split(": ", 1)[1])
         return None
+
+    def _update_switch_in_memory(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_switch_turn", -1):
+            return
+        mem["last_switch_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        for event in obs.events:
+            if len(event) < 3:
+                continue
+            kind = event[1]
+            if kind not in {"switch", "drag", "replace"}:
+                continue
+            who = event[2]
+            if who.startswith(role):
+                continue
+            species = self._species_from_event(battle, event)
+            if not species and len(event) >= 4:
+                species = normalize_name(str(event[3]).split(",", 1)[0])
+            if not species:
+                continue
+
+            mon = None
+            try:
+                opp_active = getattr(battle, "opponent_active_pokemon", None)
+                if opp_active and normalize_name(opp_active.species) == species:
+                    mon = opp_active
+                else:
+                    for candidate in battle.opponent_team.values():
+                        if candidate and normalize_name(candidate.species) == species:
+                            mon = candidate
+                            break
+            except Exception:
+                mon = None
+
+            hp_at_switch = None
+            status_at_switch = None
+            if mon is not None:
+                try:
+                    if getattr(mon, "current_hp", None) is not None:
+                        hp_at_switch = int(mon.current_hp)
+                    elif mon.current_hp_fraction is not None and getattr(mon, "max_hp", None):
+                        hp_at_switch = int(mon.max_hp * mon.current_hp_fraction)
+                except Exception:
+                    hp_at_switch = None
+                try:
+                    status_at_switch = getattr(mon, "status", None)
+                except Exception:
+                    status_at_switch = None
+
+            mem.setdefault("opp_switch_info", {})[species] = {
+                "hp": hp_at_switch,
+                "status": status_at_switch,
+                "turn": last_turn,
+            }
+            mem.setdefault("opp_moves_since_switch", {})[species] = set()
+
+            flags = mem.setdefault("opponent_item_flags", {}).setdefault(
+                species,
+                {
+                    "no_choice": False,
+                    "no_assaultvest": False,
+                    "no_boots": False,
+                    "choice_item": False,
+                    "has_boots": False,
+                    "known_item": None,
+                    "removed_item": None,
+                    "last_move_id": None,
+                    "last_move_turn": -1,
+                },
+            )
+            flags["last_move_id"] = None
+            flags["last_move_turn"] = last_turn
+
+    def _update_opponent_move_history(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_opp_move_turn", -1):
+            return
+        mem["last_opp_move_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        for event in obs.events:
+            if len(event) < 4:
+                continue
+            kind = event[1]
+            if kind != "move":
+                continue
+            who = event[2]
+            if who.startswith(role):
+                continue
+            species = self._species_from_event(battle, event)
+            if not species:
+                continue
+            move_id = normalize_name(event[3])
+            if not move_id:
+                continue
+            moves = mem.setdefault("opp_moves_since_switch", {}).setdefault(species, set())
+            moves.add(move_id)
 
     def _update_opponent_item_memory(self, battle: Battle) -> None:
         mem = self._get_battle_memory(battle)
@@ -575,6 +804,8 @@ class RuleBotPlayer(Player):
                     entry = self._get_move_entry_by_id(move_id)
                     if str(entry.get("category", "")).lower() == "status":
                         flags["no_assaultvest"] = True
+                    if self.UNLIKELY_CHOICE_INFER and self._unlikely_choice_move(move_id):
+                        flags["no_choice"] = True
                 continue
 
             if kind in {"-damage", "damage"}:
@@ -607,6 +838,425 @@ class RuleBotPlayer(Player):
                     flags["has_boots"] = True
                 if "choiceband" in lower or "choicespecs" in lower or "choicescarf" in lower:
                     flags["choice_item"] = True
+
+    def _update_opponent_ability_memory(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_ability_turn", -1):
+            return
+        mem["last_ability_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        for event in obs.events:
+            if len(event) < 3:
+                continue
+            source = self._parse_event_source(event, role, battle)
+            if (
+                self.SWITCH_IN_ABILITY_INFER
+                and source.get("side") == "opp"
+                and source.get("ability") in self.SWITCH_IN_ABILITY_REVEAL
+                and source.get("species")
+            ):
+                mem.setdefault("opponent_abilities", {})[source["species"]] = source["ability"]
+                continue
+            who = event[2]
+            if who.startswith(role):
+                continue
+            species = self._species_from_event(battle, event)
+            if not species:
+                continue
+            ability_id = None
+            kind = event[1]
+            if kind in {"-ability", "ability"} and len(event) >= 4:
+                ability_id = normalize_name(event[3])
+            if not ability_id:
+                for part in event:
+                    if isinstance(part, str) and "ability:" in part.lower():
+                        ability_id = normalize_name(part.split("ability:", 1)[1])
+                        break
+            if ability_id:
+                mem.setdefault("opponent_abilities", {})[species] = ability_id
+
+    def _update_opponent_ability_constraints(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = mem.get("last_action_turn", -1)
+        if last_turn <= mem.get("last_ability_constraint_turn", -1):
+            return
+        mem["last_ability_constraint_turn"] = last_turn
+        if last_turn < 1:
+            return
+        if mem.get("last_action") != "move":
+            return
+        if mem.get("last_move_category") != "damage":
+            return
+        last_move_id = mem.get("last_move_id")
+        last_move_type = mem.get("last_move_type")
+        last_opponent_species = mem.get("last_opponent_species")
+        last_opponent_hp = mem.get("last_opponent_hp")
+        opponent = battle.opponent_active_pokemon
+        if not opponent or not last_opponent_species:
+            return
+        if opponent.species != last_opponent_species:
+            return
+        if last_opponent_hp is None or opponent.current_hp_fraction is None:
+            return
+        if abs(opponent.current_hp_fraction - last_opponent_hp) <= 0.01:
+            return
+        if not last_move_type:
+            return
+        entry = self._get_move_entry_by_id(last_move_id or "")
+        if entry.get("ignoreAbility"):
+            return
+        if last_move_id in {"thousandarrows"}:
+            return
+
+        immune_map = {
+            "water": {"waterabsorb", "stormdrain", "dryskin"},
+            "electric": {"voltabsorb", "lightningrod", "motordrive"},
+            "grass": {"sapsipper"},
+            "fire": {"flashfire", "wellbakedbody"},
+            "ground": {"eartheater", "levitate"},
+        }
+        blocked = immune_map.get(last_move_type, set())
+        if not blocked:
+            return
+        abilities = mem.setdefault("opponent_impossible_abilities", {}).setdefault(
+            normalize_name(last_opponent_species), set()
+        )
+        abilities.update(blocked)
+
+    def _infer_ability_from_immunity(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = mem.get("last_action_turn", -1)
+        if last_turn <= mem.get("last_ability_infer_turn", -1):
+            return
+        mem["last_ability_infer_turn"] = last_turn
+        if last_turn < 1:
+            return
+        if mem.get("last_action") != "move":
+            return
+        if mem.get("last_move_category") != "damage":
+            return
+        last_move_id = mem.get("last_move_id")
+        last_move_type = mem.get("last_move_type")
+        last_opponent_species = mem.get("last_opponent_species")
+        last_opponent_hp = mem.get("last_opponent_hp")
+        opponent = battle.opponent_active_pokemon
+        if not opponent or not last_opponent_species:
+            return
+        if opponent.species != last_opponent_species:
+            return
+        if last_opponent_hp is None or opponent.current_hp_fraction is None:
+            return
+        if abs(opponent.current_hp_fraction - last_opponent_hp) > 0.01:
+            return
+        if not last_move_type:
+            return
+
+        effects = getattr(opponent, "effects", None) or {}
+        for shield in (
+            Effect.PROTECT,
+            Effect.BANEFUL_BUNKER,
+            Effect.SPIKY_SHIELD,
+            Effect.SILK_TRAP,
+            Effect.ENDURE,
+            Effect.SUBSTITUTE,
+        ):
+            if shield in effects:
+                return
+
+        entry = self._get_move_entry_by_id(last_move_id or "")
+        if entry.get("ignoreAbility"):
+            return
+        if last_move_id in {"thousandarrows"}:
+            return
+
+        # If type immunity explains it, do not infer ability.
+        try:
+            move_obj = None
+            for mv in self._get_known_moves(battle.active_pokemon):
+                if mv.id == last_move_id:
+                    move_obj = mv
+                    break
+            if move_obj and opponent.damage_multiplier(move_obj) <= 0:
+                return
+        except Exception:
+            pass
+
+        immune_map = {
+            "water": {"waterabsorb", "stormdrain", "dryskin"},
+            "electric": {"voltabsorb", "lightningrod", "motordrive"},
+            "grass": {"sapsipper"},
+            "fire": {"flashfire", "wellbakedbody"},
+            "ground": {"eartheater", "levitate"},
+        }
+        candidates = immune_map.get(last_move_type)
+        if not candidates:
+            return
+
+        # Only infer if exactly one of the remaining randombattle sets matches a blocking ability.
+        possible_sets = self._candidate_randombattle_sets(opponent, battle)
+        if not possible_sets:
+            return
+        possible_abilities = {parsed.get("ability") for parsed, _ in possible_sets if parsed.get("ability")}
+        plausible = possible_abilities & set(candidates)
+        if len(plausible) == 1:
+            ability_id = next(iter(plausible))
+            mem.setdefault("opponent_abilities", {})[normalize_name(last_opponent_species)] = ability_id
+
+    def _update_field_memory(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_field_turn", -1):
+            return
+        mem["last_field_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        wish = mem.get("pending_wish", {"self": (0, 0), "opp": (0, 0)})
+        future_sight = mem.get("pending_future_sight", {"self": (0, ""), "opp": (0, "")})
+
+        for side in ("self", "opp"):
+            turns, amount = wish.get(side, (0, 0))
+            if turns > 0:
+                wish[side] = (max(0, turns - 1), amount)
+            turns, source = future_sight.get(side, (0, ""))
+            if turns > 0:
+                future_sight[side] = (max(0, turns - 1), source)
+
+        for event in obs.events:
+            if len(event) < 4:
+                continue
+            if event[1] != "move":
+                continue
+            who = event[2]
+            move_id = normalize_name(event[3])
+            if not move_id:
+                continue
+            side_key = "self" if who.startswith(role) else "opp"
+            if move_id == "wish":
+                if side_key == "self":
+                    active = battle.active_pokemon
+                else:
+                    active = battle.opponent_active_pokemon
+                max_hp = getattr(active, "max_hp", None) if active else None
+                amount = int(max_hp / 2) if max_hp else 0
+                wish[side_key] = (2, amount)
+            elif move_id in {"futuresight", "doomdesire"}:
+                species = self._species_from_event(battle, event) or ""
+                future_sight[side_key] = (3, normalize_name(species))
+
+        mem["pending_wish"] = wish
+        mem["pending_future_sight"] = future_sight
+        mem["weather_state"] = self._update_weather_state(battle, obs, mem.get("weather_state"))
+        mem["terrain_state"] = self._update_terrain_state(battle, obs, mem.get("terrain_state"))
+
+    def _update_weather_state(self, battle: Battle, obs, current: Optional[dict]) -> Optional[dict]:
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return current
+        state = current if isinstance(current, dict) else None
+        for event in obs.events:
+            if len(event) < 3:
+                continue
+            if event[1] != "-weather":
+                continue
+            weather_id = normalize_name(event[2])
+            if weather_id == "none":
+                return None
+            source = self._parse_event_source(event, role, battle)
+            if source.get("side") == "opp" and source.get("ability") and source.get("species"):
+                mem = self._get_battle_memory(battle)
+                mem.setdefault("opponent_abilities", {})[source["species"]] = source["ability"]
+            state = {
+                "type": weather_id,
+                "start": battle.turn - 1,
+                "source": source,
+                "duration": self._estimate_weather_duration(source, battle),
+            }
+        return state
+
+    def _update_terrain_state(self, battle: Battle, obs, current: Optional[dict]) -> Optional[dict]:
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return current
+        state = current if isinstance(current, dict) else None
+        for event in obs.events:
+            if len(event) < 3:
+                continue
+            if event[1] == "-fieldend":
+                terrain_id = normalize_name(event[2])
+                if state and state.get("type") == terrain_id:
+                    state = None
+                continue
+            if event[1] != "-fieldstart":
+                continue
+            terrain_id = normalize_name(event[2])
+            source = self._parse_event_source(event, role, battle)
+            if source.get("side") == "opp" and source.get("ability") and source.get("species"):
+                mem = self._get_battle_memory(battle)
+                mem.setdefault("opponent_abilities", {})[source["species"]] = source["ability"]
+            state = {
+                "type": terrain_id,
+                "start": battle.turn - 1,
+                "source": source,
+                "duration": self._estimate_terrain_duration(source, battle),
+            }
+        return state
+
+    def _parse_event_source(self, event: List[str], role: str, battle: Battle) -> dict:
+        source = {"side": None, "species": "", "ability": "", "move": ""}
+        for part in event:
+            if not isinstance(part, str):
+                continue
+            lower = part.lower()
+            if "ability:" in lower:
+                source["ability"] = normalize_name(part.split("ability:", 1)[1])
+            if "move:" in lower:
+                source["move"] = normalize_name(part.split("move:", 1)[1])
+            if "[of]" in lower:
+                token = part.split("[of]", 1)[1].strip()
+                if token.startswith(role):
+                    source["side"] = "self"
+                elif token.startswith("p1") or token.startswith("p2"):
+                    source["side"] = "opp"
+                try:
+                    mon = battle.get_pokemon(token)
+                    if mon and mon.species:
+                        source["species"] = normalize_name(mon.species)
+                except Exception:
+                    if ": " in token:
+                        source["species"] = normalize_name(token.split(": ", 1)[1])
+        return source
+
+    def _estimate_weather_duration(self, source: dict, battle: Battle) -> int:
+        duration = 5
+        if not source or not source.get("move"):
+            return duration
+        item_id = self._known_item_for_source(source, battle)
+        if item_id in {"damprock", "heatrock", "smoothrock", "icyrock"}:
+            return 8
+        return duration
+
+    def _estimate_terrain_duration(self, source: dict, battle: Battle) -> int:
+        duration = 5
+        if not source or not source.get("move"):
+            return duration
+        item_id = self._known_item_for_source(source, battle)
+        if item_id == "terrainextender":
+            return 8
+        return duration
+
+    def _known_item_for_source(self, source: dict, battle: Battle) -> str:
+        side = source.get("side")
+        species = source.get("species", "")
+        if side == "self":
+            for mon in battle.team.values():
+                if mon and normalize_name(mon.species) == species:
+                    return normalize_name(str(getattr(mon, "item", "") or ""))
+        elif side == "opp":
+            mem = self._get_battle_memory(battle)
+            flags = mem.get("opponent_item_flags", {}).get(species, {})
+            item_id = flags.get("known_item")
+            if item_id:
+                return normalize_name(item_id)
+        return ""
+
+    def _update_switch_flags(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_switch_flag_turn", -1):
+            return
+        mem["last_switch_flag_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        flags = mem.get("switch_flags", {"self": {"baton": False, "shed": False}, "opp": {"baton": False, "shed": False}})
+        flags["self"]["baton"] = False
+        flags["self"]["shed"] = False
+        flags["opp"]["baton"] = False
+        flags["opp"]["shed"] = False
+
+        for event in obs.events:
+            if len(event) < 4:
+                continue
+            if event[1] != "move":
+                continue
+            who = event[2]
+            move_id = normalize_name(event[3])
+            if not move_id:
+                continue
+            side_key = "self" if who.startswith(role) else "opp"
+            if move_id == "batonpass":
+                flags[side_key]["baton"] = True
+            elif move_id == "shedtail":
+                flags[side_key]["shed"] = True
+
+        mem["switch_flags"] = flags
+
+    def _update_substitute_memory(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        last_turn = battle.turn - 1
+        if last_turn <= mem.get("last_substitute_turn", -1):
+            return
+        mem["last_substitute_turn"] = last_turn
+        if last_turn < 1:
+            return
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        state = mem.get("substitute_state", {"self": {}, "opp": {}})
+
+        for event in obs.events:
+            if len(event) < 3:
+                continue
+            kind = event[1]
+            who = event[2]
+            side_key = "self" if who.startswith(role) else "opp"
+            species = self._species_from_event(battle, event)
+            if not species:
+                continue
+            entry = state[side_key].setdefault(species, {"has": False, "hit": False})
+            lower = " ".join(str(p) for p in event).lower()
+
+            if kind == "-start" and "substitute" in lower:
+                entry["has"] = True
+                entry["hit"] = False
+            elif kind == "-end" and "substitute" in lower:
+                entry["has"] = False
+                entry["hit"] = False
+            elif kind in {"-activate", "-damage"} and "substitute" in lower:
+                entry["has"] = True
+                entry["hit"] = True
+
+        mem["substitute_state"] = state
 
     def _speed_hint(self, active: Pokemon, opponent: Pokemon, battle: Battle) -> int:
         if active is None or opponent is None:
@@ -1192,13 +1842,17 @@ class RuleBotPlayer(Player):
             if candidates:
                 move_counts: Dict[str, int] = {}
                 for parsed, count in candidates:
-                    for move_id in parsed.get("moves", []):
+                    moves = parsed.get("moves", []) if isinstance(parsed, dict) else []
+                    for move_id in moves:
                         if move_id:
                             move_counts[move_id] = move_counts.get(move_id, 0) + count
                 ordered = sorted(move_counts.items(), key=lambda x: x[1], reverse=True)
                 return ordered[: self.PRIOR_MOVE_LOOKAHEAD]
 
-        priors = load_moveset_priors()
+        try:
+            priors = load_moveset_priors()
+        except Exception:
+            return []
         if not priors:
             return []
         species = normalize_name(getattr(mon, "species", ""))
@@ -1214,13 +1868,39 @@ class RuleBotPlayer(Player):
             return {}
         return load_moves().get(move_id, {})
 
+    def _unlikely_choice_move(self, move_id: str) -> bool:
+        if not move_id:
+            return False
+        if move_id in {"substitute", "roost", "recover"}:
+            return True
+        entry = self._get_move_entry_by_id(move_id)
+        if not entry:
+            return False
+        category = str(entry.get("category", "")).lower()
+        boosts = entry.get("boosts") or {}
+        if category == "status" and bool(boosts):
+            return True
+        if self.CHOICE_UNLIKELY_EXTENDED:
+            if move_id in self.CHOICE_UNLIKELY_EXTRA or move_id in self.CHOICE_UNLIKELY_HAZARDS:
+                return True
+            if self.CHOICE_UNLIKELY_PIVOT and move_id in self.CHOICE_UNLIKELY_PIVOT_MOVES:
+                return True
+        return False
+
     def _expected_hits_from_entry(self, entry: dict) -> float:
         """Estimate expected hits from moves.json multihit data."""
         multihit = entry.get("multihit")
         if isinstance(multihit, list) and len(multihit) == 2:
-            return (multihit[0] + multihit[1]) / 2.0
+            try:
+                expected = (float(multihit[0]) + float(multihit[1])) / 2.0
+            except Exception:
+                return 1.0
+            return max(1.0, expected)
         if isinstance(multihit, int):
-            return float(multihit)
+            try:
+                return max(1.0, float(multihit))
+            except Exception:
+                return 1.0
         return 1.0
 
     def _estimate_entry_damage_score(self, entry: dict, attacker: Pokemon, defender: Pokemon) -> float:
@@ -1265,9 +1945,12 @@ class RuleBotPlayer(Player):
             return 0.0
         entry = self._get_move_entry(move)
         recoil = entry.get("recoil")
-        if isinstance(recoil, list) and len(recoil) == 2 and recoil[1]:
+        if isinstance(recoil, list) and len(recoil) == 2:
             try:
-                return float(recoil[0]) / float(recoil[1])
+                r0 = float(recoil[0])
+                r1 = float(recoil[1])
+                if r1:
+                    return r0 / r1
             except Exception:
                 return 0.0
         if move.id in self.HIGH_RECOIL_MOVES:
@@ -1621,9 +2304,24 @@ class RuleBotPlayer(Player):
             base = mon.base_stats[stat]
         else:
             base = 100
+        try:
+            base = float(base)
+        except Exception:
+            base = 100.0
 
         # Apply boosts
-        boost = mon.boosts.get(stat, 0) if mon.boosts else 0
+        boost = 0
+        try:
+            boosts = mon.boosts or {}
+            if isinstance(boosts, dict):
+                boost = boosts.get(stat, 0) or 0
+            boost = int(boost)
+        except Exception:
+            boost = 0
+        if boost > 6:
+            boost = 6
+        elif boost < -6:
+            boost = -6
         if boost > 0:
             multiplier = (2 + boost) / 2
         else:
@@ -2035,6 +2733,64 @@ class RuleBotPlayer(Player):
         if abilities_data and ability_id not in abilities_data:
             return None
         return ability_id
+
+    def _possible_abilities(self, opponent: Pokemon) -> set:
+        species = normalize_name(getattr(opponent, "species", ""))
+        if not species:
+            return set()
+        dex = self._load_pokedex()
+        entry = dex.get(species, {})
+        abilities = entry.get("abilities", {}) if isinstance(entry, dict) else {}
+        result = set()
+        if isinstance(abilities, dict):
+            for val in abilities.values():
+                if val:
+                    result.add(normalize_name(val))
+        return result
+
+    def _can_have_speed_modified(self, battle: Battle, opponent: Pokemon) -> bool:
+        if opponent is None:
+            return False
+        ability_id = self._get_ability_id(opponent)
+        possible = {ability_id} if ability_id else self._possible_abilities(opponent)
+        if not possible:
+            return False
+
+        try:
+            weather = getattr(battle, "weather", None)
+            if isinstance(weather, dict) and weather:
+                weather = next(iter(weather.keys()))
+            if isinstance(weather, Weather):
+                weather_id = normalize_name(weather.name)
+            else:
+                weather_id = normalize_name(str(weather)) if weather else ""
+        except Exception:
+            weather_id = ""
+        if weather_id in {"raindance", "rain"} and "swiftswim" in possible:
+            return True
+        if weather_id in {"sunnyday", "sun"} and "chlorophyll" in possible:
+            return True
+        if weather_id in {"sandstorm"} and "sandrush" in possible:
+            return True
+        if weather_id in {"hail", "snowscape", "snow"} and "slushrush" in possible:
+            return True
+
+        try:
+            fields = getattr(battle, "fields", None) or {}
+            if Field.ELECTRIC_TERRAIN in fields and "surgesurfer" in possible:
+                return True
+        except Exception:
+            pass
+
+        item = getattr(opponent, "item", None)
+        if not item and "unburden" in possible:
+            return True
+
+        status = normalize_name(str(getattr(opponent, "status", "")))
+        if status in {"par", "paralysis"} and "quickfeet" in possible:
+            return True
+
+        return False
 
     def _ability_blocks_move(self, move: Move, opponent: Pokemon) -> bool:
         """Return True if opponent's revealed ability makes the move ineffective."""

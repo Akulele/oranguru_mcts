@@ -38,6 +38,13 @@ from training.config import RLConfig
 CustomServerConfig = get_server_configuration(default_port=8000)
 
 
+def _debug_print(enabled: bool, message: str) -> None:
+    if not enabled:
+        return
+    stamp = time.strftime("%H:%M:%S")
+    print(f"[debug {stamp}] {message}")
+
+
 def _safe_id(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum()) or "bot"
 
@@ -185,6 +192,8 @@ def _start_foulplay(
     log_path: Path,
     no_login: bool,
     user_id_file: Path,
+    bot_mode: str,
+    user_to_challenge: str | None,
 ):
     probe = subprocess.run(
         [str(foulplay_python), "-c", "import poke_engine, sys; print(sys.executable)"],
@@ -214,7 +223,7 @@ def _start_foulplay(
         "--ps-password",
         password,
         "--bot-mode",
-        "accept_challenge",
+        bot_mode,
         "--pokemon-format",
         battle_format,
         "--run-count",
@@ -228,6 +237,10 @@ def _start_foulplay(
         "--user-id-file",
         str(user_id_file),
     ]
+    if bot_mode == "challenge_user":
+        if not user_to_challenge:
+            raise SystemExit("Foul Play requires --user-to-challenge in challenge_user mode.")
+        cmd.extend(["--user-to-challenge", user_to_challenge])
     if no_login:
         cmd.append("--no-login")
 
@@ -259,6 +272,16 @@ def _terminate_proc(proc: subprocess.Popen | None) -> None:
             proc.kill()
 
 
+def _format_eta(seconds: float) -> str:
+    if seconds <= 0:
+        return "0:00:00"
+    seconds_int = int(round(seconds))
+    hours = seconds_int // 3600
+    minutes = (seconds_int % 3600) // 60
+    secs = seconds_int % 60
+    return f"{hours}:{minutes:02d}:{secs:02d}"
+
+
 async def _wait_for_battles(player, n_battles: int, progress_every: int, timeout_s: int):
     start = time.time()
     last_print = 0
@@ -266,10 +289,16 @@ async def _wait_for_battles(player, n_battles: int, progress_every: int, timeout
         await asyncio.sleep(0.5)
         if player.n_finished_battles - last_print >= progress_every:
             last_print = player.n_finished_battles
+            elapsed = time.time() - start
+            finished = max(1, player.n_finished_battles)
+            avg_per_battle = elapsed / finished
+            remaining = max(0, n_battles - player.n_finished_battles)
+            eta = _format_eta(remaining * avg_per_battle)
             print(
                 f"   {player.n_finished_battles}/{n_battles}: "
                 f"{player.n_won_battles}/{player.n_finished_battles} wins "
-                f"({(player.n_won_battles / max(player.n_finished_battles, 1)) * 100:.1f}%)"
+                f"({(player.n_won_battles / max(player.n_finished_battles, 1)) * 100:.1f}%) "
+                f"ETA {eta}"
             )
         if timeout_s and (time.time() - start) > timeout_s:
             break
@@ -333,41 +362,54 @@ async def _wait_for_login(ps_client, timeout_s: int) -> bool:
         return False
 
 
+async def _cancel_challenge(ps_client, delay_s: float = 0.5, debug: bool = False) -> None:
+    try:
+        await ps_client.send_message("/cancelchallenge")
+        _debug_print(debug, "sent /cancelchallenge")
+        if delay_s:
+            await asyncio.sleep(delay_s)
+    except Exception:
+        _debug_print(debug, "failed to send /cancelchallenge")
+
+
 async def _challenge_with_fallback(
     player,
     opponent_id: str,
     opponent_name: str | None,
     timeout_s: int,
+    debug: bool = False,
 ) -> str | None:
     candidates = []
     if opponent_id:
         candidates.append(opponent_id.strip())
     if opponent_name:
         candidates.append(opponent_name.strip())
+        candidates.append(_safe_id(opponent_name))
 
     seen = set()
     if not await _wait_for_login(player.ps_client, timeout_s):
         return None
+    await _cancel_challenge(player.ps_client, delay_s=0.5, debug=debug)
     for candidate in candidates:
+        candidate = candidate.strip()
         if not candidate or candidate in seen:
             continue
         seen.add(candidate)
         before = len(player.battles)
         print(f"   Trying challenge target: {candidate}")
+        await _cancel_challenge(player.ps_client, delay_s=0.2, debug=debug)
         await player.ps_client.challenge(candidate, player._format, player.next_team)
         if await _wait_for_battle_start(player, before, timeout_s):
             print(f"   Battle started with: {candidate}")
             return candidate
         print(f"   No battle start for: {candidate}")
-        try:
-            await player.ps_client.send_message("/cancelchallenge")
-            await asyncio.sleep(0.5)
-        except Exception:
-            pass
+        await _cancel_challenge(player.ps_client, delay_s=1.0, debug=debug)
     return None
 
 
-async def _read_user_id(user_id_file: Path, timeout_s: int = 30) -> tuple[str | None, str | None]:
+async def _read_user_id(
+    user_id_file: Path, timeout_s: int = 30, debug: bool = False
+) -> tuple[str | None, str | None]:
     start = time.time()
     while time.time() - start < timeout_s:
         if user_id_file.exists():
@@ -382,7 +424,9 @@ async def _read_user_id(user_id_file: Path, timeout_s: int = 30) -> tuple[str | 
                     username = payload.get("username")
                     userid = userid.strip() if isinstance(userid, str) else userid
                     username = username.strip() if isinstance(username, str) else username
+                    _debug_print(debug, f"user-id file parsed: userid={userid} username={username}")
                     return userid, username
+                _debug_print(debug, f"user-id file raw: {content}")
                 return content.strip(), None
             except Exception:
                 pass
@@ -406,11 +450,24 @@ async def _spawn_foulplay(
     log_path: Path,
     user_id_path: Path,
     wait_s: int,
+    bot_mode: str,
+    user_to_challenge: str | None,
+    debug: bool,
 ) -> tuple[subprocess.Popen, Path, Path, str, str | None]:
     attempt_suffix = f"retry{attempt}" if attempt else ""
     attempt_log = _suffix_path(log_path, attempt_suffix)
     attempt_user_id = _suffix_path(user_id_path, attempt_suffix)
     attempt_user_id.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        attempt_user_id.unlink()
+    except FileNotFoundError:
+        pass
+    _debug_print(
+        debug,
+        "spawning foulplay mode={} log={} user_id_file={}".format(
+            bot_mode, attempt_log, attempt_user_id
+        ),
+    )
     proc = _start_foulplay(
         foulplay_path=foulplay_path,
         foulplay_python=foulplay_python,
@@ -424,9 +481,23 @@ async def _spawn_foulplay(
         log_path=attempt_log,
         no_login=no_login,
         user_id_file=attempt_user_id,
+        bot_mode=bot_mode,
+        user_to_challenge=user_to_challenge,
     )
-    foulplay_id, foulplay_name = await _read_user_id(attempt_user_id, timeout_s=wait_s)
+    foulplay_id, foulplay_name = await _read_user_id(
+        attempt_user_id, timeout_s=wait_s, debug=debug
+    )
     return proc, attempt_log, attempt_user_id, foulplay_id or "", foulplay_name
+
+
+def _tail_text(path: Path, max_chars: int = 2000) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
 
 
 async def main():
@@ -448,6 +519,16 @@ async def main():
     parser.add_argument("--foulplay-wait", type=int, default=30)
     parser.add_argument("--foulplay-user-id-file", default=None)
     parser.add_argument("--foulplay-retries", type=int, default=2)
+    parser.add_argument(
+        "--foulplay-challenges",
+        action="store_true",
+        help="Have Foul Play challenge our agent instead of the other way around.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose debug logging for eval orchestration.",
+    )
     parser.add_argument("--ws-uri", default="ws://localhost:8000/showdown/websocket")
     parser.add_argument("--no-login", action="store_true", help="Use guest /trn for local servers")
     args = parser.parse_args()
@@ -467,30 +548,11 @@ async def main():
         if args.foulplay_user_id_file
         else PROJECT_ROOT / Path(f"logs/foulplay/user_{time.strftime('%Y%m%d_%H%M%S')}.txt")
     )
+    log_path = log_path.expanduser().resolve()
+    user_id_path = user_id_path.expanduser().resolve()
     user_id_path.parent.mkdir(parents=True, exist_ok=True)
     # If caller passes a shell-substituted username, it might include spaces.
     foulplay_username = args.foulplay_username.strip()
-
-    proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
-        attempt=0,
-        remaining_battles=args.battles,
-        foulplay_path=foulplay_path,
-        foulplay_python=foulplay_python,
-        foulplay_username=foulplay_username,
-        foulplay_password=args.foulplay_password,
-        ws_uri=args.ws_uri,
-        battle_format=args.format,
-        search_time_ms=args.foulplay_search_ms,
-        parallelism=args.foulplay_parallelism,
-        no_login=args.no_login,
-        log_path=log_path,
-        user_id_path=user_id_path,
-        wait_s=args.foulplay_wait,
-    )
-    if not foulplay_id:
-        foulplay_id = _safe_id(foulplay_username)
-    if foulplay_name:
-        foulplay_username = foulplay_name
 
     kwargs = {
         "battle_format": args.format,
@@ -511,6 +573,49 @@ async def main():
         model = _load_model(args.checkpoint, device, config)
         agent = RLPlayer(model=model, config=config, device=device, training=False, **kwargs)
 
+    bot_mode = "challenge_user" if args.foulplay_challenges else "accept_challenge"
+    user_to_challenge = _safe_id(agent.username) if args.foulplay_challenges else None
+
+    _debug_print(
+        args.debug,
+        "agent user={} ws={} foulplay_user={} mode={}".format(
+            _safe_id(agent.username),
+            args.ws_uri,
+            foulplay_username,
+            "challenge_user" if args.foulplay_challenges else "accept_challenge",
+        ),
+    )
+    proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+        attempt=0,
+        remaining_battles=args.battles,
+        foulplay_path=foulplay_path,
+        foulplay_python=foulplay_python,
+        foulplay_username=foulplay_username,
+        foulplay_password=args.foulplay_password,
+        ws_uri=args.ws_uri,
+        battle_format=args.format,
+        search_time_ms=args.foulplay_search_ms,
+        parallelism=args.foulplay_parallelism,
+        no_login=args.no_login,
+        log_path=log_path,
+        user_id_path=user_id_path,
+        wait_s=args.foulplay_wait,
+        bot_mode=bot_mode,
+        user_to_challenge=user_to_challenge,
+        debug=args.debug,
+    )
+    if not foulplay_id:
+        foulplay_id = _safe_id(foulplay_username)
+    if foulplay_name:
+        foulplay_username = foulplay_name
+    print(
+        "   Foul Play user-id: {} name: {} file: {}".format(
+            foulplay_id or "<empty>",
+            foulplay_name or "<none>",
+            user_id_path,
+        )
+    )
+
     print(f"🔁 Challenging Foul Play ({foulplay_username}) for {args.battles} battles...")
     print(f"   Agent username: {agent.username}")
     print(f"   Server: {CustomServerConfig.websocket_url}")
@@ -518,6 +623,95 @@ async def main():
     retries_left = max(0, args.foulplay_retries)
     abort = False
     for i in range(args.battles):
+        refresh_attempts = 0
+        max_refresh_attempts = 2
+        if args.foulplay_challenges:
+            _debug_print(args.debug, f"waiting for challenge {i + 1}/{args.battles}")
+            if proc.poll() is not None:
+                if retries_left <= 0:
+                    abort = True
+                    break
+                retries_left -= 1
+                _terminate_proc(proc)
+                remaining = args.battles - i
+                proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+                    attempt=args.foulplay_retries - retries_left,
+                    remaining_battles=remaining,
+                    foulplay_path=foulplay_path,
+                    foulplay_python=foulplay_python,
+                    foulplay_username=foulplay_username,
+                    foulplay_password=args.foulplay_password,
+                    ws_uri=args.ws_uri,
+                    battle_format=args.format,
+                    search_time_ms=args.foulplay_search_ms,
+                    parallelism=args.foulplay_parallelism,
+                    no_login=args.no_login,
+                    log_path=log_path,
+                    user_id_path=user_id_path,
+                    wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
+                )
+                if not foulplay_id:
+                    foulplay_id = _safe_id(foulplay_username)
+                if foulplay_name:
+                    foulplay_username = foulplay_name
+                waiting_count = 0
+            try:
+                await asyncio.wait_for(
+                    agent.accept_challenges(opponent=None, n_challenges=1),
+                    timeout=args.battle_timeout,
+                )
+                _debug_print(
+                    args.debug,
+                    "accepted challenge; battles={} finished={}".format(
+                        len(agent.battles), agent.n_finished_battles
+                    ),
+                )
+            except asyncio.TimeoutError:
+                if args.debug:
+                    tail = _tail_text(log_path)
+                    _debug_print(args.debug, f"timeout waiting; foulplay log tail:\n{tail}")
+                if retries_left <= 0:
+                    print(f"   Timeout waiting for battle {i + 1}/{args.battles}")
+                    abort = True
+                    break
+                retries_left -= 1
+                _terminate_proc(proc)
+                remaining = args.battles - i
+                proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+                    attempt=args.foulplay_retries - retries_left,
+                    remaining_battles=remaining,
+                    foulplay_path=foulplay_path,
+                    foulplay_python=foulplay_python,
+                    foulplay_username=foulplay_username,
+                    foulplay_password=args.foulplay_password,
+                    ws_uri=args.ws_uri,
+                    battle_format=args.format,
+                    search_time_ms=args.foulplay_search_ms,
+                    parallelism=args.foulplay_parallelism,
+                    no_login=args.no_login,
+                    log_path=log_path,
+                    user_id_path=user_id_path,
+                    wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
+                )
+                if not foulplay_id:
+                    foulplay_id = _safe_id(foulplay_username)
+                if foulplay_name:
+                    foulplay_username = foulplay_name
+                waiting_count = 0
+            if (i + 1) % args.progress_every == 0:
+                wins = agent.n_won_battles
+                finished = agent.n_finished_battles
+                print(
+                    f"   {i+1}/{args.battles}: {wins}/{finished} wins "
+                    f"({wins/max(finished,1)*100:.1f}%)"
+                )
+            continue
         while True:
             if proc.poll() is not None:
                 if retries_left <= 0:
@@ -541,6 +735,9 @@ async def main():
                     log_path=log_path,
                     user_id_path=user_id_path,
                     wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
                 )
                 if not foulplay_id:
                     foulplay_id = _safe_id(foulplay_username)
@@ -553,6 +750,9 @@ async def main():
                 log_path, min_count=waiting_count + 1, timeout_s=args.foulplay_wait
             )
             if next_count is None:
+                if args.debug:
+                    tail = _tail_text(log_path)
+                    _debug_print(args.debug, f"foulplay wait timeout; log tail:\n{tail}")
                 if retries_left <= 0:
                     print(f"   Foul Play not ready for battle {i + 1}/{args.battles}")
                     abort = True
@@ -575,6 +775,9 @@ async def main():
                     log_path=log_path,
                     user_id_path=user_id_path,
                     wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
                 )
                 if not foulplay_id:
                     foulplay_id = _safe_id(foulplay_username)
@@ -588,13 +791,57 @@ async def main():
                 f"   Sending challenge to {foulplay_name or foulplay_username} "
                 f"(battle {i + 1}/{args.battles})..."
             )
+            prev_id = foulplay_id
+            prev_name = foulplay_name or foulplay_username
+            fresh_id, fresh_name = await _read_user_id(
+                user_id_path, timeout_s=1, debug=args.debug
+            )
+            if fresh_id:
+                foulplay_id = fresh_id
+            if fresh_name:
+                foulplay_name = fresh_name
+                foulplay_username = fresh_name
+            if (fresh_id and fresh_id != prev_id) or (fresh_name and fresh_name != prev_name):
+                _debug_print(
+                    args.debug,
+                    "foulplay user changed; waiting briefly before challenge",
+                )
+                await asyncio.sleep(2)
+            _debug_print(
+                args.debug,
+                "challenge candidates id={} name={}".format(
+                    foulplay_id or "<empty>", foulplay_name or foulplay_username
+                ),
+            )
             accepted_by = await _challenge_with_fallback(
                 agent,
                 opponent_id=foulplay_id,
                 opponent_name=foulplay_name or foulplay_username,
                 timeout_s=args.foulplay_wait,
+                debug=args.debug,
             )
             if not accepted_by:
+                refresh_attempts += 1
+                fresh_id, fresh_name = await _read_user_id(
+                    user_id_path, timeout_s=2, debug=args.debug
+                )
+                if (
+                    refresh_attempts <= max_refresh_attempts
+                    and (
+                        (fresh_id and fresh_id != foulplay_id)
+                        or (fresh_name and fresh_name != (foulplay_name or foulplay_username))
+                    )
+                ):
+                    if fresh_id:
+                        foulplay_id = fresh_id
+                    if fresh_name:
+                        foulplay_name = fresh_name
+                        foulplay_username = fresh_name
+                    _debug_print(args.debug, "retrying challenge after foulplay id update")
+                    continue
+                if args.debug:
+                    tail = _tail_text(log_path)
+                    _debug_print(args.debug, f"challenge not accepted; foulplay log tail:\n{tail}")
                 if retries_left <= 0:
                     print(f"   Challenge not accepted for battle {i + 1}/{args.battles}")
                     abort = True
@@ -617,6 +864,9 @@ async def main():
                     log_path=log_path,
                     user_id_path=user_id_path,
                     wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
                 )
                 if not foulplay_id:
                     foulplay_id = _safe_id(foulplay_username)
@@ -649,6 +899,9 @@ async def main():
                     log_path=log_path,
                     user_id_path=user_id_path,
                     wait_s=args.foulplay_wait,
+                    bot_mode=bot_mode,
+                    user_to_challenge=user_to_challenge,
+                    debug=args.debug,
                 )
                 if not foulplay_id:
                     foulplay_id = _safe_id(foulplay_username)
