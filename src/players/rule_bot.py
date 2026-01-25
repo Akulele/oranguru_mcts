@@ -851,7 +851,6 @@ class RuleBotPlayer(Player):
                             flags["has_boots"] = True
                         if kind == "-enditem":
                             flags["removed_item"] = item_id
-                            flags["known_item"] = item_id
                 if "heavy-duty boots" in lower or "heavydutyboots" in lower:
                     flags["has_boots"] = True
                 if "choiceband" in lower or "choicespecs" in lower or "choicescarf" in lower:
