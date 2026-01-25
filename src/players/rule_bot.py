@@ -316,6 +316,8 @@ class RuleBotPlayer(Player):
                 known_item = normalize_name(str(flags.get("removed_item") or ""))
             if known_item:
                 item_id = known_item
+            elif flags.get("has_boots"):
+                item_id = "heavydutyboots"
 
         candidates: List[Tuple[dict, int]] = []
         for key, count in raw_sets.items():
