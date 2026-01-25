@@ -874,14 +874,18 @@ class RuleBotPlayer(Player):
             if len(event) < 3:
                 continue
             source = self._parse_event_source(event, role, battle)
-            if (
-                self.SWITCH_IN_ABILITY_INFER
-                and source.get("side") == "opp"
-                and source.get("ability") in self.SWITCH_IN_ABILITY_REVEAL
-                and source.get("species")
-            ):
-                mem.setdefault("opponent_abilities", {})[source["species"]] = source["ability"]
-                continue
+            if self.SWITCH_IN_ABILITY_INFER and source.get("side") == "opp":
+                species = source.get("species")
+                ability = source.get("ability")
+                if ability in self.SWITCH_IN_ABILITY_REVEAL and species:
+                    switch_turn = (
+                        mem.get("opp_switch_info", {})
+                        .get(species, {})
+                        .get("turn", -999)
+                    )
+                    if switch_turn == last_turn:
+                        mem.setdefault("opponent_abilities", {})[species] = ability
+                        continue
             who = event[2]
             if who.startswith(role):
                 continue
