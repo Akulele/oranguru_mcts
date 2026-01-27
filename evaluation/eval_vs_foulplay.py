@@ -733,8 +733,8 @@ async def main():
         while True:
             if proc.poll() is not None:
                 if retries_left <= 0:
-                    abort = True
-                    break
+                    if not _allow_reset("   Foul Play process exited; aborting."):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
@@ -925,6 +925,7 @@ async def main():
                 waiting_count = 0
                 continue
 
+            retries_left = max(0, args.foulplay_retries)
             if (i + 1) % args.progress_every == 0:
                 wins = agent.n_won_battles
                 finished = agent.n_finished_battles
