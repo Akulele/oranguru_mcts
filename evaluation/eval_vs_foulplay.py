@@ -541,12 +541,12 @@ async def main():
         raise SystemExit(f"Foul Play python not found: {foulplay_python}")
 
     log_path = Path(args.foulplay_log) if args.foulplay_log else PROJECT_ROOT / Path(
-        f"logs/foulplay/eval_{time.strftime('%Y%m%d_%H%M%S')}.log"
+        f"logs/foulplay/current/eval_{time.strftime('%Y%m%d_%H%M%S')}.log"
     )
     user_id_path = (
         Path(args.foulplay_user_id_file)
         if args.foulplay_user_id_file
-        else PROJECT_ROOT / Path(f"logs/foulplay/user_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+        else PROJECT_ROOT / Path(f"logs/foulplay/current/user_{time.strftime('%Y%m%d_%H%M%S')}.txt")
     )
     log_path = log_path.expanduser().resolve()
     user_id_path = user_id_path.expanduser().resolve()
