@@ -520,6 +520,12 @@ async def main():
     parser.add_argument("--foulplay-user-id-file", default=None)
     parser.add_argument("--foulplay-retries", type=int, default=2)
     parser.add_argument(
+        "--foulplay-max-failures",
+        type=int,
+        default=5,
+        help="Max times to reset retries after repeated failures (0 = no limit).",
+    )
+    parser.add_argument(
         "--foulplay-challenges",
         action="store_true",
         help="Have Foul Play challenge our agent instead of the other way around.",
@@ -621,7 +627,20 @@ async def main():
     print(f"   Server: {CustomServerConfig.websocket_url}")
     waiting_count = 0
     retries_left = max(0, args.foulplay_retries)
+    total_failures = 0
     abort = False
+
+    def _allow_reset(failure_msg: str) -> bool:
+        nonlocal retries_left, total_failures, abort
+        if retries_left > 0:
+            return True
+        total_failures += 1
+        if args.foulplay_max_failures and total_failures > args.foulplay_max_failures:
+            print(failure_msg)
+            abort = True
+            return False
+        retries_left = max(1, args.foulplay_retries)
+        return True
     for i in range(args.battles):
         refresh_attempts = 0
         max_refresh_attempts = 2
@@ -629,8 +648,8 @@ async def main():
             _debug_print(args.debug, f"waiting for challenge {i + 1}/{args.battles}")
             if proc.poll() is not None:
                 if retries_left <= 0:
-                    abort = True
-                    break
+                    if not _allow_reset("   Foul Play process exited; aborting."):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
@@ -674,9 +693,8 @@ async def main():
                     tail = _tail_text(log_path)
                     _debug_print(args.debug, f"timeout waiting; foulplay log tail:\n{tail}")
                 if retries_left <= 0:
-                    print(f"   Timeout waiting for battle {i + 1}/{args.battles}")
-                    abort = True
-                    break
+                    if not _allow_reset(f"   Timeout waiting for battle {i + 1}/{args.battles}"):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
@@ -754,9 +772,8 @@ async def main():
                     tail = _tail_text(log_path)
                     _debug_print(args.debug, f"foulplay wait timeout; log tail:\n{tail}")
                 if retries_left <= 0:
-                    print(f"   Foul Play not ready for battle {i + 1}/{args.battles}")
-                    abort = True
-                    break
+                    if not _allow_reset(f"   Foul Play not ready for battle {i + 1}/{args.battles}"):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
@@ -843,9 +860,8 @@ async def main():
                     tail = _tail_text(log_path)
                     _debug_print(args.debug, f"challenge not accepted; foulplay log tail:\n{tail}")
                 if retries_left <= 0:
-                    print(f"   Challenge not accepted for battle {i + 1}/{args.battles}")
-                    abort = True
-                    break
+                    if not _allow_reset(f"   Challenge not accepted for battle {i + 1}/{args.battles}"):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
@@ -878,9 +894,8 @@ async def main():
             ok = await _wait_for_finished(agent, agent.n_finished_battles + 1, args.battle_timeout)
             if not ok:
                 if retries_left <= 0:
-                    print(f"   Timeout waiting for battle {i + 1}/{args.battles}")
-                    abort = True
-                    break
+                    if not _allow_reset(f"   Timeout waiting for battle {i + 1}/{args.battles}"):
+                        break
                 retries_left -= 1
                 _terminate_proc(proc)
                 remaining = args.battles - i
