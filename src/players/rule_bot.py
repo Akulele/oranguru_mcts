@@ -146,17 +146,6 @@ class RuleBotPlayer(Player):
         "teleport",
         "chillyreception",
     }
-    ITEM_INFER = bool(int(os.getenv("ORANGURU_ITEM_INFER", "1")))
-    SWITCH_IN_ABILITY_INFER = bool(int(os.getenv("ORANGURU_SWITCH_IN_ABILITY_INFER", "1")))
-    SWITCH_IN_ABILITY_REVEAL = {
-        "intimidate",
-        "download",
-        "trace",
-        "pressure",
-        "neutralizinggas",
-        "unnerve",
-        "imposter",
-    }
 
     DEBUG_STATUS = True
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
@@ -310,14 +299,6 @@ class RuleBotPlayer(Player):
         no_boots = flags.get("no_boots", False)
         must_choice = flags.get("choice_item", False)
         impossible_abilities = mem.get("opponent_impossible_abilities", {}).get(species, set())
-        if self.ITEM_INFER and not item_id:
-            known_item = normalize_name(str(flags.get("known_item") or ""))
-            if not known_item:
-                known_item = normalize_name(str(flags.get("removed_item") or ""))
-            if known_item:
-                item_id = known_item
-            elif flags.get("has_boots"):
-                item_id = "heavydutyboots"
 
         candidates: List[Tuple[dict, int]] = []
         for key, count in raw_sets.items():
@@ -830,14 +811,6 @@ class RuleBotPlayer(Player):
                             flags["known_item"] = item_id
                         break
                 continue
-            if kind in {"-heal", "heal"} and self.ITEM_INFER:
-                for part in event:
-                    if "item:" in part.lower():
-                        item_id = normalize_name(part.split("item:", 1)[1])
-                        if item_id:
-                            flags["known_item"] = item_id
-                        break
-                continue
 
             if "item" in kind:
                 lower = " ".join(event).lower()
@@ -875,19 +848,6 @@ class RuleBotPlayer(Player):
         for event in obs.events:
             if len(event) < 3:
                 continue
-            source = self._parse_event_source(event, role, battle)
-            if self.SWITCH_IN_ABILITY_INFER and source.get("side") == "opp":
-                species = source.get("species")
-                ability = source.get("ability")
-                if ability in self.SWITCH_IN_ABILITY_REVEAL and species:
-                    switch_turn = (
-                        mem.get("opp_switch_info", {})
-                        .get(species, {})
-                        .get("turn", -999)
-                    )
-                    if switch_turn == last_turn:
-                        mem.setdefault("opponent_abilities", {})[species] = ability
-                        continue
             who = event[2]
             if who.startswith(role):
                 continue
