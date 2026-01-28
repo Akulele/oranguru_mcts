@@ -61,14 +61,20 @@ class OranguruEnginePlayer(RuleBotPlayer):
     HEURISTIC_BLEND = float(os.getenv("ORANGURU_HEURISTIC_BLEND", "0.35"))
     MIN_HEURISTIC_BLEND = float(os.getenv("ORANGURU_MIN_HEURISTIC_BLEND", "0.0"))
     POLICY_CUTOFF = float(os.getenv("ORANGURU_POLICY_CUTOFF", "0.75"))
+    HEURISTIC_WHEN_UNCERTAIN = bool(int(os.getenv("ORANGURU_HEURISTIC_WHEN_UNCERTAIN", "1")))
+    CUTOFF_RELAX_CRITICAL = bool(int(os.getenv("ORANGURU_CUTOFF_RELAX_CRITICAL", "0")))
     STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "0")))
     STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
     IMMUNITY_INFER = bool(int(os.getenv("ORANGURU_IMMUNITY_INFER", "0")))
     MCTS_DETERMINISTIC = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC", "0")))
     MCTS_DETERMINISTIC_EVAL_ONLY = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC_EVAL_ONLY", "0")))
+    EVAL_MODE = bool(int(os.getenv("ORANGURU_EVAL_MODE", "0")))
     BELIEF_SAMPLING = bool(int(os.getenv("ORANGURU_BELIEF_SAMPLING", "1")))
     BELIEF_IMMUNITY_MATCH = float(os.getenv("ORANGURU_BELIEF_IMMUNITY_MATCH", "1.5"))
     BELIEF_IMMUNITY_MISS = float(os.getenv("ORANGURU_BELIEF_IMMUNITY_MISS", "0.7"))
+    BELIEF_WEIGHT_FLOOR = float(os.getenv("ORANGURU_BELIEF_WEIGHT_FLOOR", "0.0"))
+    MCTS_AGGREGATION = os.getenv("ORANGURU_MCTS_AGGREGATION", "fraction").lower()
+    MCTS_AGGREGATION_BLEND = float(os.getenv("ORANGURU_MCTS_AGGREGATION_BLEND", "0.5"))
     MCTS_CONFIDENCE_THRESHOLD = float(os.getenv("ORANGURU_MCTS_CONFIDENCE", "0.6"))
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
@@ -1021,6 +1027,23 @@ class OranguruEnginePlayer(RuleBotPlayer):
             )
         return None
 
+    def _is_critical_turn(self, battle: Battle) -> bool:
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        if active is None or opponent is None:
+            return False
+        if getattr(battle, "force_switch", False):
+            return True
+        active_hp = active.current_hp_fraction or 0.0
+        opp_hp = opponent.current_hp_fraction or 0.0
+        if active_hp <= 0.35 or opp_hp <= 0.35:
+            return True
+        if opponent.boosts and sum(opponent.boosts.values()) >= 2:
+            return True
+        if active.boosts and sum(active.boosts.values()) >= 2:
+            return True
+        return False
+
     def _select_move_from_results(
         self,
         results: List[Tuple[object, float]],
@@ -1029,16 +1052,53 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> str:
         battle_tag = str(getattr(battle, "battle_tag", "")).lower()
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
+        is_eval = self.EVAL_MODE or is_eval_tag
         deterministic = self.MCTS_DETERMINISTIC and (
-            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
+            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval
         )
+        agg_mode = self.MCTS_AGGREGATION
         final_policy = {}
+        final_ev = {}
         for res, weight in results:
             total_visits = res.total_visits or 1
             for opt in res.side_one:
-                final_policy[opt.move_choice] = final_policy.get(opt.move_choice, 0.0) + (
-                    weight * (opt.visits / total_visits)
-                )
+                move_choice = opt.move_choice
+                if agg_mode in {"fraction", "visits", "effort", "hybrid"}:
+                    if agg_mode == "visits":
+                        contrib = opt.visits
+                    elif agg_mode == "effort":
+                        contrib = opt.visits * math.sqrt(total_visits)
+                    else:
+                        contrib = opt.visits / total_visits
+                    final_policy[move_choice] = final_policy.get(move_choice, 0.0) + (
+                        weight * contrib
+                    )
+                if agg_mode in {"ev", "hybrid"} and opt.visits:
+                    avg_score = opt.total_score / opt.visits
+                    final_ev[move_choice] = final_ev.get(move_choice, 0.0) + (
+                        weight * avg_score
+                    )
+        if agg_mode in {"ev", "hybrid"} and final_ev:
+            min_ev = min(final_ev.values())
+            shifted_ev = {k: (v - min_ev + 1e-6) for k, v in final_ev.items()}
+            if agg_mode == "ev":
+                final_policy = shifted_ev
+            else:
+                ev_total = sum(shifted_ev.values())
+                visit_total = sum(final_policy.values())
+                if ev_total > 0:
+                    ev_norm = {k: v / ev_total for k, v in shifted_ev.items()}
+                else:
+                    ev_norm = {k: 0.0 for k in shifted_ev}
+                if visit_total > 0:
+                    visit_norm = {k: v / visit_total for k, v in final_policy.items()}
+                else:
+                    visit_norm = {k: 0.0 for k in final_policy}
+                blend = max(0.0, min(1.0, self.MCTS_AGGREGATION_BLEND))
+                final_policy = {
+                    k: (1.0 - blend) * visit_norm.get(k, 0.0) + blend * ev_norm.get(k, 0.0)
+                    for k in set(visit_norm) | set(ev_norm)
+                }
         if not final_policy:
             return ""
         if banned_choices:
@@ -1060,7 +1120,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
             confidence = max(confidence, margin)
 
         cutoff = best * 0.75
-        filtered = [o for o in ordered if o[1] >= cutoff]
+        if self.CUTOFF_RELAX_CRITICAL and self._is_critical_turn(battle):
+            filtered = ordered
+        else:
+            filtered = [o for o in ordered if o[1] >= cutoff]
 
         threshold = max(0.0, min(1.0, self.MCTS_CONFIDENCE_THRESHOLD))
         if self.SELECTION_MODE == "policy":
@@ -1071,7 +1134,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 policy_choices = [ordered[0]]
             choices = [choice for choice, _ in policy_choices]
             policy_weights = [max(0.0, weight) for _, weight in policy_choices]
-            if confidence < threshold:
+            if confidence < threshold and self.HEURISTIC_WHEN_UNCERTAIN:
                 heuristic_weights = []
                 for choice in choices:
                     score = self._heuristic_action_score(battle, choice)
@@ -1083,7 +1146,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 return random.choice(choices)
             return random.choices(choices, weights=policy_weights, k=1)[0]
 
-        if self.SELECTION_MODE == "rerank" and confidence < threshold:
+        if (
+            self.SELECTION_MODE == "rerank"
+            and confidence < threshold
+            and self.HEURISTIC_WHEN_UNCERTAIN
+        ):
             candidates = filtered[: max(1, self.RERANK_TOPK)]
             scored = []
             for choice, weight in candidates:
@@ -1123,6 +1190,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 confidence = max(confidence, margin)
             if confidence >= threshold:
                 blend = 0.0
+        if not self.HEURISTIC_WHEN_UNCERTAIN and confidence < threshold:
+            blend = min_blend
         if min_blend > 0.0:
             blend = max(blend, min_blend)
 
@@ -1226,6 +1295,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 samples = prepare_random_battles(base_fp_battle, sample_states)
                 fp_battles = [b for b, _ in samples]
                 weights = [w for _, w in samples]
+                if self.BELIEF_WEIGHT_FLOOR > 0 and weights:
+                    floor = max(0.0, self.BELIEF_WEIGHT_FLOOR)
+                    weights = [max(w, floor) for w in weights]
+                    total = sum(weights)
+                    if total > 0:
+                        weights = [w / total for w in weights]
             except Exception:
                 fp_battles = [base_fp_battle]
                 weights = [1.0]
