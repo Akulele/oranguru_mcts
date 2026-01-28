@@ -144,9 +144,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
             ]
             for var in thread_vars:
                 os.environ.setdefault(var, desired)
-        elif self.PARALLELISM > 1:
-            for var in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS"):
-                os.environ.setdefault(var, "1")
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
