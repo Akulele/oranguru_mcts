@@ -543,6 +543,32 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 banned.add(f"{move.id}-tera")
         return banned
 
+    def _status_banned_choices(self, battle: Battle) -> set:
+        opponent = battle.opponent_active_pokemon
+        if opponent is None or opponent.status is None:
+            return set()
+        banned = set()
+        for move in battle.available_moves or []:
+            entry = self._get_move_entry(move)
+            status_type = self.STATUS_MOVES.get(move.id)
+            if status_type is None:
+                status_type = self._status_from_move_entry(entry)
+            if status_type in {"sleep", "burn", "poison", "para", "yawn"}:
+                banned.add(move.id)
+                banned.add(f"{move.id}-tera")
+        return banned
+
+    def _self_effect_banned_choices(self, battle: Battle) -> set:
+        active = battle.active_pokemon
+        if active is None:
+            return set()
+        effects = getattr(active, "effects", None) or {}
+        banned = set()
+        if Effect.NO_RETREAT in effects:
+            banned.add("noretreat")
+            banned.add("noretreat-tera")
+        return banned
+
     def _apply_opponent_item_flags(self, fp_mon: FPPokemon, battle: Battle) -> None:
         mem = self._get_battle_memory(battle)
         flags = mem.get("opponent_item_flags", {}).get(normalize_name(fp_mon.name))
@@ -1343,6 +1369,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return super().choose_move(battle)
 
         banned_choices = self._sleep_clause_banned_choices(battle)
+        banned_choices |= self._status_banned_choices(battle)
+        banned_choices |= self._self_effect_banned_choices(battle)
         choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
         if not choice:
             return super().choose_move(battle)
