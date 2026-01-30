@@ -362,12 +362,18 @@ async def _wait_for_login(ps_client, timeout_s: int) -> bool:
         return False
 
 
-async def _cancel_challenge(ps_client, delay_s: float = 0.5, debug: bool = False) -> None:
+async def _cancel_challenge(
+    ps_client,
+    delay_s: float = 0.5,
+    debug: bool = False,
+    attempts: int = 1,
+) -> None:
     try:
-        await ps_client.send_message("/cancelchallenge")
-        _debug_print(debug, "sent /cancelchallenge")
-        if delay_s:
-            await asyncio.sleep(delay_s)
+        for idx in range(max(1, attempts)):
+            await ps_client.send_message("/cancelchallenge")
+            _debug_print(debug, f"sent /cancelchallenge ({idx + 1}/{attempts})")
+            if delay_s:
+                await asyncio.sleep(delay_s)
     except Exception:
         _debug_print(debug, "failed to send /cancelchallenge")
 
@@ -389,7 +395,7 @@ async def _challenge_with_fallback(
     seen = set()
     if not await _wait_for_login(player.ps_client, timeout_s):
         return None
-    await _cancel_challenge(player.ps_client, delay_s=0.5, debug=debug)
+    await _cancel_challenge(player.ps_client, delay_s=0.6, debug=debug, attempts=2)
     for candidate in candidates:
         candidate = candidate.strip()
         if not candidate or candidate in seen:
@@ -397,13 +403,13 @@ async def _challenge_with_fallback(
         seen.add(candidate)
         before = len(player.battles)
         print(f"   Trying challenge target: {candidate}")
-        await _cancel_challenge(player.ps_client, delay_s=0.2, debug=debug)
+        await _cancel_challenge(player.ps_client, delay_s=0.4, debug=debug, attempts=2)
         await player.ps_client.challenge(candidate, player._format, player.next_team)
         if await _wait_for_battle_start(player, before, timeout_s):
             print(f"   Battle started with: {candidate}")
             return candidate
         print(f"   No battle start for: {candidate}")
-        await _cancel_challenge(player.ps_client, delay_s=1.0, debug=debug)
+        await _cancel_challenge(player.ps_client, delay_s=1.0, debug=debug, attempts=3)
     return None
 
 
