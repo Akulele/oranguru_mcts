@@ -103,6 +103,8 @@ class RuleBotPlayer(Player):
     CHOICE_UNLIKELY_EXTENDED = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_EXTENDED", "0")))
     CHOICE_UNLIKELY_PIVOT = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_PIVOT", "0")))
     IMMUNITY_MIN_HITS = int(os.getenv("ORANGURU_IMMUNITY_MIN_HITS", "2"))
+    STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "1")))
+    STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
     CHOICE_UNLIKELY_EXTRA = {
         "protect",
         "detect",
@@ -454,6 +456,18 @@ class RuleBotPlayer(Player):
         self._record_last_action(battle, order)
         return order
 
+    def _is_trick_room_active(self, battle: Optional[Battle]) -> bool:
+        if battle is None:
+            return False
+        fields = getattr(battle, "fields", None)
+        if not fields:
+            return False
+        if isinstance(fields, dict):
+            if Field.TRICK_ROOM in fields:
+                return True
+            return any("trick room" in str(k).lower() for k in fields.keys())
+        return "trick room" in str(fields).lower()
+
     def _estimate_matchup(self, mon: Pokemon, opponent: Pokemon) -> float:
         """Estimate matchup score - positive means we have advantage."""
         if mon is None or opponent is None:
@@ -474,10 +488,12 @@ class RuleBotPlayer(Player):
         my_speed = self._get_effective_speed(mon)
         opp_speed = self._get_effective_speed(opponent)
 
+        battle = getattr(self, "_current_battle", None)
+        trick_room = self._is_trick_room_active(battle)
         if my_speed > opp_speed:
-            score += self.SPEED_TIER_COEFICIENT
+            score += -self.SPEED_TIER_COEFICIENT if trick_room else self.SPEED_TIER_COEFICIENT
         elif opp_speed > my_speed:
-            score -= self.SPEED_TIER_COEFICIENT
+            score += self.SPEED_TIER_COEFICIENT if trick_room else -self.SPEED_TIER_COEFICIENT
 
         # HP advantage
         score += mon.current_hp_fraction * self.HP_FRACTION_COEFICIENT
@@ -2406,6 +2422,13 @@ class RuleBotPlayer(Player):
         # Don't status already statused Pokemon (except seed/taunt/encore)
         if opponent.status is not None and status_type not in {"seed", "taunt", "encore"}:
             return 0.0
+
+        if self.STATUS_KO_GUARD and battle and active and opponent:
+            opp_hp = opponent.current_hp_fraction or 0.0
+            best_damage = self._estimate_best_damage_score(active, opponent, battle)
+            threshold = self.STATUS_KO_THRESHOLD * max(opp_hp, 0.05)
+            if best_damage >= threshold:
+                return 0.0
 
         score = 0.0
 

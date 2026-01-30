@@ -1041,113 +1041,122 @@ async def ladder_rulebot(
             except Exception:
                 pass
 
-    while total < total_target:
-        remaining = total_target - total
-        if remaining <= 0:
-            break
-        if player_type == "rl":
-            if not checkpoint_path:
-                print("❌ --checkpoint is required when --player rl")
-                return 1
-            model, config = load_checkpoint_for_ladder(checkpoint_path, device)
-            bot = TrackedRLPlayer(
-                model=model,
-                config=config,
-                device=device,
-                training=False,
-                track_illegal=False,
-                battle_format=battle_format,
-                max_concurrent_battles=max_concurrent,
-                account_configuration=account_config,
-                server_configuration=ShowdownServerConfiguration,
-                log_level=log_level_value,
-                open_timeout=open_timeout,
-                ping_interval=ping_interval,
-                ping_timeout=ping_timeout,
-                start_timer_on_battle_start=start_timer,
-                data_collector=data_collector,
-                total_battles=remaining,
-                progress_every=progress_every,
-            )
-        elif player_type == "oranguru_engine":
-            bot = TrackedOranguruEngine(
-                battle_format=battle_format,
-                max_concurrent_battles=max_concurrent,
-                account_configuration=account_config,
-                server_configuration=ShowdownServerConfiguration,
-                log_level=log_level_value,
-                open_timeout=open_timeout,
-                ping_interval=ping_interval,
-                ping_timeout=ping_timeout,
-                start_timer_on_battle_start=start_timer,
-                data_collector=data_collector,
-                total_battles=remaining,
-                progress_every=progress_every,
-            )
-        else:
-            bot = TrackedRuleBot(
-                battle_format=battle_format,
-                max_concurrent_battles=max_concurrent,
-                account_configuration=account_config,
-                server_configuration=ShowdownServerConfiguration,
-                log_level=log_level_value,
-                open_timeout=open_timeout,
-                ping_interval=ping_interval,
-                ping_timeout=ping_timeout,
-                start_timer_on_battle_start=start_timer,
-                data_collector=data_collector,
-                total_battles=remaining,
-                progress_every=progress_every,
-            )
+    bot = None
+    interrupted = False
+    try:
+        while total < total_target:
+            remaining = total_target - total
+            if remaining <= 0:
+                break
+            if player_type == "rl":
+                if not checkpoint_path:
+                    print("❌ --checkpoint is required when --player rl")
+                    return 1
+                model, config = load_checkpoint_for_ladder(checkpoint_path, device)
+                bot = TrackedRLPlayer(
+                    model=model,
+                    config=config,
+                    device=device,
+                    training=False,
+                    track_illegal=False,
+                    battle_format=battle_format,
+                    max_concurrent_battles=max_concurrent,
+                    account_configuration=account_config,
+                    server_configuration=ShowdownServerConfiguration,
+                    log_level=log_level_value,
+                    open_timeout=open_timeout,
+                    ping_interval=ping_interval,
+                    ping_timeout=ping_timeout,
+                    start_timer_on_battle_start=start_timer,
+                    data_collector=data_collector,
+                    total_battles=remaining,
+                    progress_every=progress_every,
+                )
+            elif player_type == "oranguru_engine":
+                bot = TrackedOranguruEngine(
+                    battle_format=battle_format,
+                    max_concurrent_battles=max_concurrent,
+                    account_configuration=account_config,
+                    server_configuration=ShowdownServerConfiguration,
+                    log_level=log_level_value,
+                    open_timeout=open_timeout,
+                    ping_interval=ping_interval,
+                    ping_timeout=ping_timeout,
+                    start_timer_on_battle_start=start_timer,
+                    data_collector=data_collector,
+                    total_battles=remaining,
+                    progress_every=progress_every,
+                )
+            else:
+                bot = TrackedRuleBot(
+                    battle_format=battle_format,
+                    max_concurrent_battles=max_concurrent,
+                    account_configuration=account_config,
+                    server_configuration=ShowdownServerConfiguration,
+                    log_level=log_level_value,
+                    open_timeout=open_timeout,
+                    ping_interval=ping_interval,
+                    ping_timeout=ping_timeout,
+                    start_timer_on_battle_start=start_timer,
+                    data_collector=data_collector,
+                    total_battles=remaining,
+                    progress_every=progress_every,
+                )
 
-        try:
-            logged_in = await _wait_logged_in(bot)
-            if not logged_in:
-                raise TimeoutError("Login timeout waiting for Showdown websocket")
-            if rejoin_active and pending_rejoins:
-                asyncio.create_task(_rejoin_pending(bot, pending_rejoins))
-                pending_rejoins = []
-            if challenge_opponents:
-                battles_per_opponent = int(challenge_battles) if challenge_battles is not None else int(n_battles)
-                battles_per_opponent = max(1, battles_per_opponent)
-                planned = 0
-                for opponent in challenge_opponents:
-                    if planned >= remaining:
-                        break
-                    to_play = min(battles_per_opponent, max(0, remaining - planned))
-                    if to_play <= 0:
-                        break
-                    opponent_id = to_id_str(opponent)
-                    print(f"   📌 Sending {to_play} challenge(s) to {opponent_id}...")
-                    await bot.send_challenges(opponent_id, to_play)
-                    planned += to_play
-            else:
-                await bot.ladder(remaining)
-        except Exception as exc:
-            retries += 1
-            print(f"⚠️ Ladder error ({username}): {exc}")
-            if rejoin_active:
-                pending_rejoins = [
-                    tag for tag, battle in bot.battles.items()
-                    if not getattr(battle, "finished", False)
-                ]
+            try:
+                logged_in = await _wait_logged_in(bot)
+                if not logged_in:
+                    raise TimeoutError("Login timeout waiting for Showdown websocket")
+                if rejoin_active and pending_rejoins:
+                    asyncio.create_task(_rejoin_pending(bot, pending_rejoins))
+                    pending_rejoins = []
+                if challenge_opponents:
+                    battles_per_opponent = int(challenge_battles) if challenge_battles is not None else int(n_battles)
+                    battles_per_opponent = max(1, battles_per_opponent)
+                    planned = 0
+                    for opponent in challenge_opponents:
+                        if planned >= remaining:
+                            break
+                        to_play = min(battles_per_opponent, max(0, remaining - planned))
+                        if to_play <= 0:
+                            break
+                        opponent_id = to_id_str(opponent)
+                        print(f"   📌 Sending {to_play} challenge(s) to {opponent_id}...")
+                        await bot.send_challenges(opponent_id, to_play)
+                        planned += to_play
+                else:
+                    await bot.ladder(remaining)
+            except Exception as exc:
+                retries += 1
+                print(f"⚠️ Ladder error ({username}): {exc}")
+                if rejoin_active:
+                    pending_rejoins = [
+                        tag for tag, battle in bot.battles.items()
+                        if not getattr(battle, "finished", False)
+                    ]
+                await _safe_stop(bot)
+                if not auto_reconnect or retries > max_retries:
+                    raise
+                if retry_wait_s > 0:
+                    await asyncio.sleep(retry_wait_s)
+            finally:
+                counts = getattr(bot, "_summary_counts", None)
+                if counts:
+                    wins += counts["won"]
+                    losses += counts["lost"]
+                    ties += counts["tied"]
+                    total += counts["finished"]
+                else:
+                    wins += bot.n_won_battles
+                    losses += bot.n_lost_battles
+                    ties += bot.n_tied_battles
+                    total += bot.n_finished_battles
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        interrupted = True
+        if bot is not None:
             await _safe_stop(bot)
-            if not auto_reconnect or retries > max_retries:
-                raise
-            if retry_wait_s > 0:
-                await asyncio.sleep(retry_wait_s)
-        finally:
-            counts = getattr(bot, "_summary_counts", None)
-            if counts:
-                wins += counts["won"]
-                losses += counts["lost"]
-                ties += counts["tied"]
-                total += counts["finished"]
-            else:
-                wins += bot.n_won_battles
-                losses += bot.n_lost_battles
-                ties += bot.n_tied_battles
-                total += bot.n_finished_battles
+    if interrupted:
+        print("⚠️ Ladder interrupted; printing partial summary.")
 
     # Commit finished battles to data collector
     if data_collector:
@@ -1199,7 +1208,7 @@ async def ladder_rulebot(
             f"low<{switch_mass_warn:.2f}: {switch_stats['low']} | boosted={switch_stats['boosted']}"
         )
 
-    if verbose and bot.battles:
+    if verbose and bot and bot.battles:
         print("\n📌 Battle Details")
         for tag, battle in sorted(bot.battles.items()):
             if not battle.finished:

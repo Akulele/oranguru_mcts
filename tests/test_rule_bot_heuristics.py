@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from poke_env.battle import PokemonType, MoveCategory
+from poke_env.battle.field import Field
 from poke_env.battle.effect import Effect
 from poke_env.data.gen_data import GenData
 
@@ -49,6 +50,8 @@ class DummyPokemon:
 class RuleBotHeuristicTests(unittest.TestCase):
     def setUp(self):
         self.bot = RuleBotPlayer(start_listening=False)
+        self.bot.STATUS_KO_GUARD = True
+        self.bot.STATUS_KO_THRESHOLD = 200.0
 
     def test_strength_sap_prefers_boosted_attackers(self):
         data = GenData.from_gen(9)
@@ -65,7 +68,7 @@ class RuleBotHeuristicTests(unittest.TestCase):
             data=data,
         )
         move = DummyMove("strengthsap", accuracy=100)
-        score = self.bot._should_use_status_move(move, active, opponent, SimpleNamespace())
+        score = self.bot._should_use_status_move(move, active, opponent, SimpleNamespace(available_moves=[]))
         self.assertGreaterEqual(score, 220.0)
 
     def test_status_moves_blocked_when_target_already_statused(self):
@@ -127,6 +130,42 @@ class RuleBotHeuristicTests(unittest.TestCase):
 
     def test_canonicalize_move_id_handles_prefix(self):
         self.assertEqual(self.bot._canonicalize_move_id("Move: Thunder Wave"), "thunderwave")
+
+    def test_trick_room_prefers_slower(self):
+        data = GenData.from_gen(9)
+        slow = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 80, "spd": 120, "spe": 50},
+            type_1=PokemonType.WATER,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        fast = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 80, "spd": 120, "spe": 120},
+            type_1=PokemonType.WATER,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        battle = SimpleNamespace(fields={Field.TRICK_ROOM: 3})
+        self.bot._current_battle = battle
+        matchup = self.bot._estimate_matchup(slow, fast)
+        self.assertGreater(matchup, 0.0)
+
+    def test_status_moves_avoided_when_ko_available(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 120, "spd": 120, "spe": 80},
+            current_hp_fraction=0.8,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 120, "spd": 120, "spe": 80},
+            current_hp_fraction=0.2,
+            data=data,
+        )
+        battle = SimpleNamespace(available_moves=[DummyMove("sludgebomb")])
+        self.bot._estimate_best_damage_score = lambda *_: 500.0
+        score = self.bot._should_use_status_move(DummyMove("toxic"), active, opponent, battle)
+        self.assertEqual(score, 0.0)
 
     def test_no_retreat_not_recommended_twice(self):
         active = DummyPokemon(
