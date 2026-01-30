@@ -2229,12 +2229,29 @@ class RuleBotPlayer(Player):
         name = tera_type.name if hasattr(tera_type, "name") else str(tera_type)
         return normalize_name(name) == "stellar"
 
+    def _is_terastallized(self, opponent: Pokemon) -> bool:
+        if opponent is None:
+            return False
+        flag = getattr(opponent, "is_terastallized", None)
+        if flag is None or flag is False:
+            alt = getattr(opponent, "terastallized", None)
+            if alt:
+                flag = alt
+        if isinstance(flag, str):
+            norm = normalize_name(flag)
+            return bool(norm) and norm not in {"false", "0"}
+        return bool(flag)
+
     def _opponent_is_stellar_tera(self, opponent: Pokemon) -> bool:
         if opponent is None:
             return False
-        terastallized = getattr(opponent, "terastallized", None)
-        if terastallized:
-            return normalize_name(str(terastallized)) == "stellar"
+        if self._is_terastallized(opponent):
+            tera_type = getattr(opponent, "tera_type", None)
+            if self._is_stellar_type(tera_type):
+                return True
+            terastallized = getattr(opponent, "terastallized", None)
+            if terastallized:
+                return normalize_name(str(terastallized)) == "stellar"
         return False
 
     def _opponent_is_set_up(self, opponent: Pokemon) -> bool:
@@ -2457,8 +2474,14 @@ class RuleBotPlayer(Player):
         # Strength Sap: heal + drop attack
         if status_type == "sap" or move.id == "strengthsap":
             opp_atk = self._stat_estimation(opponent, "atk")
-            if active.current_hp_fraction < 0.75 and opp_atk > 120:
+            opp_boosts = opponent.boosts or {}
+            atk_boost = opp_boosts.get("atk", 0) if isinstance(opp_boosts, dict) else 0
+            hp_frac = active.current_hp_fraction if active.current_hp_fraction is not None else 1.0
+            if hp_frac < 0.75 and opp_atk > 120:
                 score = max(score, 200.0)
+            if atk_boost and atk_boost > 0:
+                boost_bonus = 20.0 * min(3, atk_boost)
+                score = max(score, 220.0 + boost_bonus)
 
         # Apply accuracy penalty
         score *= accuracy
@@ -2670,7 +2693,7 @@ class RuleBotPlayer(Player):
     def _get_defensive_types(self, opponent: Pokemon) -> Tuple[Optional[PokemonType], Optional[PokemonType]]:
         if opponent is None:
             return (None, None)
-        if getattr(opponent, "is_terastallized", False) and opponent.tera_type is not None:
+        if self._is_terastallized(opponent) and opponent.tera_type is not None:
             return (opponent.tera_type, None)
         return (opponent.type_1, opponent.type_2)
 
@@ -2697,7 +2720,7 @@ class RuleBotPlayer(Player):
         if opponent is None:
             return []
         types = [t for t in (opponent.types or []) if t is not None]
-        if getattr(opponent, "is_terastallized", False) and opponent.tera_type is not None:
+        if self._is_terastallized(opponent) and opponent.tera_type is not None:
             if opponent.tera_type not in types:
                 types.append(opponent.tera_type)
         return types

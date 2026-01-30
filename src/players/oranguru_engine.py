@@ -65,20 +65,29 @@ class OranguruEnginePlayer(RuleBotPlayer):
     CUTOFF_RELAX_CRITICAL = bool(int(os.getenv("ORANGURU_CUTOFF_RELAX_CRITICAL", "0")))
     STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "0")))
     STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
+    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "1")))
+    RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "200.0"))
     IMMUNITY_INFER = bool(int(os.getenv("ORANGURU_IMMUNITY_INFER", "0")))
     MCTS_DETERMINISTIC = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC", "0")))
     MCTS_DETERMINISTIC_EVAL_ONLY = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC_EVAL_ONLY", "0")))
     EVAL_MODE = bool(int(os.getenv("ORANGURU_EVAL_MODE", "0")))
+    FORCE_DETERMINISTIC = bool(int(os.getenv("ORANGURU_FORCE_DETERMINISTIC", "0")))
     BELIEF_SAMPLING = bool(int(os.getenv("ORANGURU_BELIEF_SAMPLING", "1")))
     BELIEF_IMMUNITY_MATCH = float(os.getenv("ORANGURU_BELIEF_IMMUNITY_MATCH", "1.5"))
     BELIEF_IMMUNITY_MISS = float(os.getenv("ORANGURU_BELIEF_IMMUNITY_MISS", "0.7"))
     BELIEF_WEIGHT_FLOOR = float(os.getenv("ORANGURU_BELIEF_WEIGHT_FLOOR", "0.0"))
+    BELIEF_WEIGHT_SMOOTH = float(os.getenv("ORANGURU_BELIEF_WEIGHT_SMOOTH", "0.0"))
     MCTS_AGGREGATION = os.getenv("ORANGURU_MCTS_AGGREGATION", "fraction").lower()
     MCTS_AGGREGATION_BLEND = float(os.getenv("ORANGURU_MCTS_AGGREGATION_BLEND", "0.5"))
+    MCTS_EFFORT_WEIGHT = float(os.getenv("ORANGURU_MCTS_EFFORT_WEIGHT", "0.5"))
+    MCTS_EFFORT_CAP = float(os.getenv("ORANGURU_MCTS_EFFORT_CAP", "0.0"))
+    MCTS_CONFIDENCE_MODE = os.getenv("ORANGURU_MCTS_CONFIDENCE_MODE", "policy").lower()
     MCTS_CONFIDENCE_THRESHOLD = float(os.getenv("ORANGURU_MCTS_CONFIDENCE", "0.6"))
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
     RERANK_TOPK = int(os.getenv("ORANGURU_RERANK_TOPK", "3"))
+    MIN_POLICY_ACTIONS = int(os.getenv("ORANGURU_MIN_POLICY_ACTIONS", "2"))
+    DYNAMIC_SAMPLING_EARLY_MODE = os.getenv("ORANGURU_DYNAMIC_SAMPLING_EARLY", "reduce").lower()
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1011,6 +1020,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     safe_recover = True
                 hp_frac = active.current_hp_fraction or 0.0
                 if hp_frac < 0.65 and safe_recover:
+                    if self.RECOVERY_KO_GUARD:
+                        opp_hp = opponent.current_hp_fraction or 0.0
+                        best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                        threshold = self.RECOVERY_KO_THRESHOLD * max(opp_hp, 0.05)
+                        if best_damage >= threshold:
+                            return 0.0
                     missing = 1.0 - hp_frac
                     return max(0.0, 140.0 * missing)
                 return 0.0
@@ -1080,13 +1095,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
         is_eval = self.EVAL_MODE or is_eval_tag
         deterministic = self.MCTS_DETERMINISTIC and (
-            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval
+            self.FORCE_DETERMINISTIC
+            or not self.MCTS_DETERMINISTIC_EVAL_ONLY
+            or is_eval
         )
         agg_mode = self.MCTS_AGGREGATION
         final_policy = {}
         final_ev = {}
         for res, weight in results:
             total_visits = res.total_visits or 1
+            effort = total_visits
+            if self.MCTS_EFFORT_CAP > 0:
+                effort = min(effort, self.MCTS_EFFORT_CAP)
+            effort_scale = 1.0
+            if agg_mode in {"fraction", "hybrid"} and self.MCTS_EFFORT_WEIGHT > 0:
+                effort_scale = math.pow(max(1.0, effort), self.MCTS_EFFORT_WEIGHT)
+            ev_scale = effort_scale if self.MCTS_EFFORT_WEIGHT > 0 else 1.0
             for opt in res.side_one:
                 move_choice = opt.move_choice
                 if agg_mode in {"fraction", "visits", "effort", "hybrid"}:
@@ -1097,12 +1121,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     else:
                         contrib = opt.visits / total_visits
                     final_policy[move_choice] = final_policy.get(move_choice, 0.0) + (
-                        weight * contrib
+                        weight * contrib * effort_scale
                     )
                 if agg_mode in {"ev", "hybrid"} and opt.visits:
                     avg_score = opt.total_score / opt.visits
                     final_ev[move_choice] = final_ev.get(move_choice, 0.0) + (
-                        weight * avg_score
+                        weight * avg_score * ev_scale
                     )
         if agg_mode in {"ev", "hybrid"} and final_ev:
             min_ev = min(final_ev.values())
@@ -1139,17 +1163,36 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return ordered[0][0]
 
         best = ordered[0][1]
-        confidence = best / total_policy if total_policy > 0 else 0.0
+        confidence_policy = best / total_policy if total_policy > 0 else 0.0
         if len(ordered) > 1:
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
-            confidence = max(confidence, margin)
+            confidence_policy = max(confidence_policy, margin)
+
+        confidence_ev = None
+        if final_ev:
+            ev_sorted = sorted(final_ev.items(), key=lambda x: x[1], reverse=True)
+            best_ev = ev_sorted[0][1]
+            second_ev = ev_sorted[1][1] if len(ev_sorted) > 1 else best_ev
+            ev_min = min(final_ev.values())
+            ev_range = max(1e-6, best_ev - ev_min)
+            confidence_ev = max(0.0, min(1.0, (best_ev - second_ev) / ev_range))
+
+        if self.MCTS_CONFIDENCE_MODE == "ev" and confidence_ev is not None:
+            confidence = confidence_ev
+        elif self.MCTS_CONFIDENCE_MODE == "hybrid":
+            confidence = max(confidence_policy, confidence_ev or 0.0)
+        else:
+            confidence = confidence_policy
 
         cutoff = best * 0.75
         if self.CUTOFF_RELAX_CRITICAL and self._is_critical_turn(battle):
             filtered = ordered
         else:
             filtered = [o for o in ordered if o[1] >= cutoff]
+        min_actions = max(1, self.MIN_POLICY_ACTIONS)
+        if len(filtered) < min_actions:
+            filtered = ordered[:min_actions]
 
         threshold = max(0.0, min(1.0, self.MCTS_CONFIDENCE_THRESHOLD))
         if self.SELECTION_MODE == "policy":
@@ -1158,6 +1201,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             policy_choices = [(choice, weight) for choice, weight in ordered if weight >= cutoff]
             if not policy_choices:
                 policy_choices = [ordered[0]]
+            if len(policy_choices) < min_actions:
+                policy_choices = ordered[:min_actions]
             choices = [choice for choice, _ in policy_choices]
             policy_weights = [max(0.0, weight) for _, weight in policy_choices]
             if confidence < threshold and self.HEURISTIC_WHEN_UNCERTAIN:
@@ -1209,11 +1254,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 gate = 1.0
             blend *= gate
         else:
-            confidence = best / total_policy if total_policy > 0 else 0.0
-            if len(ordered) > 1:
-                second = ordered[1][1]
-                margin = (best - second) / total_policy if total_policy > 0 else 0.0
-                confidence = max(confidence, margin)
             if confidence >= threshold:
                 blend = 0.0
         if not self.HEURISTIC_WHEN_UNCERTAIN and confidence < threshold:
@@ -1304,7 +1344,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
             time_remaining = getattr(battle, "time_remaining", None)
             in_time_pressure = time_remaining is not None and time_remaining <= 60
 
-            if revealed <= 3 and opp_hp > 0 and opp_known_moves == 0:
+            early_game = revealed <= 3 and opp_hp > 0 and opp_known_moves == 0
+            if early_game and self.DYNAMIC_SAMPLING_EARLY_MODE != "boost":
+                sample_states = max(1, min(sample_states, self.PARALLELISM))
+                search_time_ms = max(
+                    60,
+                    int(self.SEARCH_TIME_MS * (0.5 if in_time_pressure else 0.8)),
+                )
+            elif early_game:
                 multiplier = 2 if in_time_pressure else 4
                 sample_states = max(sample_states, self.PARALLELISM * multiplier)
                 search_time_ms = max(80, int(self.SEARCH_TIME_MS * 0.5))
@@ -1324,6 +1371,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 if self.BELIEF_WEIGHT_FLOOR > 0 and weights:
                     floor = max(0.0, self.BELIEF_WEIGHT_FLOOR)
                     weights = [max(w, floor) for w in weights]
+                    total = sum(weights)
+                    if total > 0:
+                        weights = [w / total for w in weights]
+                if self.BELIEF_WEIGHT_SMOOTH > 0 and weights:
+                    smooth = max(0.0, min(1.0, self.BELIEF_WEIGHT_SMOOTH))
+                    uniform = 1.0 / len(weights)
+                    weights = [(1.0 - smooth) * w + smooth * uniform for w in weights]
                     total = sum(weights)
                     if total > 0:
                         weights = [w / total for w in weights]

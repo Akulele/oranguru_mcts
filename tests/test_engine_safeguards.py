@@ -11,6 +11,7 @@ class DummyMove:
     def __init__(self, move_id, move_type=None):
         self.id = move_id
         self.type = move_type
+        self.category = None
 
 
 class DummyPokemon:
@@ -25,6 +26,7 @@ class DummyPokemon:
         is_terastallized=False,
         types=None,
         data=None,
+        current_hp_fraction=1.0,
     ):
         self.status = status
         self.effects = effects or {}
@@ -34,6 +36,7 @@ class DummyPokemon:
         self.is_terastallized = is_terastallized
         self.types = types if types is not None else [type_1, type_2]
         self._data = data
+        self.current_hp_fraction = current_hp_fraction
 
 
 class DummyBattle:
@@ -88,6 +91,23 @@ class EngineSafeguardTests(unittest.TestCase):
         mult = self.engine._damage_multiplier_against(opp, PokemonType.FIRE)
         # Fire vs Water should be resisted (< 1.0), not super-effective vs Grass (> 1.0).
         self.assertLess(mult, 1.0)
+
+    def test_recovery_guard_avoids_heal_when_ko_available(self):
+        active = DummyPokemon(status=None)
+        opponent = DummyPokemon(status=None)
+        battle = DummyBattle(
+            available_moves=[DummyMove("recover")],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        active.current_hp_fraction = 0.4
+        opponent.current_hp_fraction = 0.2
+        self.engine.RECOVERY_KO_GUARD = True
+        self.engine._estimate_best_reply_score = lambda *_: 0
+        self.engine._estimate_matchup = lambda *_: 0.5
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        score = self.engine._heuristic_action_score(battle, "recover")
+        self.assertEqual(score, 0.0)
 
 
 if __name__ == "__main__":
