@@ -104,6 +104,30 @@ class RuleBotHeuristicTests(unittest.TestCase):
         opponent.terastallized = "water"
         self.assertTrue(self.bot._opponent_has_type(opponent, "water"))
 
+    def test_tera_matchup_penalizes_bad_switch(self):
+        data = GenData.from_gen(9)
+        attacker = DummyPokemon(
+            stats={"hp": 300, "atk": 160, "def": 120, "spa": 120, "spd": 120, "spe": 95},
+            type_1=PokemonType.FIRE,
+            type_2=None,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            stats={"hp": 320, "atk": 120, "def": 110, "spa": 120, "spd": 110, "spe": 80},
+            type_1=PokemonType.GRASS,
+            type_2=None,
+            tera_type=PokemonType.WATER,
+            is_terastallized=True,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        matchup = self.bot._estimate_matchup(attacker, opponent)
+        self.assertLess(matchup, 0.0)
+
+    def test_canonicalize_move_id_handles_prefix(self):
+        self.assertEqual(self.bot._canonicalize_move_id("Move: Thunder Wave"), "thunderwave")
+
     def test_no_retreat_not_recommended_twice(self):
         active = DummyPokemon(
             stats={"hp": 300, "atk": 150, "def": 120, "spa": 80, "spd": 110, "spe": 90},

@@ -14,6 +14,12 @@ class DummyMove:
         self.category = None
 
 
+class DummyFPMove:
+    def __init__(self, *, move_id=None, name=None):
+        self.id = move_id
+        self.name = name
+
+
 class DummyPokemon:
     def __init__(
         self,
@@ -108,6 +114,14 @@ class EngineSafeguardTests(unittest.TestCase):
         self.engine._estimate_best_damage_score = lambda *_: 500.0
         score = self.engine._heuristic_action_score(battle, "recover")
         self.assertEqual(score, 0.0)
+
+    def test_fp_move_key_prefers_id_when_present(self):
+        move = DummyFPMove(move_id="thunderwave", name="Thunder Wave")
+        self.assertEqual(self.engine._fp_move_key(move), "thunderwave")
+
+    def test_fp_move_key_falls_back_to_name(self):
+        move = DummyFPMove(move_id=None, name="Sleep Powder")
+        self.assertEqual(self.engine._fp_move_key(move), "sleeppowder")
 
 
 if __name__ == "__main__":

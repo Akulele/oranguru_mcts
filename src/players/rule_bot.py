@@ -102,6 +102,7 @@ class RuleBotPlayer(Player):
     UNLIKELY_CHOICE_INFER = bool(int(os.getenv("ORANGURU_UNLIKELY_CHOICE_INFER", "1")))
     CHOICE_UNLIKELY_EXTENDED = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_EXTENDED", "0")))
     CHOICE_UNLIKELY_PIVOT = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_PIVOT", "0")))
+    IMMUNITY_MIN_HITS = int(os.getenv("ORANGURU_IMMUNITY_MIN_HITS", "2"))
     CHOICE_UNLIKELY_EXTRA = {
         "protect",
         "detect",
@@ -288,10 +289,10 @@ class RuleBotPlayer(Player):
         known_moves |= {normalize_name(m) for m in observed_moves}
 
         ability_id = self._get_ability_id(opponent)
-        item_id = normalize_name(str(getattr(opponent, "item", ""))) if getattr(opponent, "item", None) else ""
+        item_id = self._get_item_id(opponent)
         level = getattr(opponent, "level", None)
         tera_id = ""
-        if getattr(opponent, "terastallized", False):
+        if self._is_terastallized(opponent):
             tera_type = getattr(opponent, "tera_type", None)
             if tera_type is not None:
                 tera_id = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
@@ -390,6 +391,19 @@ class RuleBotPlayer(Player):
             return
         if last_move_category == "status":
             return
+        effects = getattr(opponent, "effects", None) or {}
+        for shield in (
+            Effect.PROTECT,
+            Effect.BANEFUL_BUNKER,
+            Effect.SPIKY_SHIELD,
+            Effect.SILK_TRAP,
+            Effect.ENDURE,
+            Effect.SUBSTITUTE,
+            Effect.DISGUISE,
+            Effect.ICE_FACE,
+        ):
+            if shield in effects:
+                return
         if last_opponent_hp is None or opponent.current_hp_fraction is None:
             return
         if abs(opponent.current_hp_fraction - last_opponent_hp) > 0.01:
@@ -401,6 +415,7 @@ class RuleBotPlayer(Player):
         else:
             acc = 1.0
         threshold = 1 if acc >= 0.95 else 2
+        threshold = max(threshold, self.IMMUNITY_MIN_HITS)
 
         counts = mem.setdefault("no_damage_counts", {}).setdefault(last_opponent_species, {})
         if last_move_id:
@@ -573,7 +588,7 @@ class RuleBotPlayer(Player):
             if kind != "move" or len(event) < 4:
                 continue
             who = event[2]
-            move_id = normalize_name(event[3])
+            move_id = self._canonicalize_move_id(event[3])
             if not move_id:
                 continue
             if who.startswith(role):
@@ -744,7 +759,7 @@ class RuleBotPlayer(Player):
             species = self._species_from_event(battle, event)
             if not species:
                 continue
-            move_id = normalize_name(event[3])
+            move_id = self._canonicalize_move_id(event[3])
             if not move_id:
                 continue
             moves = mem.setdefault("opp_moves_since_switch", {}).setdefault(species, set())
@@ -793,7 +808,7 @@ class RuleBotPlayer(Player):
             moveset = mem.setdefault("opponent_moves", {}).setdefault(species, set())
 
             if kind == "move" and len(event) >= 4:
-                move_id = normalize_name(event[3])
+                move_id = self._canonicalize_move_id(event[3])
                 if move_id:
                     if flags.get("last_move_id") and flags["last_move_id"] != move_id:
                         flags["no_choice"] = True
@@ -824,7 +839,7 @@ class RuleBotPlayer(Player):
             if "item" in kind:
                 lower = " ".join(event).lower()
                 if len(event) >= 4:
-                    item_id = normalize_name(event[3])
+                    item_id = self._canonicalize_id(event[3])
                     if item_id:
                         flags["known_item"] = item_id
                         if item_id in self.CHOICE_ITEMS:
@@ -866,7 +881,7 @@ class RuleBotPlayer(Player):
             ability_id = None
             kind = event[1]
             if kind in {"-ability", "ability"} and len(event) >= 4:
-                ability_id = normalize_name(event[3])
+                ability_id = self._canonicalize_id(event[3])
             if not ability_id:
                 for part in event:
                     if isinstance(part, str) and "ability:" in part.lower():
@@ -1035,7 +1050,7 @@ class RuleBotPlayer(Player):
             if event[1] != "move":
                 continue
             who = event[2]
-            move_id = normalize_name(event[3])
+            move_id = self._canonicalize_move_id(event[3])
             if not move_id:
                 continue
             side_key = "self" if who.startswith(role) else "opp"
@@ -1158,7 +1173,7 @@ class RuleBotPlayer(Player):
         if side == "self":
             for mon in battle.team.values():
                 if mon and normalize_name(mon.species) == species:
-                    return normalize_name(str(getattr(mon, "item", "") or ""))
+                    return self._get_item_id(mon)
         elif side == "opp":
             mem = self._get_battle_memory(battle)
             flags = mem.get("opponent_item_flags", {}).get(species, {})
@@ -1195,7 +1210,7 @@ class RuleBotPlayer(Player):
             if event[1] != "move":
                 continue
             who = event[2]
-            move_id = normalize_name(event[3])
+            move_id = self._canonicalize_move_id(event[3])
             if not move_id:
                 continue
             side_key = "self" if who.startswith(role) else "opp"
@@ -2032,8 +2047,7 @@ class RuleBotPlayer(Player):
     def _has_heavy_duty_boots(self, mon: Pokemon) -> bool:
         if mon is None:
             return False
-        item = getattr(mon, "item", None)
-        return normalize_name(str(item)) == "heavydutyboots" if item else False
+        return self._get_item_id(mon) == "heavydutyboots"
 
     def _hazard_switch_penalty(self, battle: Battle, mon: Pokemon) -> float:
         if battle is None or mon is None:
@@ -2772,11 +2786,43 @@ class RuleBotPlayer(Player):
             return "fast_attacker"
         return "balanced"
 
+    def _canonicalize_id(self, obj) -> str:
+        if obj is None:
+            return ""
+        if hasattr(obj, "id") and getattr(obj, "id"):
+            val = getattr(obj, "id")
+        elif hasattr(obj, "value") and getattr(obj, "value"):
+            val = getattr(obj, "value")
+        elif hasattr(obj, "name") and getattr(obj, "name"):
+            val = getattr(obj, "name")
+        else:
+            val = str(obj)
+        if isinstance(val, str):
+            raw = val.strip()
+            if "." in raw:
+                prefix, rest = raw.split(".", 1)
+                if prefix.lower() in {"ability", "item", "status", "move"}:
+                    raw = rest
+            return normalize_name(raw)
+        return normalize_name(str(val))
+
+    def _canonicalize_move_id(self, raw) -> str:
+        if raw is None:
+            return ""
+        text = str(raw).strip()
+        if ":" in text and text.lower().startswith("move"):
+            text = text.split(":", 1)[1]
+        return normalize_name(text)
+
+    def _get_item_id(self, opponent: Pokemon) -> str:
+        item = getattr(opponent, "item", None)
+        return self._canonicalize_id(item) if item else ""
+
     def _get_ability_id(self, opponent: Pokemon) -> Optional[str]:
         ability = getattr(opponent, "ability", None)
         if not ability:
             return None
-        ability_id = normalize_name(str(ability))
+        ability_id = self._canonicalize_id(ability)
         abilities_data = load_abilities()
         if abilities_data and ability_id not in abilities_data:
             return None

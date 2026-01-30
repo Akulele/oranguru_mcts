@@ -284,8 +284,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         level = getattr(mon, "level", None) or (set_info.get("level") if set_info else 100)
         fp_mon = FPPokemon(species, level)
 
-        ability = normalize_name(str(getattr(mon, "ability", ""))) if getattr(mon, "ability", None) else ""
-        item = normalize_name(str(getattr(mon, "item", ""))) if getattr(mon, "item", None) else ""
+        ability = self._canonicalize_id(getattr(mon, "ability", None)) if getattr(mon, "ability", None) else ""
+        item = self._canonicalize_id(getattr(mon, "item", None)) if getattr(mon, "item", None) else ""
         if set_info:
             if set_info.get("ability"):
                 fp_mon.ability = set_info["ability"]
@@ -542,6 +542,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         status = normalize_name(entry.get("status", ""))
         return status in self.SLEEP_STATUS_IDS
 
+    def _fp_move_key(self, move) -> str:
+        if move is None:
+            return ""
+        move_id = getattr(move, "id", None) or getattr(move, "move_id", None)
+        if move_id:
+            return normalize_name(move_id)
+        return normalize_name(getattr(move, "name", ""))
+
     def _sleep_clause_banned_choices(self, battle: Battle) -> set:
         if not self._sleep_clause_blocked(battle):
             return set()
@@ -780,7 +788,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             if who.startswith(role):
                 continue
             species = self._species_from_event(battle, event) or ""
-            move_id = normalize_name(event[3])
+            move_id = self._canonicalize_move_id(event[3])
             if move_id:
                 return species, move_id, last_turn
         return None
@@ -896,10 +904,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if user.active and battle.available_moves:
             available = {normalize_name(m.id) for m in battle.available_moves}
             for mv in user.active.moves:
-                mv.disabled = mv.name not in available
+                move_key = self._fp_move_key(mv)
+                mv.disabled = move_key not in available
             if self._sleep_clause_blocked(battle):
                 for mv in user.active.moves:
-                    if self._fp_move_inflicts_sleep(mv.name):
+                    if self._fp_move_inflicts_sleep(self._fp_move_key(mv)):
                         mv.disabled = True
             mem = self._get_battle_memory(battle)
             if mem.get("last_action") == "move":
@@ -1193,6 +1202,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         min_actions = max(1, self.MIN_POLICY_ACTIONS)
         if len(filtered) < min_actions:
             filtered = ordered[:min_actions]
+        filtered_total = sum(w for _, w in filtered)
+        if filtered_total > 0:
+            best_f = filtered[0][1]
+            confidence_policy = best_f / filtered_total
+            if len(filtered) > 1:
+                second_f = filtered[1][1]
+                margin_f = (best_f - second_f) / filtered_total
+                confidence_policy = max(confidence_policy, margin_f)
 
         threshold = max(0.0, min(1.0, self.MCTS_CONFIDENCE_THRESHOLD))
         if self.SELECTION_MODE == "policy":
