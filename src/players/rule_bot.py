@@ -105,6 +105,8 @@ class RuleBotPlayer(Player):
     IMMUNITY_MIN_HITS = int(os.getenv("ORANGURU_IMMUNITY_MIN_HITS", "2"))
     STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "1")))
     STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
+    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "1")))
+    RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "200.0"))
     CHOICE_UNLIKELY_EXTRA = {
         "protect",
         "detect",
@@ -2042,10 +2044,11 @@ class RuleBotPlayer(Player):
 
     def _estimate_best_damage_score(self, active: Pokemon, opponent: Pokemon, battle: Battle) -> float:
         """Estimate our best damaging move score."""
-        if not active or not opponent or not battle.available_moves:
+        moves = getattr(battle, "available_moves", None)
+        if not active or not opponent or not moves:
             return 0.0
         best_score = 0.0
-        for move in battle.available_moves:
+        for move in moves:
             try:
                 if move.category == MoveCategory.STATUS:
                     continue
@@ -2622,6 +2625,13 @@ class RuleBotPlayer(Player):
         raw_score = base_power * stab * stat_ratio * accuracy * expected_hits * type_mult
         score = raw_score
 
+        entry = self._get_move_entry(move)
+        healblock = normalize_name(entry.get("volatileStatus", "")) == "healblock"
+        if healblock or move.id == "psychicnoise":
+            known_moves = self._opponent_known_move_ids(opponent)
+            if (known_moves & self.RECOVERY_MOVES) or self._opponent_is_stallish(opponent):
+                score *= 1.25
+
         # Avoid spamming Future Sight / Doom Desire
         if move.id in self.FUTURE_SIGHT_MOVES and self._future_sight_recent(battle):
             score *= 0.3
@@ -2714,11 +2724,15 @@ class RuleBotPlayer(Player):
     def _opponent_has_type(self, opponent: Pokemon, type_id: str) -> bool:
         if opponent is None:
             return False
+        target = normalize_name(type_id)
         types = self._get_defensive_types(opponent)
         for t in types:
             if t is None:
                 continue
-            if t.name.lower() == type_id:
+            if hasattr(t, "name"):
+                if normalize_name(t.name) == target:
+                    return True
+            elif normalize_name(str(t)) == target:
                 return True
         return False
 
@@ -2730,8 +2744,13 @@ class RuleBotPlayer(Player):
     def _get_defensive_types(self, opponent: Pokemon) -> Tuple[Optional[PokemonType], Optional[PokemonType]]:
         if opponent is None:
             return (None, None)
-        if self._is_terastallized(opponent) and opponent.tera_type is not None:
-            return (opponent.tera_type, None)
+        if self._is_terastallized(opponent):
+            tera_type = getattr(opponent, "tera_type", None)
+            if tera_type is not None:
+                return (tera_type, None)
+            terastallized = getattr(opponent, "terastallized", None)
+            if terastallized:
+                return (terastallized, None)
         return (opponent.type_1, opponent.type_2)
 
     def _get_type_chart(self, opponent: Optional[Pokemon]) -> dict:
@@ -2757,9 +2776,15 @@ class RuleBotPlayer(Player):
         if opponent is None:
             return []
         types = [t for t in (opponent.types or []) if t is not None]
-        if self._is_terastallized(opponent) and opponent.tera_type is not None:
-            if opponent.tera_type not in types:
-                types.append(opponent.tera_type)
+        if self._is_terastallized(opponent):
+            tera_type = getattr(opponent, "tera_type", None)
+            if tera_type is not None:
+                if tera_type not in types:
+                    types.append(tera_type)
+            else:
+                terastallized = getattr(opponent, "terastallized", None)
+                if terastallized and terastallized not in types:
+                    types.append(terastallized)
         return types
 
     def _priority_blocked(self, battle: Battle, opponent: Pokemon) -> bool:
@@ -3193,6 +3218,12 @@ class RuleBotPlayer(Player):
                     safe_recover = True
                 if behind and reply_score > 140:
                     safe_recover = False
+                if self.RECOVERY_KO_GUARD and opponent is not None:
+                    opp_hp = opponent.current_hp_fraction or 0.0
+                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                    threshold = self.RECOVERY_KO_THRESHOLD * max(opp_hp, 0.05)
+                    if best_damage >= threshold:
+                        safe_recover = False
                 if safe_recover:
                     for move in battle.available_moves:
                         if self._is_recovery_move(move):
