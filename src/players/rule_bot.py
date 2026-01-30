@@ -17,10 +17,11 @@ from pathlib import Path
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 from poke_env.player import Player
-from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition
+from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition, PokemonType
 from poke_env.battle.field import Field
 from poke_env.battle.weather import Weather
 from poke_env.battle.effect import Effect
+from poke_env.data.gen_data import GenData
 
 from src.utils.damage_calc import ABILITY_DAMAGE_MODS, normalize_name, get_type_effectiveness
 from src.utils.features import load_abilities, load_moves
@@ -78,6 +79,8 @@ class RuleBotPlayer(Player):
     }
 
     FUTURE_SIGHT_MOVES = {"futuresight", "doomdesire"}
+
+    _FALLBACK_TYPE_CHART = GenData.from_gen(9).type_chart
 
     # High-recoil moves (33% recoil or more)
     HIGH_RECOIL_MOVES = {
@@ -442,8 +445,14 @@ class RuleBotPlayer(Player):
             return 0.0
 
         # Type matchup: How well can we hit them vs how well they hit us
-        my_offensive = max([opponent.damage_multiplier(t) for t in mon.types if t is not None], default=1.0)
-        their_offensive = max([mon.damage_multiplier(t) for t in opponent.types if t is not None], default=1.0)
+        my_offensive = max(
+            [self._damage_multiplier_against(opponent, t) for t in mon.types if t is not None],
+            default=1.0,
+        )
+        their_offensive = max(
+            [self._damage_multiplier_against(mon, t) for t in self._opponent_offensive_types(opponent)],
+            default=1.0,
+        )
         score = my_offensive - their_offensive
 
         # Speed comparison with actual stats if available
@@ -967,7 +976,7 @@ class RuleBotPlayer(Player):
                 if mv.id == last_move_id:
                     move_obj = mv
                     break
-            if move_obj and opponent.damage_multiplier(move_obj) <= 0:
+            if move_obj and self._damage_multiplier_against(opponent, move_obj) <= 0:
                 return
         except Exception:
             pass
@@ -1993,8 +2002,8 @@ class RuleBotPlayer(Player):
 
         if best_score <= 0:
             type_mult = max(
-                [target.damage_multiplier(t) for t in opponent.types if t is not None],
-                default=1.0
+                [self._damage_multiplier_against(target, t) for t in self._opponent_offensive_types(opponent)],
+                default=1.0,
             )
             return 80.0 * type_mult
 
@@ -2197,6 +2206,10 @@ class RuleBotPlayer(Player):
         """Return True if a boosting move is still worth using."""
         if move is None or not move.boosts or active is None:
             return False
+        if move.id == "noretreat":
+            effects = getattr(active, "effects", None) or {}
+            if Effect.NO_RETREAT in effects:
+                return False
         for stat, delta in move.boosts.items():
             if delta <= 0:
                 continue
@@ -2533,7 +2546,7 @@ class RuleBotPlayer(Player):
         if opponent and self._opponent_is_stellar_tera(opponent):
             type_mult = 1.0
         else:
-            type_mult = opponent.damage_multiplier(move) if opponent else 1.0
+            type_mult = self._damage_multiplier_against(opponent, move) if opponent else 1.0
 
         # Ability-based immunities and reductions
         if opponent and self._ability_blocks_move(move, opponent):
@@ -2641,7 +2654,8 @@ class RuleBotPlayer(Player):
     def _opponent_has_type(self, opponent: Pokemon, type_id: str) -> bool:
         if opponent is None:
             return False
-        for t in (opponent.types or []):
+        types = self._get_defensive_types(opponent)
+        for t in types:
             if t is None:
                 continue
             if t.name.lower() == type_id:
@@ -2651,12 +2665,42 @@ class RuleBotPlayer(Player):
     def _opponent_is_ghost(self, opponent: Pokemon) -> bool:
         if opponent is None:
             return False
-        if self._opponent_has_type(opponent, "ghost"):
-            return True
-        terastallized = getattr(opponent, "terastallized", None)
-        if terastallized and normalize_name(str(terastallized)) == "ghost":
-            return True
-        return False
+        return self._opponent_has_type(opponent, "ghost")
+
+    def _get_defensive_types(self, opponent: Pokemon) -> Tuple[Optional[PokemonType], Optional[PokemonType]]:
+        if opponent is None:
+            return (None, None)
+        if getattr(opponent, "is_terastallized", False) and opponent.tera_type is not None:
+            return (opponent.tera_type, None)
+        return (opponent.type_1, opponent.type_2)
+
+    def _get_type_chart(self, opponent: Optional[Pokemon]) -> dict:
+        if opponent is None:
+            return self._FALLBACK_TYPE_CHART
+        data = getattr(opponent, "_data", None)
+        chart = getattr(data, "type_chart", None)
+        return chart or self._FALLBACK_TYPE_CHART
+
+    def _damage_multiplier_against(self, opponent: Optional[Pokemon], move_or_type) -> float:
+        if opponent is None or move_or_type is None:
+            return 1.0
+        if isinstance(move_or_type, Move):
+            move_type = move_or_type.type
+        else:
+            move_type = move_or_type
+        if move_type is None:
+            return 1.0
+        type_1, type_2 = self._get_defensive_types(opponent)
+        return move_type.damage_multiplier(type_1, type_2, type_chart=self._get_type_chart(opponent))
+
+    def _opponent_offensive_types(self, opponent: Optional[Pokemon]) -> List[PokemonType]:
+        if opponent is None:
+            return []
+        types = [t for t in (opponent.types or []) if t is not None]
+        if getattr(opponent, "is_terastallized", False) and opponent.tera_type is not None:
+            if opponent.tera_type not in types:
+                types.append(opponent.tera_type)
+        return types
 
     def _priority_blocked(self, battle: Battle, opponent: Pokemon) -> bool:
         if not opponent or not battle:
@@ -2818,7 +2862,7 @@ class RuleBotPlayer(Player):
 
         if ability_id == "wonderguard":
             try:
-                if opponent.damage_multiplier(move) <= 1.0:
+                if self._damage_multiplier_against(opponent, move) <= 1.0:
                     return True
             except Exception:
                 pass
@@ -2863,10 +2907,10 @@ class RuleBotPlayer(Player):
 
         # Calculate offensive and defensive tera value
         try:
-            current_offensive = opponent.damage_multiplier(move.type)
+            current_offensive = self._damage_multiplier_against(opponent, move.type)
             if active.tera_type is not None:
                 tera_offensive = (
-                    opponent.damage_multiplier(active.tera_type)
+                    self._damage_multiplier_against(opponent, active.tera_type)
                     if move.type != active.tera_type
                     else current_offensive
                 )
