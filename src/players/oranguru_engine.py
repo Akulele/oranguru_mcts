@@ -79,6 +79,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     BELIEF_WEIGHT_SMOOTH = float(os.getenv("ORANGURU_BELIEF_WEIGHT_SMOOTH", "0.0"))
     MCTS_AGGREGATION = os.getenv("ORANGURU_MCTS_AGGREGATION", "fraction").lower()
     MCTS_AGGREGATION_BLEND = float(os.getenv("ORANGURU_MCTS_AGGREGATION_BLEND", "0.5"))
+    MCTS_PESSIMISM = float(os.getenv("ORANGURU_MCTS_PESSIMISM", "0.65"))
     MCTS_EFFORT_WEIGHT = float(os.getenv("ORANGURU_MCTS_EFFORT_WEIGHT", "0.5"))
     MCTS_EFFORT_CAP = float(os.getenv("ORANGURU_MCTS_EFFORT_CAP", "0.0"))
     MCTS_CONFIDENCE_MODE = os.getenv("ORANGURU_MCTS_CONFIDENCE_MODE", "policy").lower()
@@ -1111,6 +1112,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         agg_mode = self.MCTS_AGGREGATION
         final_policy = {}
         final_ev = {}
+        move_scores = {}
         for res, weight in results:
             total_visits = res.total_visits or 1
             effort = total_visits
@@ -1122,6 +1124,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             ev_scale = effort_scale if self.MCTS_EFFORT_WEIGHT > 0 else 1.0
             for opt in res.side_one:
                 move_choice = opt.move_choice
+                if agg_mode in {"lcb", "pessimistic"} and opt.visits:
+                    avg_score = opt.total_score / opt.visits
+                    move_scores.setdefault(move_choice, []).append((avg_score, weight))
                 if agg_mode in {"fraction", "visits", "effort", "hybrid"}:
                     if agg_mode == "visits":
                         contrib = opt.visits
@@ -1137,6 +1142,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     final_ev[move_choice] = final_ev.get(move_choice, 0.0) + (
                         weight * avg_score * ev_scale
                     )
+        if agg_mode in {"lcb", "pessimistic"} and move_scores:
+            final_scores = {}
+            safety_bias = max(0.0, min(1.0, getattr(self, "MCTS_PESSIMISM", 0.65)))
+            for move, scores in move_scores.items():
+                total_weight = sum(w for _, w in scores)
+                if total_weight > 0:
+                    weighted_avg = sum(s * w for s, w in scores) / total_weight
+                else:
+                    weighted_avg = sum(s for s, _ in scores) / len(scores)
+                min_score = min(s for s, _ in scores)
+                final_scores[move] = (weighted_avg * (1.0 - safety_bias)) + (min_score * safety_bias)
+            final_policy = final_scores
         if agg_mode in {"ev", "hybrid"} and final_ev:
             min_ev = min(final_ev.values())
             shifted_ev = {k: (v - min_ev + 1e-6) for k, v in final_ev.items()}
@@ -1354,6 +1371,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         weights = []
         sample_states = self.SAMPLE_STATES
         search_time_ms = self.SEARCH_TIME_MS
+        single_action = len(battle.available_moves) == 1 and not battle.available_switches
+        is_critical = False
+        if active.current_hp_fraction is not None and active.current_hp_fraction < 0.45:
+            is_critical = True
+        if opponent.current_hp_fraction is not None and opponent.current_hp_fraction < 0.45:
+            is_critical = True
+        if opponent.boosts and sum(opponent.boosts.values()) >= 2:
+            is_critical = True
         if self.DYNAMIC_SAMPLING:
             opp_known_moves = len(self._get_known_moves(opponent))
             revealed = len([m for m in battle.opponent_team.values() if m is not None])
@@ -1377,6 +1402,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 sample_states = max(sample_states, self.PARALLELISM * multiplier)
 
             sample_states = min(self.MAX_SAMPLE_STATES, sample_states)
+
+        if is_critical:
+            search_time_ms = int(search_time_ms * 2.5)
+            sample_states = min(self.MAX_SAMPLE_STATES, sample_states + 2)
+        time_remaining = getattr(battle, "time_remaining", None)
+        if time_remaining is not None and time_remaining < 30:
+            search_time_ms = min(search_time_ms, 150)
+            sample_states = min(sample_states, 2)
+        if single_action:
+            search_time_ms = min(search_time_ms, 50)
+            sample_states = 1
 
         base_fp_battle = self._build_fp_battle(battle, seed=0, fill_opponent_sets=False)
         if base_fp_battle.battle_type == constants.BattleType.RANDOM_BATTLE:
