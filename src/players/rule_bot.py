@@ -17,11 +17,10 @@ from pathlib import Path
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 from poke_env.player import Player
-from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition, PokemonType
+from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition
 from poke_env.battle.field import Field
 from poke_env.battle.weather import Weather
 from poke_env.battle.effect import Effect
-from poke_env.data.gen_data import GenData
 
 from src.utils.damage_calc import ABILITY_DAMAGE_MODS, normalize_name, get_type_effectiveness
 from src.utils.features import load_abilities, load_moves
@@ -80,8 +79,6 @@ class RuleBotPlayer(Player):
 
     FUTURE_SIGHT_MOVES = {"futuresight", "doomdesire"}
 
-    _FALLBACK_TYPE_CHART = GenData.from_gen(9).type_chart
-
     # High-recoil moves (33% recoil or more)
     HIGH_RECOIL_MOVES = {
         "bravebird", "doubleedge", "flareblitz", "headcharge", "headsmash",
@@ -102,11 +99,6 @@ class RuleBotPlayer(Player):
     UNLIKELY_CHOICE_INFER = bool(int(os.getenv("ORANGURU_UNLIKELY_CHOICE_INFER", "1")))
     CHOICE_UNLIKELY_EXTENDED = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_EXTENDED", "0")))
     CHOICE_UNLIKELY_PIVOT = bool(int(os.getenv("ORANGURU_CHOICE_UNLIKELY_PIVOT", "0")))
-    IMMUNITY_MIN_HITS = int(os.getenv("ORANGURU_IMMUNITY_MIN_HITS", "2"))
-    STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "0")))
-    STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
-    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "0")))
-    RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "200.0"))
     CHOICE_UNLIKELY_EXTRA = {
         "protect",
         "detect",
@@ -165,6 +157,19 @@ class RuleBotPlayer(Player):
         "spd": 2,
         "spe": 2,
     }
+
+    @staticmethod
+    def _canon_id(value) -> str:
+        if value is None:
+            return ""
+        for attr in ("id", "value"):
+            try:
+                cand = getattr(value, attr)
+            except Exception:
+                cand = None
+            if cand:
+                return normalize_name(str(cand))
+        return normalize_name(str(value))
 
     def _get_battle_memory(self, battle: Battle) -> dict:
         if not hasattr(self, "_battle_memory"):
@@ -293,15 +298,21 @@ class RuleBotPlayer(Player):
         known_moves |= {normalize_name(m) for m in observed_moves}
 
         ability_id = self._get_ability_id(opponent)
-        item_id = self._get_item_id(opponent)
+        item_id = self._canon_id(getattr(opponent, "item", None)) if getattr(opponent, "item", None) else ""
         level = getattr(opponent, "level", None)
         tera_id = ""
-        if self._is_terastallized(opponent):
+        if getattr(opponent, "terastallized", False):
             tera_type = getattr(opponent, "tera_type", None)
             if tera_type is not None:
                 tera_id = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
 
         flags = mem.get("opponent_item_flags", {}).get(species, {})
+        known_item = normalize_name(flags.get("known_item") or flags.get("removed_item") or "")
+        if not item_id and known_item:
+            item_id = known_item
+        known_ability = mem.get("opponent_abilities", {}).get(species)
+        if not ability_id and known_ability:
+            ability_id = normalize_name(known_ability)
         no_choice = flags.get("no_choice", False)
         no_av = flags.get("no_assaultvest", False)
         no_boots = flags.get("no_boots", False)
@@ -395,19 +406,6 @@ class RuleBotPlayer(Player):
             return
         if last_move_category == "status":
             return
-        effects = getattr(opponent, "effects", None) or {}
-        for shield in (
-            Effect.PROTECT,
-            Effect.BANEFUL_BUNKER,
-            Effect.SPIKY_SHIELD,
-            Effect.SILK_TRAP,
-            Effect.ENDURE,
-            Effect.SUBSTITUTE,
-            Effect.DISGUISE,
-            Effect.ICE_FACE,
-        ):
-            if shield in effects:
-                return
         if last_opponent_hp is None or opponent.current_hp_fraction is None:
             return
         if abs(opponent.current_hp_fraction - last_opponent_hp) > 0.01:
@@ -419,7 +417,6 @@ class RuleBotPlayer(Player):
         else:
             acc = 1.0
         threshold = 1 if acc >= 0.95 else 2
-        threshold = max(threshold, self.IMMUNITY_MIN_HITS)
 
         counts = mem.setdefault("no_damage_counts", {}).setdefault(last_opponent_species, {})
         if last_move_id:
@@ -458,44 +455,24 @@ class RuleBotPlayer(Player):
         self._record_last_action(battle, order)
         return order
 
-    def _is_trick_room_active(self, battle: Optional[Battle]) -> bool:
-        if battle is None:
-            return False
-        fields = getattr(battle, "fields", None)
-        if not fields:
-            return False
-        if isinstance(fields, dict):
-            if Field.TRICK_ROOM in fields:
-                return True
-            return any("trick room" in str(k).lower() for k in fields.keys())
-        return "trick room" in str(fields).lower()
-
     def _estimate_matchup(self, mon: Pokemon, opponent: Pokemon) -> float:
         """Estimate matchup score - positive means we have advantage."""
         if mon is None or opponent is None:
             return 0.0
 
         # Type matchup: How well can we hit them vs how well they hit us
-        my_offensive = max(
-            [self._damage_multiplier_against(opponent, t) for t in mon.types if t is not None],
-            default=1.0,
-        )
-        their_offensive = max(
-            [self._damage_multiplier_against(mon, t) for t in self._opponent_offensive_types(opponent)],
-            default=1.0,
-        )
+        my_offensive = max([opponent.damage_multiplier(t) for t in mon.types if t is not None], default=1.0)
+        their_offensive = max([mon.damage_multiplier(t) for t in opponent.types if t is not None], default=1.0)
         score = my_offensive - their_offensive
 
         # Speed comparison with actual stats if available
         my_speed = self._get_effective_speed(mon)
         opp_speed = self._get_effective_speed(opponent)
 
-        battle = getattr(self, "_current_battle", None)
-        trick_room = self._is_trick_room_active(battle)
         if my_speed > opp_speed:
-            score += -self.SPEED_TIER_COEFICIENT if trick_room else self.SPEED_TIER_COEFICIENT
+            score += self.SPEED_TIER_COEFICIENT
         elif opp_speed > my_speed:
-            score += self.SPEED_TIER_COEFICIENT if trick_room else -self.SPEED_TIER_COEFICIENT
+            score -= self.SPEED_TIER_COEFICIENT
 
         # HP advantage
         score += mon.current_hp_fraction * self.HP_FRACTION_COEFICIENT
@@ -606,7 +583,7 @@ class RuleBotPlayer(Player):
             if kind != "move" or len(event) < 4:
                 continue
             who = event[2]
-            move_id = self._canonicalize_move_id(event[3])
+            move_id = normalize_name(event[3])
             if not move_id:
                 continue
             if who.startswith(role):
@@ -777,7 +754,7 @@ class RuleBotPlayer(Player):
             species = self._species_from_event(battle, event)
             if not species:
                 continue
-            move_id = self._canonicalize_move_id(event[3])
+            move_id = normalize_name(event[3])
             if not move_id:
                 continue
             moves = mem.setdefault("opp_moves_since_switch", {}).setdefault(species, set())
@@ -826,7 +803,7 @@ class RuleBotPlayer(Player):
             moveset = mem.setdefault("opponent_moves", {}).setdefault(species, set())
 
             if kind == "move" and len(event) >= 4:
-                move_id = self._canonicalize_move_id(event[3])
+                move_id = normalize_name(event[3])
                 if move_id:
                     if flags.get("last_move_id") and flags["last_move_id"] != move_id:
                         flags["no_choice"] = True
@@ -857,7 +834,7 @@ class RuleBotPlayer(Player):
             if "item" in kind:
                 lower = " ".join(event).lower()
                 if len(event) >= 4:
-                    item_id = self._canonicalize_id(event[3])
+                    item_id = normalize_name(event[3])
                     if item_id:
                         flags["known_item"] = item_id
                         if item_id in self.CHOICE_ITEMS:
@@ -899,7 +876,7 @@ class RuleBotPlayer(Player):
             ability_id = None
             kind = event[1]
             if kind in {"-ability", "ability"} and len(event) >= 4:
-                ability_id = self._canonicalize_id(event[3])
+                ability_id = normalize_name(event[3])
             if not ability_id:
                 for part in event:
                     if isinstance(part, str) and "ability:" in part.lower():
@@ -1009,7 +986,7 @@ class RuleBotPlayer(Player):
                 if mv.id == last_move_id:
                     move_obj = mv
                     break
-            if move_obj and self._damage_multiplier_against(opponent, move_obj) <= 0:
+            if move_obj and opponent.damage_multiplier(move_obj) <= 0:
                 return
         except Exception:
             pass
@@ -1068,7 +1045,7 @@ class RuleBotPlayer(Player):
             if event[1] != "move":
                 continue
             who = event[2]
-            move_id = self._canonicalize_move_id(event[3])
+            move_id = normalize_name(event[3])
             if not move_id:
                 continue
             side_key = "self" if who.startswith(role) else "opp"
@@ -1191,7 +1168,7 @@ class RuleBotPlayer(Player):
         if side == "self":
             for mon in battle.team.values():
                 if mon and normalize_name(mon.species) == species:
-                    return self._get_item_id(mon)
+                    return normalize_name(str(getattr(mon, "item", "") or ""))
         elif side == "opp":
             mem = self._get_battle_memory(battle)
             flags = mem.get("opponent_item_flags", {}).get(species, {})
@@ -1228,7 +1205,7 @@ class RuleBotPlayer(Player):
             if event[1] != "move":
                 continue
             who = event[2]
-            move_id = self._canonicalize_move_id(event[3])
+            move_id = normalize_name(event[3])
             if not move_id:
                 continue
             side_key = "self" if who.startswith(role) else "opp"
@@ -2035,8 +2012,8 @@ class RuleBotPlayer(Player):
 
         if best_score <= 0:
             type_mult = max(
-                [self._damage_multiplier_against(target, t) for t in self._opponent_offensive_types(opponent)],
-                default=1.0,
+                [target.damage_multiplier(t) for t in opponent.types if t is not None],
+                default=1.0
             )
             return 80.0 * type_mult
 
@@ -2044,11 +2021,10 @@ class RuleBotPlayer(Player):
 
     def _estimate_best_damage_score(self, active: Pokemon, opponent: Pokemon, battle: Battle) -> float:
         """Estimate our best damaging move score."""
-        moves = getattr(battle, "available_moves", None)
-        if not active or not opponent or not moves:
+        if not active or not opponent or not battle.available_moves:
             return 0.0
         best_score = 0.0
-        for move in moves:
+        for move in battle.available_moves:
             try:
                 if move.category == MoveCategory.STATUS:
                     continue
@@ -2066,7 +2042,8 @@ class RuleBotPlayer(Player):
     def _has_heavy_duty_boots(self, mon: Pokemon) -> bool:
         if mon is None:
             return False
-        return self._get_item_id(mon) == "heavydutyboots"
+        item = getattr(mon, "item", None)
+        return normalize_name(str(item)) == "heavydutyboots" if item else False
 
     def _hazard_switch_penalty(self, battle: Battle, mon: Pokemon) -> float:
         if battle is None or mon is None:
@@ -2239,10 +2216,6 @@ class RuleBotPlayer(Player):
         """Return True if a boosting move is still worth using."""
         if move is None or not move.boosts or active is None:
             return False
-        if move.id == "noretreat":
-            effects = getattr(active, "effects", None) or {}
-            if Effect.NO_RETREAT in effects:
-                return False
         for stat, delta in move.boosts.items():
             if delta <= 0:
                 continue
@@ -2262,29 +2235,12 @@ class RuleBotPlayer(Player):
         name = tera_type.name if hasattr(tera_type, "name") else str(tera_type)
         return normalize_name(name) == "stellar"
 
-    def _is_terastallized(self, opponent: Pokemon) -> bool:
-        if opponent is None:
-            return False
-        flag = getattr(opponent, "is_terastallized", None)
-        if flag is None or flag is False:
-            alt = getattr(opponent, "terastallized", None)
-            if alt:
-                flag = alt
-        if isinstance(flag, str):
-            norm = normalize_name(flag)
-            return bool(norm) and norm not in {"false", "0"}
-        return bool(flag)
-
     def _opponent_is_stellar_tera(self, opponent: Pokemon) -> bool:
         if opponent is None:
             return False
-        if self._is_terastallized(opponent):
-            tera_type = getattr(opponent, "tera_type", None)
-            if self._is_stellar_type(tera_type):
-                return True
-            terastallized = getattr(opponent, "terastallized", None)
-            if terastallized:
-                return normalize_name(str(terastallized)) == "stellar"
+        terastallized = getattr(opponent, "terastallized", None)
+        if terastallized:
+            return normalize_name(str(terastallized)) == "stellar"
         return False
 
     def _opponent_is_set_up(self, opponent: Pokemon) -> bool:
@@ -2426,13 +2382,6 @@ class RuleBotPlayer(Player):
         if opponent.status is not None and status_type not in {"seed", "taunt", "encore"}:
             return 0.0
 
-        if self.STATUS_KO_GUARD and battle and active and opponent:
-            opp_hp = opponent.current_hp_fraction or 0.0
-            best_damage = self._estimate_best_damage_score(active, opponent, battle)
-            threshold = self.STATUS_KO_THRESHOLD * max(opp_hp, 0.05)
-            if best_damage >= threshold:
-                return 0.0
-
         score = 0.0
 
         # Check accuracy
@@ -2514,14 +2463,8 @@ class RuleBotPlayer(Player):
         # Strength Sap: heal + drop attack
         if status_type == "sap" or move.id == "strengthsap":
             opp_atk = self._stat_estimation(opponent, "atk")
-            opp_boosts = opponent.boosts or {}
-            atk_boost = opp_boosts.get("atk", 0) if isinstance(opp_boosts, dict) else 0
-            hp_frac = active.current_hp_fraction if active.current_hp_fraction is not None else 1.0
-            if hp_frac < 0.75 and opp_atk > 120:
+            if active.current_hp_fraction < 0.75 and opp_atk > 120:
                 score = max(score, 200.0)
-            if atk_boost and atk_boost > 0:
-                boost_bonus = 20.0 * min(3, atk_boost)
-                score = max(score, 220.0 + boost_bonus)
 
         # Apply accuracy penalty
         score *= accuracy
@@ -2609,7 +2552,7 @@ class RuleBotPlayer(Player):
         if opponent and self._opponent_is_stellar_tera(opponent):
             type_mult = 1.0
         else:
-            type_mult = self._damage_multiplier_against(opponent, move) if opponent else 1.0
+            type_mult = opponent.damage_multiplier(move) if opponent else 1.0
 
         # Ability-based immunities and reductions
         if opponent and self._ability_blocks_move(move, opponent):
@@ -2717,68 +2660,22 @@ class RuleBotPlayer(Player):
     def _opponent_has_type(self, opponent: Pokemon, type_id: str) -> bool:
         if opponent is None:
             return False
-        target = normalize_name(type_id)
-        types = self._get_defensive_types(opponent)
-        for t in types:
+        for t in (opponent.types or []):
             if t is None:
                 continue
-            if hasattr(t, "name"):
-                if normalize_name(t.name) == target:
-                    return True
-            elif normalize_name(str(t)) == target:
+            if t.name.lower() == type_id:
                 return True
         return False
 
     def _opponent_is_ghost(self, opponent: Pokemon) -> bool:
         if opponent is None:
             return False
-        return self._opponent_has_type(opponent, "ghost")
-
-    def _get_defensive_types(self, opponent: Pokemon) -> Tuple[Optional[PokemonType], Optional[PokemonType]]:
-        if opponent is None:
-            return (None, None)
-        if self._is_terastallized(opponent):
-            tera_type = getattr(opponent, "tera_type", None)
-            if tera_type is not None:
-                return (tera_type, None)
-            terastallized = getattr(opponent, "terastallized", None)
-            if terastallized:
-                return (terastallized, None)
-        return (opponent.type_1, opponent.type_2)
-
-    def _get_type_chart(self, opponent: Optional[Pokemon]) -> dict:
-        if opponent is None:
-            return self._FALLBACK_TYPE_CHART
-        data = getattr(opponent, "_data", None)
-        chart = getattr(data, "type_chart", None)
-        return chart or self._FALLBACK_TYPE_CHART
-
-    def _damage_multiplier_against(self, opponent: Optional[Pokemon], move_or_type) -> float:
-        if opponent is None or move_or_type is None:
-            return 1.0
-        if isinstance(move_or_type, Move):
-            move_type = move_or_type.type
-        else:
-            move_type = move_or_type
-        if move_type is None:
-            return 1.0
-        type_1, type_2 = self._get_defensive_types(opponent)
-        return move_type.damage_multiplier(type_1, type_2, type_chart=self._get_type_chart(opponent))
-
-    def _opponent_offensive_types(self, opponent: Optional[Pokemon]) -> List[PokemonType]:
-        if opponent is None:
-            return []
-        types = [t for t in (opponent.types or []) if t is not None]
-        if self._is_terastallized(opponent):
-            tera_type = getattr(opponent, "tera_type", None)
-            if tera_type is not None:
-                if tera_type not in types:
-                    types.append(tera_type)
-            else:
-                terastallized = getattr(opponent, "terastallized", None)
-                if terastallized and terastallized not in types:
-                    types.append(terastallized)
-        return types
+        if self._opponent_has_type(opponent, "ghost"):
+            return True
+        terastallized = getattr(opponent, "terastallized", None)
+        if terastallized and normalize_name(str(terastallized)) == "ghost":
+            return True
+        return False
 
     def _priority_blocked(self, battle: Battle, opponent: Pokemon) -> bool:
         if not opponent or not battle:
@@ -2827,43 +2724,11 @@ class RuleBotPlayer(Player):
             return "fast_attacker"
         return "balanced"
 
-    def _canonicalize_id(self, obj) -> str:
-        if obj is None:
-            return ""
-        if hasattr(obj, "id") and getattr(obj, "id"):
-            val = getattr(obj, "id")
-        elif hasattr(obj, "value") and getattr(obj, "value"):
-            val = getattr(obj, "value")
-        elif hasattr(obj, "name") and getattr(obj, "name"):
-            val = getattr(obj, "name")
-        else:
-            val = str(obj)
-        if isinstance(val, str):
-            raw = val.strip()
-            if "." in raw:
-                prefix, rest = raw.split(".", 1)
-                if prefix.lower() in {"ability", "item", "status", "move"}:
-                    raw = rest
-            return normalize_name(raw)
-        return normalize_name(str(val))
-
-    def _canonicalize_move_id(self, raw) -> str:
-        if raw is None:
-            return ""
-        text = str(raw).strip()
-        if ":" in text and text.lower().startswith("move"):
-            text = text.split(":", 1)[1]
-        return normalize_name(text)
-
-    def _get_item_id(self, opponent: Pokemon) -> str:
-        item = getattr(opponent, "item", None)
-        return self._canonicalize_id(item) if item else ""
-
     def _get_ability_id(self, opponent: Pokemon) -> Optional[str]:
         ability = getattr(opponent, "ability", None)
         if not ability:
             return None
-        ability_id = self._canonicalize_id(ability)
+        ability_id = self._canon_id(ability)
         abilities_data = load_abilities()
         if abilities_data and ability_id not in abilities_data:
             return None
@@ -2972,7 +2837,7 @@ class RuleBotPlayer(Player):
 
         if ability_id == "wonderguard":
             try:
-                if self._damage_multiplier_against(opponent, move) <= 1.0:
+                if opponent.damage_multiplier(move) <= 1.0:
                     return True
             except Exception:
                 pass
@@ -3017,10 +2882,10 @@ class RuleBotPlayer(Player):
 
         # Calculate offensive and defensive tera value
         try:
-            current_offensive = self._damage_multiplier_against(opponent, move.type)
+            current_offensive = opponent.damage_multiplier(move.type)
             if active.tera_type is not None:
                 tera_offensive = (
-                    self._damage_multiplier_against(opponent, active.tera_type)
+                    opponent.damage_multiplier(active.tera_type)
                     if move.type != active.tera_type
                     else current_offensive
                 )
@@ -3211,12 +3076,6 @@ class RuleBotPlayer(Player):
                     safe_recover = True
                 if behind and reply_score > 140:
                     safe_recover = False
-                if self.RECOVERY_KO_GUARD and opponent is not None:
-                    opp_hp = opponent.current_hp_fraction or 0.0
-                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                    threshold = self.RECOVERY_KO_THRESHOLD * max(opp_hp, 0.05)
-                    if best_damage >= threshold:
-                        safe_recover = False
                 if safe_recover:
                     for move in battle.available_moves:
                         if self._is_recovery_move(move):
