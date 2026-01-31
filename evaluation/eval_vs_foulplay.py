@@ -532,6 +532,25 @@ async def main():
         help="Max times to reset retries after repeated failures (0 = no limit).",
     )
     parser.add_argument(
+        "--foulplay-auto-challenge",
+        dest="foulplay_auto_challenge",
+        action="store_true",
+        default=True,
+        help="Auto switch to --foulplay-challenges after repeated challenge failures (default: on).",
+    )
+    parser.add_argument(
+        "--no-foulplay-auto-challenge",
+        dest="foulplay_auto_challenge",
+        action="store_false",
+        help="Disable auto switch to --foulplay-challenges.",
+    )
+    parser.add_argument(
+        "--foulplay-auto-challenge-after",
+        type=int,
+        default=3,
+        help="Consecutive challenge failures before auto switch (default: 3).",
+    )
+    parser.add_argument(
         "--foulplay-challenges",
         action="store_true",
         help="Have Foul Play challenge our agent instead of the other way around.",
@@ -637,6 +656,7 @@ async def main():
     retries_left = max(0, args.foulplay_retries)
     total_failures = 0
     abort = False
+    challenge_failures = 0
 
     def _allow_reset(failure_msg: str) -> bool:
         nonlocal retries_left, total_failures, abort
@@ -846,6 +866,7 @@ async def main():
                 debug=args.debug,
             )
             if not accepted_by:
+                challenge_failures += 1
                 refresh_attempts += 1
                 fresh_id, fresh_name = await _read_user_id(
                     user_id_path, timeout_s=2, debug=args.debug
@@ -863,6 +884,42 @@ async def main():
                         foulplay_name = fresh_name
                         foulplay_username = fresh_name
                     _debug_print(args.debug, "retrying challenge after foulplay id update")
+                    continue
+                if (
+                    args.foulplay_auto_challenge
+                    and not args.foulplay_challenges
+                    and challenge_failures >= args.foulplay_auto_challenge_after
+                ):
+                    print("   Switching to foulplay-challenges mode after repeated failures.")
+                    args.foulplay_challenges = True
+                    bot_mode = "challenge_user"
+                    user_to_challenge = _safe_id(agent.username)
+                    _terminate_proc(proc)
+                    remaining = args.battles - i
+                    proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+                        attempt=args.foulplay_retries - retries_left,
+                        remaining_battles=remaining,
+                        foulplay_path=foulplay_path,
+                        foulplay_python=foulplay_python,
+                        foulplay_username=foulplay_username,
+                        foulplay_password=args.foulplay_password,
+                        ws_uri=args.ws_uri,
+                        battle_format=args.format,
+                        search_time_ms=args.foulplay_search_ms,
+                        parallelism=args.foulplay_parallelism,
+                        no_login=args.no_login,
+                        log_path=base_log_path,
+                        user_id_path=base_user_id_path,
+                        wait_s=args.foulplay_wait,
+                        bot_mode=bot_mode,
+                        user_to_challenge=user_to_challenge,
+                        debug=args.debug,
+                    )
+                    if not foulplay_id:
+                        foulplay_id = _safe_id(foulplay_username)
+                    if foulplay_name:
+                        foulplay_username = foulplay_name
+                    waiting_count = 0
                     continue
                 if args.debug:
                     tail = _tail_text(log_path)
@@ -898,6 +955,7 @@ async def main():
                     foulplay_username = foulplay_name
                 waiting_count = 0
                 continue
+            challenge_failures = 0
 
             ok = await _wait_for_finished(agent, agent.n_finished_battles + 1, args.battle_timeout)
             if not ok:
