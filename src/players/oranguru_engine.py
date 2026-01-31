@@ -114,12 +114,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._randbats_gen = None
         self._randbats_sanitized = False
         self._state_audit = bool(int(os.getenv("ORANGURU_STATE_AUDIT", "0")))
-        self.MCTS_AGGREGATION = os.getenv("ORANGURU_MCTS_AGGREGATION", "visits").strip().lower()
-        self.MCTS_RISK_ALPHA = float(os.getenv("ORANGURU_MCTS_RISK_ALPHA", "0.65"))
-        self.MCTS_RISK_QUANTILE = float(os.getenv("ORANGURU_MCTS_RISK_QUANTILE", "0.2"))
-        self.MCTS_RISK_MODE = os.getenv("ORANGURU_MCTS_RISK_MODE", "cvar").strip().lower()
-        self.CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
-        self.CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0"))
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -812,13 +806,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             taken.add(species)
         return result
 
-    def _build_fp_battle(
-        self,
-        battle: Battle,
-        seed: int,
-        fill_opponent_sets: bool = False,
-        allowed_move_ids: Optional[set] = None,
-    ) -> FPBattle:
+    def _build_fp_battle(self, battle: Battle, seed: int, fill_opponent_sets: bool = False) -> FPBattle:
         rng = random.Random(seed)
         fp_battle = FPBattle(battle.battle_tag)
         fp_battle.turn = battle.turn
@@ -869,10 +857,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             available = {normalize_name(m.id) for m in battle.available_moves}
             for mv in user.active.moves:
                 move_id = self._fp_move_id(mv)
-                allowed = move_id in available if move_id else False
-                if allowed_move_ids is not None and move_id:
-                    allowed = allowed and move_id in allowed_move_ids
-                mv.disabled = not allowed
+                mv.disabled = bool(move_id) and move_id not in available
             if self._sleep_clause_blocked(battle):
                 for mv in user.active.moves:
                     if self._fp_move_inflicts_sleep(mv.name):
@@ -1114,110 +1099,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         deterministic = self.MCTS_DETERMINISTIC and (
             not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
         )
-        aggregation = getattr(self, "MCTS_AGGREGATION", "visits")
         final_policy = {}
-
-        def _weighted_quantile(values: List[float], weights: List[float], quantile: float) -> float:
-            if not values:
-                return 0.0
-            if len(values) == 1:
-                return values[0]
-            pairs = sorted(zip(values, weights), key=lambda x: x[0])
-            total = sum(max(0.0, w) for _, w in pairs)
-            if total <= 0:
-                return pairs[0][0]
-            cutoff = total * max(0.0, min(1.0, quantile))
-            acc = 0.0
-            for val, w in pairs:
-                acc += max(0.0, w)
-                if acc >= cutoff:
-                    return val
-            return pairs[-1][0]
-
-        def _weighted_cvar(values: List[float], weights: List[float], quantile: float) -> float:
-            if not values:
-                return 0.0
-            q_val = _weighted_quantile(values, weights, quantile)
-            filtered = [(v, w) for v, w in zip(values, weights) if v <= q_val]
-            if not filtered:
-                return q_val
-            total = sum(max(0.0, w) for _, w in filtered)
-            if total <= 0:
-                return q_val
-            return sum(v * max(0.0, w) for v, w in filtered) / total
-
-        if aggregation in {"risk", "cvar", "quantile"}:
-            per_world = []
-            for res, weight in results:
-                total_visits = res.total_visits or 1
-                world = {}
-                evs = []
-                for opt in res.side_one:
-                    if opt.visits < 1:
-                        continue
-                    avg_val = opt.total_score / opt.visits if opt.visits else 0.0
-                    evs.append(avg_val)
-                    world[opt.move_choice] = {
-                        "p": opt.visits / total_visits,
-                        "ev": avg_val,
-                    }
-                if not world:
-                    continue
-                min_ev = min(evs)
-                max_ev = max(evs)
-                denom = max(max_ev - min_ev, 1e-6)
-                min_norm = -1.0 if denom > 1e-6 else 0.0
-                for data in world.values():
-                    data["ev_norm"] = ((data["ev"] - min_ev) / denom) * 2.0 - 1.0
-                per_world.append((world, weight, min_norm))
-
-            if per_world:
-                alpha = max(0.0, min(1.0, float(getattr(self, "MCTS_RISK_ALPHA", 0.65))))
-                quantile = max(0.0, min(1.0, float(getattr(self, "MCTS_RISK_QUANTILE", 0.2))))
-                risk_mode = str(getattr(self, "MCTS_RISK_MODE", "cvar")).lower()
-                all_choices = set()
-                for world, _, _ in per_world:
-                    all_choices.update(world.keys())
-                raw_scores = {}
-                for choice in all_choices:
-                    ev_vals = []
-                    wt_vals = []
-                    for world, weight, min_norm in per_world:
-                        if choice in world:
-                            ev_vals.append(world[choice]["ev_norm"])
-                        else:
-                            ev_vals.append(min_norm)
-                        wt_vals.append(weight)
-                    total_w = sum(max(0.0, w) for w in wt_vals)
-                    mean_ev = (
-                        sum(v * max(0.0, w) for v, w in zip(ev_vals, wt_vals)) / total_w
-                        if total_w > 0
-                        else 0.0
-                    )
-                    if risk_mode == "quantile":
-                        tail = _weighted_quantile(ev_vals, wt_vals, quantile)
-                    else:
-                        tail = _weighted_cvar(ev_vals, wt_vals, quantile)
-                    raw_scores[choice] = (1.0 - alpha) * mean_ev + alpha * tail
-
-                if raw_scores:
-                    min_score = min(raw_scores.values())
-                    for choice, score in raw_scores.items():
-                        final_policy[choice] = max(0.0, score - min_score)
-            if not final_policy:
-                for res, weight in results:
-                    total_visits = res.total_visits or 1
-                    for opt in res.side_one:
-                        final_policy[opt.move_choice] = final_policy.get(opt.move_choice, 0.0) + (
-                            weight * (opt.visits / total_visits)
-                        )
-        else:
-            for res, weight in results:
-                total_visits = res.total_visits or 1
-                for opt in res.side_one:
-                    final_policy[opt.move_choice] = final_policy.get(opt.move_choice, 0.0) + (
-                        weight * (opt.visits / total_visits)
-                    )
+        for res, weight in results:
+            total_visits = res.total_visits or 1
+            for opt in res.side_one:
+                final_policy[opt.move_choice] = final_policy.get(opt.move_choice, 0.0) + (
+                    weight * (opt.visits / total_visits)
+                )
         if not final_policy:
             return ""
         if banned_choices:
@@ -1398,27 +1286,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
             sample_states = min(self.MAX_SAMPLE_STATES, sample_states)
 
-        allowed_move_ids = None
-        if self.CANDIDATE_TOPK > 0 and battle.available_moves:
-            scored_moves = []
-            for move in battle.available_moves:
-                choice = normalize_name(move.id)
-                score = self._heuristic_action_score(battle, choice)
-                if score is None:
-                    score = 0.0
-                scored_moves.append((score, choice))
-            scored_moves.sort(key=lambda x: x[0], reverse=True)
-            topk = max(1, min(self.CANDIDATE_TOPK, len(scored_moves)))
-            best_score = scored_moves[0][0] if scored_moves else 0.0
-            if best_score >= self.CANDIDATE_MIN_SCORE:
-                allowed_move_ids = {m for _, m in scored_moves[:topk] if m}
-
-        base_fp_battle = self._build_fp_battle(
-            battle,
-            seed=0,
-            fill_opponent_sets=False,
-            allowed_move_ids=allowed_move_ids,
-        )
+        base_fp_battle = self._build_fp_battle(battle, seed=0, fill_opponent_sets=False)
         if base_fp_battle.battle_type == constants.BattleType.RANDOM_BATTLE:
             try:
                 self._ensure_randbats_sets(battle)
@@ -1431,14 +1299,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         else:
             seeds = [random.randint(1, 1_000_000) for _ in range(sample_states)]
             for seed in seeds:
-                fp_battles.append(
-                    self._build_fp_battle(
-                        battle,
-                        seed,
-                        fill_opponent_sets=True,
-                        allowed_move_ids=allowed_move_ids,
-                    )
-                )
+                fp_battles.append(self._build_fp_battle(battle, seed, fill_opponent_sets=True))
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
 
         states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
