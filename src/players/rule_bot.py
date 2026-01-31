@@ -2625,13 +2625,6 @@ class RuleBotPlayer(Player):
         raw_score = base_power * stab * stat_ratio * accuracy * expected_hits * type_mult
         score = raw_score
 
-        entry = self._get_move_entry(move)
-        healblock = normalize_name(entry.get("volatileStatus", "")) == "healblock"
-        if healblock or move.id == "psychicnoise":
-            known_moves = self._opponent_known_move_ids(opponent)
-            if (known_moves & self.RECOVERY_MOVES) or self._opponent_is_stallish(opponent):
-                score *= 1.25
-
         # Avoid spamming Future Sight / Doom Desire
         if move.id in self.FUTURE_SIGHT_MOVES and self._future_sight_recent(battle):
             score *= 0.3

@@ -129,36 +129,6 @@ class RuleBotHeuristicTests(unittest.TestCase):
         matchup = self.bot._estimate_matchup(attacker, opponent)
         self.assertLess(matchup, 0.0)
 
-    def test_psychic_noise_boosts_vs_recovery(self):
-        data = GenData.from_gen(9)
-        active = DummyPokemon(
-            stats={"hp": 300, "atk": 80, "def": 120, "spa": 140, "spd": 120, "spe": 90},
-            type_1=PokemonType.PSYCHIC,
-            current_hp_fraction=0.8,
-            data=data,
-        )
-        opponent = DummyPokemon(
-            stats={"hp": 320, "atk": 120, "def": 120, "spa": 120, "spd": 120, "spe": 80},
-            type_1=PokemonType.DRAGON,
-            current_hp_fraction=0.9,
-            data=data,
-        )
-        move = DummyMove(
-            "psychicnoise",
-            accuracy=100,
-            move_type=PokemonType.PSYCHIC,
-            category=MoveCategory.SPECIAL,
-            base_power=75,
-        )
-        self.bot._opponent_is_stallish = lambda *_: False
-        self.bot._damage_multiplier_against = lambda *_: 1.0
-        self.bot._opponent_known_move_ids = lambda *_: set()
-        battle = SimpleNamespace(battle_tag="test", side_conditions=None)
-        baseline = self.bot._calculate_move_score(move, active, opponent, battle)
-        self.bot._opponent_known_move_ids = lambda *_: {"recover"}
-        boosted = self.bot._calculate_move_score(move, active, opponent, battle)
-        self.assertGreater(boosted, baseline)
-
     def test_canonicalize_move_id_handles_prefix(self):
         self.assertEqual(self.bot._canonicalize_move_id("Move: Thunder Wave"), "thunderwave")
 
