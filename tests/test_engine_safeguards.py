@@ -1,6 +1,6 @@
 import unittest
 
-from poke_env.battle import PokemonType
+from poke_env.battle import PokemonType, MoveCategory
 from poke_env.battle.effect import Effect
 from poke_env.data.gen_data import GenData
 
@@ -8,10 +8,11 @@ from src.players.oranguru_engine import OranguruEnginePlayer
 
 
 class DummyMove:
-    def __init__(self, move_id, move_type=None):
+    def __init__(self, move_id, move_type=None, category=None, base_power=0):
         self.id = move_id
         self.type = move_type
-        self.category = None
+        self.category = category
+        self.base_power = base_power
 
 
 class DummyFPMove:
@@ -80,6 +81,25 @@ class EngineSafeguardTests(unittest.TestCase):
     def test_fp_move_id_falls_back_to_name(self):
         move = DummyFPMove(move_id=None, name="Sleep Powder")
         self.assertEqual(self.engine._fp_move_id(move), "sleeppowder")
+
+    def test_action_dominance_scales_non_damaging(self):
+        active = DummyPokemon(status=None)
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.4)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("recover", category=MoveCategory.STATUS),
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.ACTION_DOMINANCE = True
+        self.engine.ACTION_DOMINANCE_THRESHOLD = 100.0
+        self.engine.ACTION_DOMINANCE_SCALE = 0.1
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        policy = {"recover": 1.0, "earthquake": 0.5}
+        scaled = self.engine._apply_action_dominance(policy, battle)
+        self.assertLess(scaled["recover"], scaled["earthquake"])
 
 
 if __name__ == "__main__":

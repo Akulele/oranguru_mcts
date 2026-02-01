@@ -359,6 +359,19 @@ class RuleBotPlayer(Player):
 
     def _update_battle_memory(self, battle: Battle) -> None:
         mem = self._get_battle_memory(battle)
+        opponent = battle.opponent_active_pokemon
+        if opponent and opponent.current_hp_fraction is not None:
+            last_species = mem.get("opp_active_species")
+            last_hp = mem.get("opp_active_hp")
+            if last_species == opponent.species and last_hp is not None:
+                if opponent.current_hp_fraction >= last_hp - 0.001:
+                    mem["no_progress_turns"] = mem.get("no_progress_turns", 0) + 1
+                else:
+                    mem["no_progress_turns"] = 0
+            else:
+                mem["no_progress_turns"] = 0
+            mem["opp_active_species"] = opponent.species
+            mem["opp_active_hp"] = opponent.current_hp_fraction
         for mon in battle.opponent_team.values():
             if mon is None:
                 continue

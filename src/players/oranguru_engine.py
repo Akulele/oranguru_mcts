@@ -114,6 +114,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._randbats_gen = None
         self._randbats_sanitized = False
         self._state_audit = bool(int(os.getenv("ORANGURU_STATE_AUDIT", "0")))
+        self.ACTION_DOMINANCE = bool(int(os.getenv("ORANGURU_ACTION_DOMINANCE", "1")))
+        self.ACTION_DOMINANCE_THRESHOLD = float(
+            os.getenv("ORANGURU_ACTION_DOMINANCE_THRESHOLD", "180.0")
+        )
+        self.ACTION_DOMINANCE_SCALE = float(
+            os.getenv("ORANGURU_ACTION_DOMINANCE_SCALE", "0.2")
+        )
+        self.NO_PROGRESS_TURNS = int(os.getenv("ORANGURU_NO_PROGRESS_TURNS", "2"))
+        self.NO_PROGRESS_SCALE = float(os.getenv("ORANGURU_NO_PROGRESS_SCALE", "0.5"))
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -286,6 +295,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         tera_type = getattr(mon, "tera_type", None)
         if tera_type is not None:
             fp_mon.tera_type = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
+        terastallized = getattr(mon, "terastallized", None)
+        if terastallized:
+            fp_mon.terastallized = True
+            if isinstance(terastallized, str):
+                fp_mon.tera_type = normalize_name(terastallized)
+        if getattr(mon, "is_terastallized", False):
+            fp_mon.terastallized = True
 
         # Moves
         known_moves: List[str] = []
@@ -968,6 +984,40 @@ class OranguruEnginePlayer(RuleBotPlayer):
             name = ""
         return normalize_name(str(name)) if name else ""
 
+    def _choice_is_non_damaging(self, choice: str, battle: Battle) -> bool:
+        if not choice or choice.startswith("switch"):
+            return False
+        move_id = normalize_name(choice.replace("-tera", ""))
+        for move in battle.available_moves:
+            if move.id != move_id:
+                continue
+            if move.category == MoveCategory.STATUS:
+                return True
+            base_power = move.base_power or 0
+            return base_power <= 0
+        return False
+
+    def _apply_action_dominance(self, final_policy: dict, battle: Battle) -> dict:
+        if not self.ACTION_DOMINANCE or not final_policy:
+            return final_policy
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        if not active or not opponent:
+            return final_policy
+        best_damage = self._estimate_best_damage_score(active, opponent, battle)
+        opp_hp = opponent.current_hp_fraction or 0.0
+        threshold = self.ACTION_DOMINANCE_THRESHOLD * max(opp_hp, 0.05)
+        if best_damage < threshold:
+            return final_policy
+        scale = max(0.0, min(1.0, self.ACTION_DOMINANCE_SCALE))
+        if scale >= 1.0:
+            return final_policy
+        scaled = dict(final_policy)
+        for choice in list(scaled.keys()):
+            if self._choice_is_non_damaging(choice, battle):
+                scaled[choice] = scaled[choice] * scale
+        return scaled
+
     def _audit_fp_state(self, battle: Battle, fp_battle: FPBattle) -> None:
         mem = self._get_battle_memory(battle)
         opp = battle.opponent_active_pokemon
@@ -993,14 +1043,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
         item_mismatch = bool(known_item and item_fp and known_item != item_fp)
 
         tera_mismatch = False
-        if getattr(opp, "terastallized", False):
-            tera_type = getattr(opp, "tera_type", None)
+        if getattr(opp, "terastallized", False) or getattr(opp, "is_terastallized", False):
+            tera_type = getattr(opp, "tera_type", None) or getattr(opp, "terastallized", None)
             if tera_type is not None:
                 tera_id = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
                 tera_fp = normalize_name(getattr(fp_active, "tera_type", "") or "")
                 tera_mismatch = bool(tera_id and tera_fp and tera_id != tera_fp)
+            if not getattr(fp_active, "terastallized", False):
+                tera_mismatch = True
 
-        if missing_moves or ability_mismatch or item_mismatch or tera_mismatch:
+        tr_battle = Field.TRICK_ROOM in (battle.fields or {})
+        tr_mismatch = bool(tr_battle != bool(getattr(fp_battle, "trick_room", False)))
+
+        if missing_moves or ability_mismatch or item_mismatch or tera_mismatch or tr_mismatch:
             print(
                 "STATE AUDIT:",
                 {
@@ -1011,6 +1066,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     "item_mem": known_item,
                     "item_fp": item_fp,
                     "tera_mismatch": tera_mismatch,
+                    "trick_room_mismatch": tr_mismatch,
                 },
             )
 
@@ -1118,6 +1174,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
             filtered_policy = {k: v for k, v in final_policy.items() if k not in banned_choices}
             if filtered_policy:
                 final_policy = filtered_policy
+        final_policy = self._apply_action_dominance(final_policy, battle)
+        mem = self._get_battle_memory(battle)
+        no_progress_turns = mem.get("no_progress_turns", 0)
+        if no_progress_turns and no_progress_turns >= self.NO_PROGRESS_TURNS:
+            scale = max(0.0, min(1.0, self.NO_PROGRESS_SCALE))
+            if scale < 1.0:
+                scaled = dict(final_policy)
+                for choice in list(scaled.keys()):
+                    if self._choice_is_non_damaging(choice, battle):
+                        scaled[choice] = scaled[choice] * scale
+                final_policy = scaled
         ordered = sorted(final_policy.items(), key=lambda x: x[1], reverse=True)
         total_policy = sum(w for _, w in ordered)
         if total_policy <= 0:
