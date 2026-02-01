@@ -7,6 +7,7 @@ from poke_env.battle.effect import Effect
 from poke_env.data.gen_data import GenData
 
 from src.players.rule_bot import RuleBotPlayer
+from src.utils.damage_calc import get_type_effectiveness
 
 
 class DummyMove:
@@ -46,6 +47,24 @@ class DummyPokemon:
         self.types = types if types is not None else [type_1, type_2]
         self.effects = effects or {}
         self._data = data
+
+    def damage_multiplier(self, move_type):
+        if move_type is None:
+            return 1.0
+        move_id = move_type.name.lower() if hasattr(move_type, "name") else str(move_type).lower()
+        terastallized = getattr(self, "terastallized", None)
+        if terastallized:
+            def_types = [str(terastallized).lower()]
+        elif getattr(self, "is_terastallized", False) and getattr(self, "tera_type", None) is not None:
+            tera_type = self.tera_type
+            def_types = [tera_type.name.lower() if hasattr(tera_type, "name") else str(tera_type).lower()]
+        else:
+            def_types = [
+                (t.name.lower() if hasattr(t, "name") else str(t).lower())
+                for t in (self.types or [])
+                if t is not None
+            ]
+        return get_type_effectiveness(move_id, def_types)
 
 
 class RuleBotHeuristicTests(unittest.TestCase):
@@ -150,6 +169,25 @@ class RuleBotHeuristicTests(unittest.TestCase):
         self.bot._current_battle = battle
         matchup = self.bot._estimate_matchup(slow, fast)
         self.assertGreater(matchup, 0.0)
+
+    def test_trick_room_discourages_thunder_wave(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 80, "spd": 120, "spe": 45},
+            type_1=PokemonType.WATER,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            stats={"hp": 300, "atk": 120, "def": 120, "spa": 80, "spd": 120, "spe": 120},
+            type_1=PokemonType.WATER,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        battle = SimpleNamespace(fields={Field.TRICK_ROOM: 3}, available_moves=[DummyMove("thunderwave")])
+        self.bot._current_battle = battle
+        score = self.bot._should_use_status_move(DummyMove("thunderwave"), active, opponent, battle)
+        self.assertEqual(score, 0.0)
 
     def test_status_moves_avoided_when_ko_available(self):
         data = GenData.from_gen(9)

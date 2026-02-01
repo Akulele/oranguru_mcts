@@ -1044,6 +1044,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 safe_recover = reply_score < 150
                 if self._estimate_matchup(active, opponent) > 0.35 and (active.current_hp_fraction or 0.0) < 0.4:
                     safe_recover = True
+                if getattr(self, "RECOVERY_KO_GUARD", False):
+                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                    opp_hp = opponent.current_hp_fraction or 0.0
+                    threshold = getattr(self, "RECOVERY_KO_THRESHOLD", 220.0) * max(opp_hp, 0.05)
+                    if best_damage >= threshold:
+                        return 0.0
                 hp_frac = active.current_hp_fraction or 0.0
                 if hp_frac < 0.65 and safe_recover:
                     missing = 1.0 - hp_frac
