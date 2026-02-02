@@ -1348,6 +1348,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return super().choose_move(battle)
 
         if choice.startswith("switch "):
+            if self._is_switch_churn_risk(battle) and battle.available_moves:
+                emergency_order = self._choose_emergency_non_switch_order(
+                    battle,
+                    active,
+                    opponent,
+                    len([m for m in battle.team.values() if not m.fainted]),
+                )
+                if emergency_order is not None:
+                    mem = self._get_battle_memory(battle)
+                    mem["switch_churn_breaks"] = int(mem.get("switch_churn_breaks", 0) or 0) + 1
+                    return self._commit_order(battle, emergency_order)
             switch_name = normalize_name(choice.split("switch ", 1)[1])
             for sw in battle.available_switches:
                 if normalize_name(sw.species) == switch_name:
