@@ -113,6 +113,30 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._randbats_initialized = False
         self._randbats_gen = None
         self._randbats_sanitized = False
+        self._mcts_stats = {
+            "calls": 0,
+            "states_sampled": 0,
+            "results_kept": 0,
+            "result_none": 0,
+            "result_errors": 0,
+            "empty_results": 0,
+            "deterministic_decisions": 0,
+            "stochastic_decisions": 0,
+            "fallback_super": 0,
+            "fallback_random": 0,
+        }
+
+    def get_mcts_stats(self) -> Dict[str, float]:
+        stats = dict(self._mcts_stats)
+        calls = max(1, int(stats.get("calls", 0)))
+        sampled = max(1, int(stats.get("states_sampled", 0)))
+        stats["empty_results_rate"] = float(stats.get("empty_results", 0)) / calls
+        stats["fallback_super_rate"] = float(stats.get("fallback_super", 0)) / calls
+        stats["fallback_random_rate"] = float(stats.get("fallback_random", 0)) / calls
+        stats["state_failure_rate"] = float(
+            stats.get("result_none", 0) + stats.get("result_errors", 0)
+        ) / sampled
+        return stats
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -269,8 +293,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         level = getattr(mon, "level", None) or (set_info.get("level") if set_info else 100)
         fp_mon = FPPokemon(species, level)
 
-        ability = normalize_name(str(getattr(mon, "ability", ""))) if getattr(mon, "ability", None) else ""
-        item = normalize_name(str(getattr(mon, "item", ""))) if getattr(mon, "item", None) else ""
+        ability = self._canon_id(getattr(mon, "ability", None)) if getattr(mon, "ability", None) else ""
+        item = self._canon_id(getattr(mon, "item", None)) if getattr(mon, "item", None) else ""
         if set_info:
             if set_info.get("ability"):
                 fp_mon.ability = set_info["ability"]
@@ -285,6 +309,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         tera_type = getattr(mon, "tera_type", None)
         if tera_type is not None:
             fp_mon.tera_type = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
+        terastallized = getattr(mon, "terastallized", None)
+        if terastallized:
+            fp_mon.terastallized = True
+            if isinstance(terastallized, str):
+                fp_mon.tera_type = normalize_name(terastallized)
+        if getattr(mon, "is_terastallized", False):
+            fp_mon.terastallized = True
 
         # Moves
         known_moves: List[str] = []
@@ -855,7 +886,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if user.active and battle.available_moves:
             available = {normalize_name(m.id) for m in battle.available_moves}
             for mv in user.active.moves:
-                mv.disabled = mv.name not in available
+                move_id = self._fp_move_id(mv)
+                mv.disabled = bool(move_id) and move_id not in available
             if self._sleep_clause_blocked(battle):
                 for mv in user.active.moves:
                     if self._fp_move_inflicts_sleep(mv.name):
@@ -947,6 +979,23 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 pass
         return fp_battle
 
+    @staticmethod
+    def _fp_move_id(move) -> str:
+        if move is None:
+            return ""
+        for attr in ("id", "move_id"):
+            try:
+                value = getattr(move, attr)
+            except Exception:
+                value = None
+            if value:
+                return normalize_name(str(value))
+        try:
+            name = getattr(move, "name", "")
+        except Exception:
+            name = ""
+        return normalize_name(str(name)) if name else ""
+
     def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -977,6 +1026,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 safe_recover = reply_score < 150
                 if self._estimate_matchup(active, opponent) > 0.35 and (active.current_hp_fraction or 0.0) < 0.4:
                     safe_recover = True
+                if getattr(self, "RECOVERY_KO_GUARD", False):
+                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                    opp_hp = opponent.current_hp_fraction or 0.0
+                    threshold = getattr(self, "RECOVERY_KO_THRESHOLD", 220.0) * max(opp_hp, 0.05)
+                    if best_damage >= threshold:
+                        return 0.0
                 hp_frac = active.current_hp_fraction or 0.0
                 if hp_frac < 0.65 and safe_recover:
                     missing = 1.0 - hp_frac
@@ -1032,6 +1087,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
         deterministic = self.MCTS_DETERMINISTIC and (
             not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
         )
+        if deterministic:
+            self._mcts_stats["deterministic_decisions"] += 1
+        else:
+            self._mcts_stats["stochastic_decisions"] += 1
         final_policy = {}
         for res, weight in results:
             total_visits = res.total_visits or 1
@@ -1198,6 +1257,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 return self._commit_order(battle, self.create_order(best_switch))
             return self.choose_random_move(battle)
 
+        self._mcts_stats["calls"] += 1
         fp_battles = []
         weights = []
         sample_states = self.SAMPLE_STATES
@@ -1236,6 +1296,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
 
         states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
+        self._mcts_stats["states_sampled"] += len(states)
 
         results = []
         workers = min(self.PARALLELISM, len(states))
@@ -1253,23 +1314,31 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     timeout_sec = max(1.0, (search_time_ms / 1000.0) * 2.0 + 2.0)
                     res = fut.result(timeout=timeout_sec)
                 except Exception:
+                    self._mcts_stats["result_errors"] += 1
                     continue
                 if res is None:
+                    self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
+                self._mcts_stats["results_kept"] += 1
         else:
             for state, weight in zip(states, weights):
                 res = _run_mcts(state, search_time_ms)
                 if res is None:
+                    self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
+                self._mcts_stats["results_kept"] += 1
 
         if not results:
+            self._mcts_stats["empty_results"] += 1
+            self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
 
         banned_choices = self._sleep_clause_banned_choices(battle)
         choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
         if not choice:
+            self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
 
         if choice.startswith("switch "):
@@ -1277,6 +1346,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             for sw in battle.available_switches:
                 if normalize_name(sw.species) == switch_name:
                     return self._commit_order(battle, self.create_order(sw))
+            self._mcts_stats["fallback_random"] += 1
             return self.choose_random_move(battle)
 
         tera = False
@@ -1301,4 +1371,5 @@ class OranguruEnginePlayer(RuleBotPlayer):
                         dynamax=self._should_dynamax(battle, len([m for m in battle.team.values() if not m.fainted])),
                     ),
                 )
+        self._mcts_stats["fallback_random"] += 1
         return self.choose_random_move(battle)

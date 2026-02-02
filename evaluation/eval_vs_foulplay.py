@@ -1166,6 +1166,47 @@ async def main():
         print(f"   Opp Tera used: {opp_tera_used}/{finished}")
     print(f"   Foul Play log:  {log_path}")
 
+    mcts_stats = None
+    if hasattr(agent, "get_mcts_stats"):
+        try:
+            mcts_stats = agent.get_mcts_stats()
+        except Exception:
+            mcts_stats = None
+    if isinstance(mcts_stats, dict):
+        print("\n📌 MCTS Diagnostics")
+        print(
+            "   Calls/states:  {}/{}".format(
+                int(mcts_stats.get("calls", 0)),
+                int(mcts_stats.get("states_sampled", 0)),
+            )
+        )
+        print(
+            "   Empty results: {} ({:.1%})".format(
+                int(mcts_stats.get("empty_results", 0)),
+                float(mcts_stats.get("empty_results_rate", 0.0)),
+            )
+        )
+        print(
+            "   State fails:   {} ({:.1%})".format(
+                int(mcts_stats.get("result_none", 0)) + int(mcts_stats.get("result_errors", 0)),
+                float(mcts_stats.get("state_failure_rate", 0.0)),
+            )
+        )
+        print(
+            "   Deterministic: {} | Stochastic: {}".format(
+                int(mcts_stats.get("deterministic_decisions", 0)),
+                int(mcts_stats.get("stochastic_decisions", 0)),
+            )
+        )
+        print(
+            "   Fallback(super/random): {}/{} ({:.1%}/{:.1%})".format(
+                int(mcts_stats.get("fallback_super", 0)),
+                int(mcts_stats.get("fallback_random", 0)),
+                float(mcts_stats.get("fallback_super_rate", 0.0)),
+                float(mcts_stats.get("fallback_random_rate", 0.0)),
+            )
+        )
+
     if move_count:
         print("\n📌 Action Summary")
         print(f"   Total moves:   {move_count}")
