@@ -587,6 +587,8 @@ async def main():
         "server_configuration": CustomServerConfig,
         "account_configuration": _account_with_name(args.player),
     }
+    # Make eval context explicit so engine-side eval-only switches are reliable.
+    os.environ["ORANGURU_EVAL_MODE"] = "1"
 
     if args.player == "rulebot":
         agent = RuleBotPlayer(**kwargs)

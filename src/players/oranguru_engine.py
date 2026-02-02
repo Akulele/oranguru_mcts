@@ -1084,8 +1084,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> str:
         battle_tag = str(getattr(battle, "battle_tag", "")).lower()
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
+        env_eval_mode = os.getenv("ORANGURU_EVAL_MODE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         deterministic = self.MCTS_DETERMINISTIC and (
-            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
+            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag or env_eval_mode
         )
         if deterministic:
             self._mcts_stats["deterministic_decisions"] += 1
