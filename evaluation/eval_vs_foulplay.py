@@ -735,12 +735,9 @@ async def main():
                 waiting_count = 0
             if (i + 1) % args.progress_every == 0:
                 wins = agent.n_won_battles
-                losses = agent.n_lost_battles
                 finished = agent.n_finished_battles
-                ties = finished - wins - losses
                 print(
-                    f"📊 Progress: {i+1}/{args.battles} battles | "
-                    f"W/L/T {wins}/{losses}/{ties} "
+                    f"   {i+1}/{args.battles}: {wins}/{finished} wins "
                     f"({wins/max(finished,1)*100:.1f}%)"
                 )
             continue
@@ -892,8 +889,6 @@ async def main():
                         foulplay_username = foulplay_name
                     waiting_count = 0
                     challenge_failures = 0
-                    await _wait_for_foulplay_ready(log_path, timeout_s=args.foulplay_wait)
-                    await _cancel_challenge(agent.ps_client, delay_s=0.5, debug=args.debug, attempts=2)
                     try:
                         await asyncio.wait_for(
                             agent.accept_challenges(opponent=None, n_challenges=1),
@@ -1043,14 +1038,8 @@ async def main():
 
             if (i + 1) % args.progress_every == 0:
                 wins = agent.n_won_battles
-                losses = agent.n_lost_battles
                 finished = agent.n_finished_battles
-                ties = finished - wins - losses
-                print(
-                    f"📊 Progress: {i+1}/{args.battles} battles | "
-                    f"W/L/T {wins}/{losses}/{ties} "
-                    f"({wins/max(finished,1)*100:.1f}%)"
-                )
+                print(f"   {i+1}/{args.battles}: {wins}/{finished} wins ({wins/max(finished,1)*100:.1f}%)")
             break
         if abort:
             break
