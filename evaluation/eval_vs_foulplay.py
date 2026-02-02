@@ -49,6 +49,37 @@ def _safe_id(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum()) or "bot"
 
 
+def _canonical_user_id(name: str | None) -> str:
+    if not isinstance(name, str):
+        return ""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _resolve_foulplay_identity(
+    foulplay_id: str | None,
+    foulplay_name: str | None,
+    foulplay_username: str,
+) -> tuple[str, str | None, str]:
+    resolved_name = (
+        foulplay_name.strip()
+        if isinstance(foulplay_name, str) and foulplay_name.strip()
+        else None
+    )
+    resolved_username = (
+        foulplay_username.strip()
+        if isinstance(foulplay_username, str) and foulplay_username.strip()
+        else "foulplaybot"
+    )
+    resolved_id = (
+        _canonical_user_id(foulplay_id)
+        or _canonical_user_id(resolved_name)
+        or _canonical_user_id(resolved_username)
+    )
+    if resolved_name:
+        resolved_username = resolved_name
+    return resolved_id, resolved_name, resolved_username
+
+
 def _account_with_name(base: str) -> AccountConfiguration:
     safe = "".join(ch for ch in base.lower() if ch.isalnum()) or "bot"
     return AccountConfiguration.generate(safe, rand=True)
@@ -367,11 +398,17 @@ async def _cancel_challenge(
     delay_s: float = 0.5,
     debug: bool = False,
     attempts: int = 1,
+    target: str | None = None,
 ) -> None:
     try:
+        target_id = _canonical_user_id(target)
+        cmd = f"/cancelchallenge {target_id}" if target_id else "/cancelchallenge"
         for idx in range(max(1, attempts)):
-            await ps_client.send_message("/cancelchallenge")
-            _debug_print(debug, f"sent /cancelchallenge ({idx + 1}/{attempts})")
+            await ps_client.send_message(cmd)
+            _debug_print(
+                debug,
+                f"sent {cmd} ({idx + 1}/{attempts})",
+            )
             if delay_s:
                 await asyncio.sleep(delay_s)
     except Exception:
@@ -386,30 +423,47 @@ async def _challenge_with_fallback(
     debug: bool = False,
 ) -> str | None:
     candidates = []
-    if opponent_id:
-        candidates.append(opponent_id.strip())
-    if opponent_name:
-        candidates.append(opponent_name.strip())
-        candidates.append(_safe_id(opponent_name))
+    for raw in (opponent_id, opponent_name):
+        candidate = _canonical_user_id(raw)
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
 
-    seen = set()
+    if not candidates:
+        _debug_print(debug, "no valid challenge candidate id available")
+        return None
+
     if not await _wait_for_login(player.ps_client, timeout_s):
         return None
-    await _cancel_challenge(player.ps_client, delay_s=0.6, debug=debug, attempts=2)
     for candidate in candidates:
-        candidate = candidate.strip()
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
+        await _cancel_challenge(
+            player.ps_client,
+            delay_s=0.3,
+            debug=debug,
+            attempts=1,
+            target=candidate,
+        )
+    for candidate in candidates:
         before = len(player.battles)
         print(f"   Trying challenge target: {candidate}")
-        await _cancel_challenge(player.ps_client, delay_s=0.4, debug=debug, attempts=2)
+        await _cancel_challenge(
+            player.ps_client,
+            delay_s=0.4,
+            debug=debug,
+            attempts=2,
+            target=candidate,
+        )
         await player.ps_client.challenge(candidate, player._format, player.next_team)
         if await _wait_for_battle_start(player, before, timeout_s):
             print(f"   Battle started with: {candidate}")
             return candidate
         print(f"   No battle start for: {candidate}")
-        await _cancel_challenge(player.ps_client, delay_s=1.0, debug=debug, attempts=3)
+        await _cancel_challenge(
+            player.ps_client,
+            delay_s=1.0,
+            debug=debug,
+            attempts=3,
+            target=candidate,
+        )
     return None
 
 
@@ -428,12 +482,19 @@ async def _read_user_id(
                     payload = json.loads(content)
                     userid = payload.get("userid")
                     username = payload.get("username")
-                    userid = userid.strip() if isinstance(userid, str) else userid
-                    username = username.strip() if isinstance(username, str) else username
+                    userid = _canonical_user_id(userid)
+                    if not userid:
+                        userid = None
+                    if isinstance(username, str):
+                        username = username.strip() or None
+                    else:
+                        username = None
                     _debug_print(debug, f"user-id file parsed: userid={userid} username={username}")
                     return userid, username
-                _debug_print(debug, f"user-id file raw: {content}")
-                return content.strip(), None
+                raw_id = _canonical_user_id(content)
+                if raw_id:
+                    _debug_print(debug, f"user-id file raw: {content}")
+                    return raw_id, None
             except Exception:
                 pass
         await asyncio.sleep(1)
@@ -633,10 +694,11 @@ async def main():
         user_to_challenge=user_to_challenge,
         debug=args.debug,
     )
-    if not foulplay_id:
-        foulplay_id = _safe_id(foulplay_username)
-    if foulplay_name:
-        foulplay_username = foulplay_name
+    foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+        foulplay_id,
+        foulplay_name,
+        foulplay_username,
+    )
     print(
         "   Foul Play user-id: {} name: {} file: {}".format(
             foulplay_id or "<empty>",
@@ -684,10 +746,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
             try:
                 await asyncio.wait_for(
@@ -730,10 +793,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
             if (i + 1) % args.progress_every == 0:
                 wins = agent.n_won_battles
@@ -770,10 +834,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
 
             print(f"   Waiting for Foul Play to be ready (battle {i + 1}/{args.battles})...")
@@ -810,10 +875,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
                 continue
             waiting_count = next_count
@@ -885,10 +951,11 @@ async def main():
                         user_to_challenge=user_to_challenge,
                         debug=args.debug,
                     )
-                    if not foulplay_id:
-                        foulplay_id = _safe_id(foulplay_username)
-                    if foulplay_name:
-                        foulplay_username = foulplay_name
+                    foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                        foulplay_id,
+                        foulplay_name,
+                        foulplay_username,
+                    )
                     waiting_count = 0
                     challenge_failures = 0
                     try:
@@ -935,10 +1002,11 @@ async def main():
                             user_to_challenge=user_to_challenge,
                             debug=args.debug,
                         )
-                        if not foulplay_id:
-                            foulplay_id = _safe_id(foulplay_username)
-                        if foulplay_name:
-                            foulplay_username = foulplay_name
+                        foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                            foulplay_id,
+                            foulplay_name,
+                            foulplay_username,
+                        )
                         waiting_count = 0
                     if (i + 1) % args.progress_every == 0:
                         wins = agent.n_won_battles
@@ -995,10 +1063,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
                 continue
             challenge_failures = 0
@@ -1031,10 +1100,11 @@ async def main():
                     user_to_challenge=user_to_challenge,
                     debug=args.debug,
                 )
-                if not foulplay_id:
-                    foulplay_id = _safe_id(foulplay_username)
-                if foulplay_name:
-                    foulplay_username = foulplay_name
+                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                    foulplay_id,
+                    foulplay_name,
+                    foulplay_username,
+                )
                 waiting_count = 0
                 continue
 
