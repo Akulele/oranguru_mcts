@@ -2337,7 +2337,9 @@ class RuleBotPlayer(Player):
         speed_boost = int((opponent.boosts or {}).get("spe", 0) or 0) >= 2
         speed_gap = self._get_effective_speed(opponent) > self._get_effective_speed(active) * 1.05
         setup_threat = self._opponent_is_set_up(opponent)
-        return no_real_upgrade or speed_boost or (setup_threat and speed_gap)
+        # Only break switch loops for true speed-control snowballs where switching
+        # no longer meaningfully improves the position.
+        return no_real_upgrade and (speed_boost or (setup_threat and speed_gap))
 
     def _choose_emergency_non_switch_order(
         self,
