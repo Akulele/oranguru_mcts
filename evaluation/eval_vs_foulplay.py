@@ -606,6 +606,12 @@ async def main():
         help="Consecutive challenge failures before switching to foulplay-challenges.",
     )
     parser.add_argument(
+        "--challenge-soft-retries",
+        type=int,
+        default=12,
+        help="Challenge failures to tolerate per battle before consuming a hard foulplay retry.",
+    )
+    parser.add_argument(
         "--foulplay-challenges",
         action="store_true",
         help="Have Foul Play challenge our agent instead of the other way around.",
@@ -919,6 +925,25 @@ async def main():
             )
             if not accepted_by:
                 challenge_failures += 1
+                if challenge_failures <= max(0, args.challenge_soft_retries):
+                    _debug_print(
+                        args.debug,
+                        "challenge soft retry {}/{} for battle {}/{}".format(
+                            challenge_failures,
+                            max(0, args.challenge_soft_retries),
+                            i + 1,
+                            args.battles,
+                        ),
+                    )
+                    await _cancel_challenge(
+                        agent.ps_client,
+                        delay_s=0.7,
+                        debug=args.debug,
+                        attempts=2,
+                        target=foulplay_id,
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
                 if (
                     args.foulplay_auto_challenge
                     and not args.foulplay_challenges

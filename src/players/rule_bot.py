@@ -17,6 +17,7 @@ from pathlib import Path
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 from poke_env.player import Player
+from poke_env.player.battle_order import _EmptyBattleOrder
 from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition
 from poke_env.battle.field import Field
 from poke_env.battle.weather import Weather
@@ -459,6 +460,16 @@ class RuleBotPlayer(Player):
     def _commit_order(self, battle: Battle, order):
         self._record_last_action(battle, order)
         return order
+
+    @staticmethod
+    def _empty_order_if_no_choices(battle: Battle):
+        try:
+            orders = getattr(battle, "valid_orders", None)
+            if orders is not None and len(orders) == 0:
+                return _EmptyBattleOrder()
+        except Exception:
+            pass
+        return None
 
     def _estimate_matchup(self, mon: Pokemon, opponent: Pokemon) -> float:
         """Estimate matchup score - positive means we have advantage."""
@@ -3143,6 +3154,9 @@ class RuleBotPlayer(Player):
         """Main move selection logic with switch prediction and status usage."""
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
+        noop_order = self._empty_order_if_no_choices(battle)
+        if noop_order is not None:
+            return noop_order
 
         self._current_battle = battle
         self._update_immunity_memory(battle)

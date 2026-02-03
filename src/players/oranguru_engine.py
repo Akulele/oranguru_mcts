@@ -1229,6 +1229,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
+        noop_order = self._empty_order_if_no_choices(battle)
+        if noop_order is not None:
+            return noop_order
         if getattr(battle, "_wait", False) or getattr(battle, "teampreview", False):
             return self.choose_random_move(battle)
 
