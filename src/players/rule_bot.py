@@ -2532,9 +2532,9 @@ class RuleBotPlayer(Player):
         if opponent.status is not None and status_type not in {"seed", "taunt", "encore"}:
             return 0.0
 
-        if self.STATUS_KO_GUARD and battle is not None:
+        if getattr(self, "STATUS_KO_GUARD", False) and battle is not None:
             best_damage = self._estimate_best_damage_score(active, opponent, battle)
-            if best_damage >= self.STATUS_KO_THRESHOLD:
+            if best_damage >= getattr(self, "STATUS_KO_THRESHOLD", 200.0):
                 return 0.0
 
         score = 0.0

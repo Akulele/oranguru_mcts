@@ -590,7 +590,7 @@ async def main():
         "--foulplay-auto-challenge",
         dest="foulplay_auto_challenge",
         action="store_true",
-        help="Auto-switch to foulplay-challenges mode after repeated challenge failures.",
+        help="Auto-switch to foulplay-challenges mode after repeated challenge failures (off by default).",
     )
     parser.add_argument(
         "--no-foulplay-auto-challenge",
@@ -598,7 +598,7 @@ async def main():
         action="store_false",
         help="Disable auto-switch to foulplay-challenges mode.",
     )
-    parser.set_defaults(foulplay_auto_challenge=True)
+    parser.set_defaults(foulplay_auto_challenge=False)
     parser.add_argument(
         "--foulplay-auto-challenge-after",
         type=int,
