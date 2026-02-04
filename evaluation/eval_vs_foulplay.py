@@ -49,6 +49,16 @@ def _safe_id(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum()) or "bot"
 
 
+def _agent_user_target(agent) -> str:
+    try:
+        live_name = getattr(getattr(agent, "ps_client", None), "username", "") or ""
+    except Exception:
+        live_name = ""
+    if not live_name:
+        live_name = getattr(agent, "username", "")
+    return _safe_id(live_name)
+
+
 def _canonical_user_id(name: str | None) -> str:
     if not isinstance(name, str):
         return ""
@@ -681,7 +691,19 @@ async def main():
         agent = RLPlayer(model=model, config=config, device=device, training=False, **kwargs)
 
     bot_mode = "challenge_user" if args.foulplay_challenges else "accept_challenge"
-    user_to_challenge = _safe_id(agent.username) if args.foulplay_challenges else None
+    user_to_challenge = None
+    if args.foulplay_challenges:
+        login_ok = await _wait_for_login(
+            agent.ps_client,
+            timeout_s=max(10, args.foulplay_wait),
+        )
+        user_to_challenge = _agent_user_target(agent)
+        if not login_ok:
+            _debug_print(
+                args.debug,
+                "agent login not confirmed before spawning challenge_user foulplay; proceeding with fallback target",
+            )
+        print(f"   Challenge target: {user_to_challenge}")
 
     _debug_print(
         args.debug,
@@ -736,6 +758,14 @@ async def main():
     for i in range(args.battles):
         refresh_attempts = 0
         max_refresh_attempts = 2
+        if args.foulplay_challenges:
+            refreshed_target = _agent_user_target(agent)
+            if refreshed_target and refreshed_target != user_to_challenge:
+                _debug_print(
+                    args.debug,
+                    f"updated challenge target {user_to_challenge} -> {refreshed_target}",
+                )
+                user_to_challenge = refreshed_target
         if (
             not args.foulplay_challenges
             and args.foulplay_restart_every > 0
@@ -1006,7 +1036,7 @@ async def main():
                     )
                     args.foulplay_challenges = True
                     bot_mode = "challenge_user"
-                    user_to_challenge = _safe_id(agent.username)
+                    user_to_challenge = _agent_user_target(agent)
                     _terminate_proc(proc)
                     remaining = args.battles - i
                     proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
