@@ -57,6 +57,7 @@ async def run_foul_play():
         login_uri=FoulPlayConfig.login_uri,
     )
 
+    FoulPlayConfig.requested_username = FoulPlayConfig.username
     FoulPlayConfig.user_id = await ps_websocket_client.login()
     FoulPlayConfig.username = ps_websocket_client.username
     if FoulPlayConfig.user_id_file:

@@ -42,7 +42,7 @@ def _debug_print(enabled: bool, message: str) -> None:
     if not enabled:
         return
     stamp = time.strftime("%H:%M:%S")
-    print(f"[debug {stamp}] {message}")
+    print(f"[debug {stamp}] {message}", flush=True)
 
 
 def _safe_id(name: str) -> str:
@@ -392,6 +392,25 @@ async def _wait_for_battle_start(player, previous_count: int, timeout_s: int) ->
     return False
 
 
+async def _forfeit_unfinished_battles(player, debug: bool = False) -> int:
+    to_forfeit = []
+    for battle in list(player.battles.values()):
+        try:
+            if battle is not None and not battle.finished:
+                to_forfeit.append(battle.battle_tag)
+        except Exception:
+            continue
+    if not to_forfeit:
+        return 0
+    for tag in to_forfeit:
+        try:
+            await player.ps_client.send_message("/forfeit", tag)
+            _debug_print(debug, f"sent /forfeit to {tag}")
+        except Exception as exc:
+            _debug_print(debug, f"failed /forfeit for {tag}: {exc}")
+    return len(to_forfeit)
+
+
 async def _wait_for_login(ps_client, timeout_s: int) -> bool:
     print(f"   Waiting for login: {ps_client.username}")
     try:
@@ -577,6 +596,10 @@ def _tail_text(path: Path, max_chars: int = 2000) -> str:
 
 
 async def main():
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--battles", type=int, default=50)
     parser.add_argument("--progress-every", type=int, default=10)
@@ -674,6 +697,7 @@ async def main():
         "max_concurrent_battles": 1,
         "server_configuration": CustomServerConfig,
         "account_configuration": _account_with_name(args.player),
+        "start_timer_on_battle_start": True,
     }
     # Make eval context explicit so engine-side eval-only switches are reliable.
     os.environ["ORANGURU_EVAL_MODE"] = "1"
@@ -755,6 +779,11 @@ async def main():
     auto_challenge_after = max(1, args.foulplay_auto_challenge_after)
     forced_restart_idx = -1
     abort = False
+    accept_task: asyncio.Task | None = None
+    if args.foulplay_challenges:
+        accept_task = asyncio.create_task(
+            agent.accept_challenges(opponent=None, n_challenges=args.battles)
+        )
     for i in range(args.battles):
         refresh_attempts = 0
         max_refresh_attempts = 2
@@ -807,54 +836,65 @@ async def main():
             challenge_failures = 0
             forced_restart_idx = i
         if args.foulplay_challenges:
-            _debug_print(args.debug, f"waiting for challenge {i + 1}/{args.battles}")
-            if proc.poll() is not None:
-                if retries_left <= 0:
-                    abort = True
+            while True:
+                _debug_print(args.debug, f"waiting for challenge {i + 1}/{args.battles}")
+                if proc.poll() is not None:
+                    if retries_left <= 0:
+                        abort = True
+                        break
+                    retries_left -= 1
+                    _terminate_proc(proc)
+                    remaining = args.battles - i
+                    proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+                        attempt=args.foulplay_retries - retries_left,
+                        remaining_battles=remaining,
+                        foulplay_path=foulplay_path,
+                        foulplay_python=foulplay_python,
+                        foulplay_username=foulplay_username,
+                        foulplay_password=args.foulplay_password,
+                        ws_uri=args.ws_uri,
+                        battle_format=args.format,
+                        search_time_ms=args.foulplay_search_ms,
+                        parallelism=args.foulplay_parallelism,
+                        no_login=args.no_login,
+                        log_path=base_log_path,
+                        user_id_path=base_user_id_path,
+                        wait_s=args.foulplay_wait,
+                        bot_mode=bot_mode,
+                        user_to_challenge=user_to_challenge,
+                        debug=args.debug,
+                    )
+                    foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                        foulplay_id,
+                        foulplay_name,
+                        foulplay_username,
+                    )
+                    waiting_count = 0
+                    continue
+
+                if accept_task and accept_task.done():
+                    try:
+                        await accept_task
+                    except Exception as exc:
+                        _debug_print(args.debug, f"accept_challenges task failed: {exc}")
+                    if agent.n_finished_battles < (i + 1):
+                        abort = True
+                        break
+
+                ok = await _wait_for_finished(
+                    agent,
+                    target_finished=i + 1,
+                    timeout_s=max(args.battle_timeout, args.foulplay_wait),
+                )
+                if ok:
                     break
-                retries_left -= 1
-                _terminate_proc(proc)
-                remaining = args.battles - i
-                proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
-                    attempt=args.foulplay_retries - retries_left,
-                    remaining_battles=remaining,
-                    foulplay_path=foulplay_path,
-                    foulplay_python=foulplay_python,
-                    foulplay_username=foulplay_username,
-                    foulplay_password=args.foulplay_password,
-                    ws_uri=args.ws_uri,
-                    battle_format=args.format,
-                    search_time_ms=args.foulplay_search_ms,
-                    parallelism=args.foulplay_parallelism,
-                    no_login=args.no_login,
-                    log_path=base_log_path,
-                    user_id_path=base_user_id_path,
-                    wait_s=args.foulplay_wait,
-                    bot_mode=bot_mode,
-                    user_to_challenge=user_to_challenge,
-                    debug=args.debug,
-                )
-                foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
-                    foulplay_id,
-                    foulplay_name,
-                    foulplay_username,
-                )
-                waiting_count = 0
-            try:
-                await asyncio.wait_for(
-                    agent.accept_challenges(opponent=None, n_challenges=1),
-                    timeout=args.battle_timeout,
-                )
-                _debug_print(
-                    args.debug,
-                    "accepted challenge; battles={} finished={}".format(
-                        len(agent.battles), agent.n_finished_battles
-                    ),
-                )
-            except asyncio.TimeoutError:
+
                 if args.debug:
                     tail = _tail_text(log_path)
                     _debug_print(args.debug, f"timeout waiting; foulplay log tail:\n{tail}")
+                forfeits = await _forfeit_unfinished_battles(agent, debug=args.debug)
+                if forfeits:
+                    await asyncio.sleep(2.0)
                 if retries_left <= 0:
                     print(f"   Timeout waiting for battle {i + 1}/{args.battles}")
                     abort = True
@@ -887,6 +927,9 @@ async def main():
                     foulplay_username,
                 )
                 waiting_count = 0
+
+            if abort:
+                break
             if (i + 1) % args.progress_every == 0:
                 wins = agent.n_won_battles
                 finished = agent.n_finished_battles
@@ -1408,6 +1451,15 @@ async def main():
         print("\n📌 Top Switches")
         for species, count in switch_counter.most_common(10):
             print(f"   {species}: {count}")
+
+    if accept_task and not accept_task.done():
+        accept_task.cancel()
+        try:
+            await accept_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
 
     if proc.poll() is None:
         proc.send_signal(signal.SIGTERM)

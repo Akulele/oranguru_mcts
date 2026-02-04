@@ -19,6 +19,25 @@ from fp.websocket_client import PSWebsocketClient
 logger = logging.getLogger(__name__)
 
 
+def _to_id(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _known_self_ids() -> set[str]:
+    return {
+        _to_id(getattr(FoulPlayConfig, "username", "")),
+        _to_id(getattr(FoulPlayConfig, "user_id", "")),
+        _to_id(getattr(FoulPlayConfig, "requested_username", "")),
+    }
+
+
+def _is_self_name(name: str) -> bool:
+    candidate = _to_id(name)
+    return bool(candidate and candidate in _known_self_ids())
+
+
 def format_decision(battle, decision):
     # Formats a decision for communication with Pokemon-Showdown
     # If the move can be used as a Z-Move, it will be
@@ -129,10 +148,17 @@ async def get_battle_tag_and_opponent(ps_websocket_client: PSWebsocketClient):
         first_msg = split_msg[0]
         if "battle" in first_msg:
             battle_tag = first_msg.replace(">", "").strip()
-            user_name = FoulPlayConfig.username
-            opponent_name = (
-                split_msg[4].replace(user_name, "").replace("vs.", "").strip()
-            )
+            title = split_msg[4].strip() if len(split_msg) > 4 else ""
+            names = [part.strip() for part in title.split("vs.") if part.strip()]
+            known_ids = _known_self_ids()
+            opponent_candidates = [
+                name for name in names if _to_id(name) not in known_ids
+            ]
+            opponent_name = opponent_candidates[0] if opponent_candidates else ""
+            if not opponent_name and names:
+                opponent_name = names[-1]
+            if not opponent_name:
+                opponent_name = "opponent"
             logger.info("Initialized {} against: {}".format(battle_tag, opponent_name))
             return battle_tag, opponent_name
 
@@ -158,9 +184,22 @@ async def start_battle_common(
     # |player|p1|OpponentName|2|'
     while True:
         msg = await ps_websocket_client.receive_message()
-        if "|player|" in msg and battle.opponent.account_name in msg:
-            battle.opponent.name = msg.split("|")[2]
-            battle.user.name = constants.ID_LOOKUP[battle.opponent.name]
+        if "|player|" not in msg:
+            continue
+        msg_split = msg.split("|")
+        if len(msg_split) < 4:
+            continue
+        player_slot = msg_split[2].strip()
+        player_name = msg_split[3].strip()
+        if not player_slot:
+            continue
+        if _is_self_name(player_name):
+            battle.user.name = player_slot
+            battle.opponent.name = constants.ID_LOOKUP[player_slot]
+        else:
+            battle.opponent.name = player_slot
+            battle.user.name = constants.ID_LOOKUP[player_slot]
+            battle.opponent.account_name = player_name
             break
 
     return battle, msg
