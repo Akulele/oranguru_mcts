@@ -401,8 +401,7 @@ async def _cancel_challenge(
     target: str | None = None,
 ) -> None:
     try:
-        target_id = _canonical_user_id(target)
-        cmd = f"/cancelchallenge {target_id}" if target_id else "/cancelchallenge"
+        cmd = "/cancelchallenge"
         for idx in range(max(1, attempts)):
             await ps_client.send_message(cmd)
             _debug_print(
@@ -612,6 +611,18 @@ async def main():
         help="Challenge failures to tolerate per battle before consuming a hard foulplay retry.",
     )
     parser.add_argument(
+        "--challenge-backoff",
+        type=float,
+        default=1.5,
+        help="Seconds to wait between repeated challenge attempts for the same battle index.",
+    )
+    parser.add_argument(
+        "--foulplay-restart-every",
+        type=int,
+        default=0,
+        help="Restart Foul Play every N battle indices to reduce long-run drift (0 disables).",
+    )
+    parser.add_argument(
         "--foulplay-challenges",
         action="store_true",
         help="Have Foul Play challenge our agent instead of the other way around.",
@@ -720,10 +731,51 @@ async def main():
     retries_left = max(0, args.foulplay_retries)
     challenge_failures = 0
     auto_challenge_after = max(1, args.foulplay_auto_challenge_after)
+    forced_restart_idx = -1
     abort = False
     for i in range(args.battles):
         refresh_attempts = 0
         max_refresh_attempts = 2
+        if (
+            not args.foulplay_challenges
+            and args.foulplay_restart_every > 0
+            and i > 0
+            and (i % args.foulplay_restart_every) == 0
+            and forced_restart_idx != i
+        ):
+            _debug_print(
+                args.debug,
+                f"proactive foulplay restart at battle index {i + 1}",
+            )
+            _terminate_proc(proc)
+            remaining = args.battles - i
+            proc, log_path, user_id_path, foulplay_id, foulplay_name = await _spawn_foulplay(
+                attempt=args.foulplay_retries - retries_left,
+                remaining_battles=remaining,
+                foulplay_path=foulplay_path,
+                foulplay_python=foulplay_python,
+                foulplay_username=foulplay_username,
+                foulplay_password=args.foulplay_password,
+                ws_uri=args.ws_uri,
+                battle_format=args.format,
+                search_time_ms=args.foulplay_search_ms,
+                parallelism=args.foulplay_parallelism,
+                no_login=args.no_login,
+                log_path=base_log_path,
+                user_id_path=base_user_id_path,
+                wait_s=args.foulplay_wait,
+                bot_mode=bot_mode,
+                user_to_challenge=user_to_challenge,
+                debug=args.debug,
+            )
+            foulplay_id, foulplay_name, foulplay_username = _resolve_foulplay_identity(
+                foulplay_id,
+                foulplay_name,
+                foulplay_username,
+            )
+            waiting_count = 0
+            challenge_failures = 0
+            forced_restart_idx = i
         if args.foulplay_challenges:
             _debug_print(args.debug, f"waiting for challenge {i + 1}/{args.battles}")
             if proc.poll() is not None:
@@ -942,7 +994,7 @@ async def main():
                         attempts=2,
                         target=foulplay_id,
                     )
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(max(0.0, args.challenge_backoff))
                     continue
                 if (
                     args.foulplay_auto_challenge
