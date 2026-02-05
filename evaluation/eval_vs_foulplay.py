@@ -595,6 +595,50 @@ def _tail_text(path: Path, max_chars: int = 2000) -> str:
     return text[-max_chars:]
 
 
+def _git_commit_snapshot(project_root: Path) -> tuple[str, bool]:
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        commit = "unknown"
+    try:
+        dirty_raw = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=project_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        dirty = bool(dirty_raw.strip())
+    except Exception:
+        dirty = False
+    return commit, dirty
+
+
+def _print_startup_context(args: argparse.Namespace) -> None:
+    commit, dirty = _git_commit_snapshot(PROJECT_ROOT)
+    print("Eval Context")
+    print(f"   Commit: {commit} {'(dirty)' if dirty else '(clean)'}")
+    print(f"   Player: {args.player}")
+    print(f"   Format: {args.format}")
+    print(f"   Battles: {args.battles}")
+    env_items = sorted(
+        (key, value)
+        for key, value in os.environ.items()
+        if key.startswith("ORANGURU_")
+    )
+    if env_items:
+        print("   ORANGURU_* env:")
+        for key, value in env_items:
+            print(f"     {key}={value}")
+    else:
+        print("   ORANGURU_* env: <none>")
+    print()
+
+
 async def main():
     try:
         sys.stdout.reconfigure(line_buffering=True)
@@ -701,6 +745,7 @@ async def main():
     }
     # Make eval context explicit so engine-side eval-only switches are reliable.
     os.environ["ORANGURU_EVAL_MODE"] = "1"
+    _print_startup_context(args)
 
     if args.player == "rulebot":
         agent = RuleBotPlayer(**kwargs)
