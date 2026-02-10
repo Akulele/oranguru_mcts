@@ -73,6 +73,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
     RERANK_TOPK = int(os.getenv("ORANGURU_RERANK_TOPK", "3"))
+    CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
+    CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0.0"))
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1153,6 +1155,30 @@ class OranguruEnginePlayer(RuleBotPlayer):
             filtered_policy = {k: v for k, v in final_policy.items() if k not in banned_choices}
             if filtered_policy:
                 final_policy = filtered_policy
+        if self.CANDIDATE_TOPK > 0 and battle.available_moves:
+            scored_moves = []
+            for move in battle.available_moves:
+                choice = normalize_name(move.id)
+                score = self._heuristic_action_score(battle, choice)
+                if score is None:
+                    score = 0.0
+                scored_moves.append((score, choice))
+            scored_moves.sort(key=lambda x: x[0], reverse=True)
+            if scored_moves:
+                topk = max(1, min(self.CANDIDATE_TOPK, len(scored_moves)))
+                best_score = scored_moves[0][0]
+                if best_score >= self.CANDIDATE_MIN_SCORE:
+                    allowed_moves = {m for _, m in scored_moves[:topk] if m}
+                    gated_policy = {}
+                    for choice, weight in final_policy.items():
+                        if choice.startswith("switch "):
+                            gated_policy[choice] = weight
+                            continue
+                        move_choice = normalize_name(choice.replace("-tera", ""))
+                        if move_choice in allowed_moves:
+                            gated_policy[choice] = weight
+                    if gated_policy:
+                        final_policy = gated_policy
         final_policy = self._apply_action_dominance(final_policy, battle)
         mem = self._get_battle_memory(battle)
         no_progress_turns = int(mem.get("no_progress_turns", 0) or 0)
