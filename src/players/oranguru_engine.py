@@ -73,8 +73,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
     RERANK_TOPK = int(os.getenv("ORANGURU_RERANK_TOPK", "3"))
+    DETERMINISTIC_RERANK = bool(int(os.getenv("ORANGURU_DET_RERANK", "1")))
+    DETERMINISTIC_RERANK_TOPK = int(os.getenv("ORANGURU_DET_RERANK_TOPK", "3"))
+    DETERMINISTIC_RERANK_CONF = float(os.getenv("ORANGURU_DET_RERANK_CONF", "0.58"))
+    DETERMINISTIC_RERANK_MARGIN = float(os.getenv("ORANGURU_DET_RERANK_MARGIN", "0.10"))
     CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
     CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0.0"))
+    FINISH_PRESSURE = bool(int(os.getenv("ORANGURU_FINISH_PRESSURE", "1")))
+    FINISH_PRESSURE_THRESHOLD = float(os.getenv("ORANGURU_FINISH_PRESSURE_THRESHOLD", "220.0"))
+    FINISH_PRESSURE_MAX_OPP_HP = float(os.getenv("ORANGURU_FINISH_PRESSURE_MAX_OPP_HP", "0.65"))
+    FINISH_PRESSURE_NON_DAMAGE_SCALE = float(
+        os.getenv("ORANGURU_FINISH_PRESSURE_NON_DAMAGE_SCALE", "0.2")
+    )
+    FINISH_PRESSURE_SWITCH_SCALE = float(
+        os.getenv("ORANGURU_FINISH_PRESSURE_SWITCH_SCALE", "0.4")
+    )
+    FINISH_PRESSURE_REPLY_GUARD = float(os.getenv("ORANGURU_FINISH_PRESSURE_REPLY_GUARD", "260.0"))
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1041,6 +1055,36 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 scaled[c] = scaled[c] * scale
         return scaled
 
+    def _apply_finish_pressure(self, final_policy: dict, battle: Battle) -> dict:
+        if not self.FINISH_PRESSURE or not final_policy:
+            return final_policy
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        if not active or not opponent:
+            return final_policy
+        opp_hp = opponent.current_hp_fraction or 0.0
+        if opp_hp > self.FINISH_PRESSURE_MAX_OPP_HP:
+            return final_policy
+        best_damage = self._estimate_best_damage_score(active, opponent, battle)
+        threshold = self.FINISH_PRESSURE_THRESHOLD * max(opp_hp, 0.05)
+        if best_damage < threshold:
+            return final_policy
+
+        non_damage_scale = max(0.0, min(1.0, self.FINISH_PRESSURE_NON_DAMAGE_SCALE))
+        switch_scale = max(0.0, min(1.0, self.FINISH_PRESSURE_SWITCH_SCALE))
+        reply_score = self._estimate_best_reply_score(opponent, active, battle)
+        active_hp = active.current_hp_fraction or 0.0
+        if reply_score >= self.FINISH_PRESSURE_REPLY_GUARD * max(active_hp, 0.15):
+            switch_scale = max(switch_scale, 0.9)
+
+        scaled = dict(final_policy)
+        for c in list(scaled.keys()):
+            if c.startswith("switch "):
+                scaled[c] = scaled[c] * switch_scale
+            elif self._choice_is_non_damaging(c, battle):
+                scaled[c] = scaled[c] * non_damage_scale
+        return scaled
+
     def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -1179,6 +1223,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                             gated_policy[choice] = weight
                     if gated_policy:
                         final_policy = gated_policy
+        final_policy = self._apply_finish_pressure(final_policy, battle)
         final_policy = self._apply_action_dominance(final_policy, battle)
         mem = self._get_battle_memory(battle)
         no_progress_turns = int(mem.get("no_progress_turns", 0) or 0)
@@ -1210,10 +1255,27 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         best = ordered[0][1]
         confidence = best / total_policy if total_policy > 0 else 0.0
+        margin = 1.0
         if len(ordered) > 1:
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
             confidence = max(confidence, margin)
+
+        if deterministic and self.DETERMINISTIC_RERANK and len(ordered) > 1:
+            conf_cut = max(0.0, min(1.0, self.DETERMINISTIC_RERANK_CONF))
+            margin_cut = max(0.0, min(1.0, self.DETERMINISTIC_RERANK_MARGIN))
+            low_conf = confidence < conf_cut or margin < margin_cut
+            if low_conf:
+                rerank_candidates = ordered[: max(1, self.DETERMINISTIC_RERANK_TOPK)]
+                scored = []
+                for choice, weight in rerank_candidates:
+                    score = self._heuristic_action_score(battle, choice)
+                    if score is None:
+                        continue
+                    scored.append((score, weight, choice))
+                if scored:
+                    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                    return scored[0][2]
 
         cutoff = best * 0.75
         filtered = [o for o in ordered if o[1] >= cutoff]

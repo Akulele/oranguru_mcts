@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from poke_env.battle import PokemonType, MoveCategory
 from poke_env.battle.effect import Effect
@@ -51,6 +52,16 @@ class DummyBattle:
         self.available_moves = available_moves
         self.opponent_active_pokemon = opponent_active_pokemon
         self.active_pokemon = active_pokemon
+        self.battle_tag = "test-battle"
+
+
+class DummyResult:
+    def __init__(self, choices):
+        self.total_visits = sum(v for _, v in choices) or 1
+        self.side_one = [
+            SimpleNamespace(move_choice=choice, visits=visits)
+            for choice, visits in choices
+        ]
 
 
 class EngineSafeguardTests(unittest.TestCase):
@@ -100,6 +111,54 @@ class EngineSafeguardTests(unittest.TestCase):
         policy = {"recover": 1.0, "earthquake": 0.5}
         scaled = self.engine._apply_action_dominance(policy, battle)
         self.assertLess(scaled["recover"], scaled["earthquake"])
+
+    def test_finish_pressure_scales_status_and_switch(self):
+        active = DummyPokemon(status=None, current_hp_fraction=0.8)
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.2)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("recover", category=MoveCategory.STATUS),
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.FINISH_PRESSURE = True
+        self.engine.FINISH_PRESSURE_THRESHOLD = 200.0
+        self.engine.FINISH_PRESSURE_MAX_OPP_HP = 0.7
+        self.engine.FINISH_PRESSURE_NON_DAMAGE_SCALE = 0.2
+        self.engine.FINISH_PRESSURE_SWITCH_SCALE = 0.4
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        self.engine._estimate_best_reply_score = lambda *_: 0.0
+        policy = {"recover": 1.0, "earthquake": 1.0, "switch skarmory": 1.0}
+        scaled = self.engine._apply_finish_pressure(policy, battle)
+        self.assertLess(scaled["recover"], scaled["earthquake"])
+        self.assertLess(scaled["switch skarmory"], scaled["earthquake"])
+
+    def test_deterministic_low_confidence_reranks_topk(self):
+        active = DummyPokemon(status=None, current_hp_fraction=1.0)
+        opponent = DummyPokemon(status=None, current_hp_fraction=1.0)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.DETERMINISTIC_RERANK = True
+        self.engine.DETERMINISTIC_RERANK_TOPK = 2
+        self.engine.DETERMINISTIC_RERANK_CONF = 0.99
+        self.engine.DETERMINISTIC_RERANK_MARGIN = 0.99
+        self.engine.ACTION_DOMINANCE = False
+        self.engine.FINISH_PRESSURE = False
+        self.engine.NO_PROGRESS_TURNS = 999
+        self.engine._heuristic_action_score = lambda _battle, c: 100.0 if c == "thunderwave" else 1.0
+        results = [(DummyResult([("earthquake", 51), ("thunderwave", 49)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "thunderwave")
 
 
 if __name__ == "__main__":
