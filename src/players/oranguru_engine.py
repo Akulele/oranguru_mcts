@@ -77,6 +77,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     DETERMINISTIC_RERANK_TOPK = int(os.getenv("ORANGURU_DET_RERANK_TOPK", "3"))
     DETERMINISTIC_RERANK_CONF = float(os.getenv("ORANGURU_DET_RERANK_CONF", "0.58"))
     DETERMINISTIC_RERANK_MARGIN = float(os.getenv("ORANGURU_DET_RERANK_MARGIN", "0.10"))
+    HYBRID_RULEBOT_LOWCONF = bool(int(os.getenv("ORANGURU_HYBRID_RULEBOT_LOWCONF", "0")))
+    HYBRID_RULEBOT_CONF = float(os.getenv("ORANGURU_HYBRID_RULEBOT_CONF", "0.56"))
+    HYBRID_RULEBOT_MARGIN = float(os.getenv("ORANGURU_HYBRID_RULEBOT_MARGIN", "0.09"))
     CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
     CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0.0"))
     FINISH_PRESSURE = bool(int(os.getenv("ORANGURU_FINISH_PRESSURE", "1")))
@@ -1085,6 +1088,38 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 scaled[c] = scaled[c] * non_damage_scale
         return scaled
 
+    def _hybrid_low_conf_choice(
+        self,
+        battle: Battle,
+        confidence: float,
+        margin: float,
+    ) -> Optional[str]:
+        if not self.HYBRID_RULEBOT_LOWCONF:
+            return None
+        conf_cut = max(0.0, min(1.0, self.HYBRID_RULEBOT_CONF))
+        margin_cut = max(0.0, min(1.0, self.HYBRID_RULEBOT_MARGIN))
+        if confidence >= conf_cut and margin >= margin_cut:
+            return None
+
+        candidates = []
+        for move in battle.available_moves:
+            candidates.append(normalize_name(move.id))
+        for sw in battle.available_switches:
+            candidates.append(f"switch {normalize_name(sw.species)}")
+        if not candidates:
+            return None
+
+        scored = []
+        for choice in candidates:
+            score = self._heuristic_action_score(battle, choice)
+            if score is None:
+                continue
+            scored.append((float(score), choice))
+        if not scored:
+            return None
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[0][1]
+
     def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -1260,6 +1295,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
             confidence = max(confidence, margin)
+
+        if deterministic:
+            hybrid_choice = self._hybrid_low_conf_choice(battle, confidence, margin)
+            if hybrid_choice:
+                return hybrid_choice
 
         if deterministic and self.DETERMINISTIC_RERANK and len(ordered) > 1:
             conf_cut = max(0.0, min(1.0, self.DETERMINISTIC_RERANK_CONF))

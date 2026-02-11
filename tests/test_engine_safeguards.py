@@ -48,10 +48,18 @@ class DummyPokemon:
 
 
 class DummyBattle:
-    def __init__(self, *, available_moves, opponent_active_pokemon, active_pokemon=None):
+    def __init__(
+        self,
+        *,
+        available_moves,
+        opponent_active_pokemon,
+        active_pokemon=None,
+        available_switches=None,
+    ):
         self.available_moves = available_moves
         self.opponent_active_pokemon = opponent_active_pokemon
         self.active_pokemon = active_pokemon
+        self.available_switches = available_switches or []
         self.battle_tag = "test-battle"
 
 
@@ -157,6 +165,31 @@ class EngineSafeguardTests(unittest.TestCase):
         self.engine.NO_PROGRESS_TURNS = 999
         self.engine._heuristic_action_score = lambda _battle, c: 100.0 if c == "thunderwave" else 1.0
         results = [(DummyResult([("earthquake", 51), ("thunderwave", 49)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "thunderwave")
+
+    def test_hybrid_low_conf_prefers_heuristic_over_mcts_top(self):
+        active = DummyPokemon(status=None, current_hp_fraction=1.0)
+        opponent = DummyPokemon(status=None, current_hp_fraction=1.0)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.HYBRID_RULEBOT_LOWCONF = True
+        self.engine.HYBRID_RULEBOT_CONF = 0.99
+        self.engine.HYBRID_RULEBOT_MARGIN = 0.99
+        self.engine.DETERMINISTIC_RERANK = False
+        self.engine.ACTION_DOMINANCE = False
+        self.engine.FINISH_PRESSURE = False
+        self.engine.NO_PROGRESS_TURNS = 999
+        self.engine._heuristic_action_score = lambda _battle, c: 100.0 if c == "thunderwave" else 1.0
+        results = [(DummyResult([("earthquake", 55), ("thunderwave", 45)]), 1.0)]
         choice = self.engine._select_move_from_results(results, battle)
         self.assertEqual(choice, "thunderwave")
 
