@@ -254,6 +254,54 @@ class EngineSafeguardTests(unittest.TestCase):
         choice = self.engine._select_move_from_results(results, battle)
         self.assertEqual(choice, "earthquake")
 
+    def test_det_damage_tiebreak_prefers_near_tied_damage_over_status(self):
+        active = DummyPokemon(status=None, current_hp_fraction=1.0)
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.2)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.DET_DAMAGE_TIEBREAK = True
+        self.engine.DET_DAMAGE_TIEBREAK_RATIO = 0.85
+        self.engine.DET_DAMAGE_TIEBREAK_KO_THRESHOLD = 100.0
+        self.engine.HYBRID_RULEBOT_LOWCONF = False
+        self.engine.DETERMINISTIC_RERANK = False
+        self.engine.ACTION_DOMINANCE = False
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        results = [(DummyResult([("thunderwave", 55), ("earthquake", 50)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "earthquake")
+
+    def test_det_damage_tiebreak_does_not_trigger_if_not_near_tied(self):
+        active = DummyPokemon(status=None, current_hp_fraction=1.0)
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.2)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.DET_DAMAGE_TIEBREAK = True
+        self.engine.DET_DAMAGE_TIEBREAK_RATIO = 0.95
+        self.engine.DET_DAMAGE_TIEBREAK_KO_THRESHOLD = 100.0
+        self.engine.HYBRID_RULEBOT_LOWCONF = False
+        self.engine.DETERMINISTIC_RERANK = False
+        self.engine.ACTION_DOMINANCE = False
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        results = [(DummyResult([("thunderwave", 80), ("earthquake", 50)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "thunderwave")
+
 
 if __name__ == "__main__":
     unittest.main()

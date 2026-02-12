@@ -92,12 +92,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
         os.getenv("ORANGURU_FINISH_PRESSURE_SWITCH_SCALE", "0.4")
     )
     FINISH_PRESSURE_REPLY_GUARD = float(os.getenv("ORANGURU_FINISH_PRESSURE_REPLY_GUARD", "260.0"))
-    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "1")))
+    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "0")))
     RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "220.0"))
-    SETUP_KO_GUARD = bool(int(os.getenv("ORANGURU_SETUP_KO_GUARD", "1")))
+    SETUP_KO_GUARD = bool(int(os.getenv("ORANGURU_SETUP_KO_GUARD", "0")))
     SETUP_KO_THRESHOLD = float(os.getenv("ORANGURU_SETUP_KO_THRESHOLD", "220.0"))
     SETUP_KO_MAX_OPP_HP = float(os.getenv("ORANGURU_SETUP_KO_MAX_OPP_HP", "0.70"))
     SETUP_REPLY_GUARD = float(os.getenv("ORANGURU_SETUP_REPLY_GUARD", "250.0"))
+    DET_DAMAGE_TIEBREAK = bool(int(os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK", "1")))
+    DET_DAMAGE_TIEBREAK_RATIO = float(os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK_RATIO", "0.88"))
+    DET_DAMAGE_TIEBREAK_KO_THRESHOLD = float(
+        os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK_KO_THRESHOLD", "220.0")
+    )
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1312,6 +1317,29 @@ class OranguruEnginePlayer(RuleBotPlayer):
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
             confidence = max(confidence, margin)
+
+        if deterministic and self.DET_DAMAGE_TIEBREAK and len(ordered) > 1:
+            top_choice, top_weight = ordered[0]
+            if not top_choice.startswith("switch ") and self._choice_is_non_damaging(top_choice, battle):
+                damaging = []
+                for choice, weight in ordered[1:]:
+                    if choice.startswith("switch "):
+                        continue
+                    if self._choice_is_non_damaging(choice, battle):
+                        continue
+                    damaging.append((choice, weight))
+                if damaging:
+                    alt_choice, alt_weight = max(damaging, key=lambda x: x[1])
+                    ratio = max(0.0, min(1.0, self.DET_DAMAGE_TIEBREAK_RATIO))
+                    if top_weight > 0 and alt_weight >= top_weight * ratio:
+                        active = battle.active_pokemon
+                        opponent = battle.opponent_active_pokemon
+                        if active is not None and opponent is not None:
+                            best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                            opp_hp = opponent.current_hp_fraction or 0.0
+                            threshold = self.DET_DAMAGE_TIEBREAK_KO_THRESHOLD * max(opp_hp, 0.05)
+                            if best_damage >= threshold:
+                                return alt_choice
 
         if deterministic:
             hybrid_choice = self._hybrid_low_conf_choice(battle, confidence, margin)
