@@ -9,11 +9,21 @@ from src.players.oranguru_engine import OranguruEnginePlayer
 
 
 class DummyMove:
-    def __init__(self, move_id, move_type=None, category=None, base_power=0):
+    def __init__(
+        self,
+        move_id,
+        move_type=None,
+        category=None,
+        base_power=0,
+        boosts=None,
+        target=None,
+    ):
         self.id = move_id
         self.type = move_type
         self.category = category
         self.base_power = base_power
+        self.boosts = boosts or {}
+        self.target = target
 
 
 class DummyFPMove:
@@ -35,6 +45,7 @@ class DummyPokemon:
         types=None,
         data=None,
         current_hp_fraction=1.0,
+        boosts=None,
     ):
         self.status = status
         self.effects = effects or {}
@@ -45,6 +56,7 @@ class DummyPokemon:
         self.types = types if types is not None else [type_1, type_2]
         self._data = data
         self.current_hp_fraction = current_hp_fraction
+        self.boosts = boosts or {}
 
 
 class DummyBattle:
@@ -192,6 +204,55 @@ class EngineSafeguardTests(unittest.TestCase):
         results = [(DummyResult([("earthquake", 55), ("thunderwave", 45)]), 1.0)]
         choice = self.engine._select_move_from_results(results, battle)
         self.assertEqual(choice, "thunderwave")
+
+    def test_setup_ko_guard_blocks_setup_when_ko_available(self):
+        active = DummyPokemon(status=None, current_hp_fraction=0.8, boosts={})
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.4)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove(
+                    "calmmind",
+                    category=MoveCategory.STATUS,
+                    boosts={"spa": 1},
+                    target="self",
+                )
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.SETUP_KO_GUARD = True
+        self.engine.SETUP_KO_THRESHOLD = 100.0
+        self.engine.SETUP_KO_MAX_OPP_HP = 0.8
+        self.engine.SETUP_REPLY_GUARD = 999.0
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        self.engine._estimate_best_reply_score = lambda *_: 0.0
+        score = self.engine._heuristic_action_score(battle, "calmmind")
+        self.assertEqual(score, 0.0)
+
+    def test_hybrid_low_conf_ignores_nonpositive_heuristics(self):
+        active = DummyPokemon(status=None, current_hp_fraction=1.0)
+        opponent = DummyPokemon(status=None, current_hp_fraction=1.0)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.HYBRID_RULEBOT_LOWCONF = True
+        self.engine.HYBRID_RULEBOT_CONF = 0.99
+        self.engine.HYBRID_RULEBOT_MARGIN = 0.99
+        self.engine.DETERMINISTIC_RERANK = False
+        self.engine.ACTION_DOMINANCE = False
+        self.engine.FINISH_PRESSURE = False
+        self.engine.NO_PROGRESS_TURNS = 999
+        self.engine._heuristic_action_score = lambda *_: 0.0
+        results = [(DummyResult([("earthquake", 55), ("thunderwave", 45)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "earthquake")
 
 
 if __name__ == "__main__":

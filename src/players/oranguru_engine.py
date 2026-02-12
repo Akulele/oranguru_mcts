@@ -73,7 +73,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
     RERANK_TOPK = int(os.getenv("ORANGURU_RERANK_TOPK", "3"))
-    DETERMINISTIC_RERANK = bool(int(os.getenv("ORANGURU_DET_RERANK", "1")))
+    DETERMINISTIC_RERANK = bool(int(os.getenv("ORANGURU_DET_RERANK", "0")))
     DETERMINISTIC_RERANK_TOPK = int(os.getenv("ORANGURU_DET_RERANK_TOPK", "3"))
     DETERMINISTIC_RERANK_CONF = float(os.getenv("ORANGURU_DET_RERANK_CONF", "0.58"))
     DETERMINISTIC_RERANK_MARGIN = float(os.getenv("ORANGURU_DET_RERANK_MARGIN", "0.10"))
@@ -82,7 +82,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     HYBRID_RULEBOT_MARGIN = float(os.getenv("ORANGURU_HYBRID_RULEBOT_MARGIN", "0.09"))
     CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
     CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0.0"))
-    FINISH_PRESSURE = bool(int(os.getenv("ORANGURU_FINISH_PRESSURE", "1")))
+    FINISH_PRESSURE = bool(int(os.getenv("ORANGURU_FINISH_PRESSURE", "0")))
     FINISH_PRESSURE_THRESHOLD = float(os.getenv("ORANGURU_FINISH_PRESSURE_THRESHOLD", "220.0"))
     FINISH_PRESSURE_MAX_OPP_HP = float(os.getenv("ORANGURU_FINISH_PRESSURE_MAX_OPP_HP", "0.65"))
     FINISH_PRESSURE_NON_DAMAGE_SCALE = float(
@@ -92,6 +92,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
         os.getenv("ORANGURU_FINISH_PRESSURE_SWITCH_SCALE", "0.4")
     )
     FINISH_PRESSURE_REPLY_GUARD = float(os.getenv("ORANGURU_FINISH_PRESSURE_REPLY_GUARD", "260.0"))
+    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "1")))
+    RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "220.0"))
+    SETUP_KO_GUARD = bool(int(os.getenv("ORANGURU_SETUP_KO_GUARD", "1")))
+    SETUP_KO_THRESHOLD = float(os.getenv("ORANGURU_SETUP_KO_THRESHOLD", "220.0"))
+    SETUP_KO_MAX_OPP_HP = float(os.getenv("ORANGURU_SETUP_KO_MAX_OPP_HP", "0.70"))
+    SETUP_REPLY_GUARD = float(os.getenv("ORANGURU_SETUP_REPLY_GUARD", "250.0"))
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1112,7 +1118,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         scored = []
         for choice in candidates:
             score = self._heuristic_action_score(battle, choice)
-            if score is None:
+            if score is None or score <= 0.0:
                 continue
             scored.append((float(score), choice))
         if not scored:
@@ -1173,6 +1179,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 boosts = getattr(move, "boosts", None) or {}
                 if boosts and move.target and "self" in str(move.target).lower():
                     if self._should_setup_move(move, active, opponent):
+                        if self.SETUP_KO_GUARD:
+                            opp_hp = opponent.current_hp_fraction or 0.0
+                            if opp_hp <= self.SETUP_KO_MAX_OPP_HP:
+                                best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                                threshold = self.SETUP_KO_THRESHOLD * max(opp_hp, 0.05)
+                                if best_damage >= threshold:
+                                    return 0.0
+                            reply_score = self._estimate_best_reply_score(opponent, active, battle)
+                            active_hp = active.current_hp_fraction or 0.0
+                            if reply_score >= self.SETUP_REPLY_GUARD * max(active_hp, 0.15):
+                                return 0.0
                         matchup = self._estimate_matchup(active, opponent)
                         hp_frac = active.current_hp_fraction or 0.0
                         base = 80.0 + 40.0 * max(0.0, min(1.0, matchup + 0.5))
@@ -1310,7 +1327,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 scored = []
                 for choice, weight in rerank_candidates:
                     score = self._heuristic_action_score(battle, choice)
-                    if score is None:
+                    if score is None or score <= 0.0:
                         continue
                     scored.append((score, weight, choice))
                 if scored:
