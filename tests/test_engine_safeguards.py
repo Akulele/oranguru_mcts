@@ -302,6 +302,33 @@ class EngineSafeguardTests(unittest.TestCase):
         choice = self.engine._select_move_from_results(results, battle)
         self.assertEqual(choice, "thunderwave")
 
+    def test_force_finish_blow_prefers_damaging_when_ko_window(self):
+        active = DummyPokemon(status=None, current_hp_fraction=0.9)
+        opponent = DummyPokemon(status=None, current_hp_fraction=0.3)
+        battle = DummyBattle(
+            available_moves=[
+                DummyMove("thunderwave", category=MoveCategory.STATUS),
+                DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            ],
+            opponent_active_pokemon=opponent,
+            active_pokemon=active,
+        )
+        self.engine.MCTS_DETERMINISTIC = True
+        self.engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        self.engine.FORCE_FINISH_BLOW = True
+        self.engine.FORCE_FINISH_MAX_OPP_HP = 0.5
+        self.engine.FORCE_FINISH_KO_THRESHOLD = 100.0
+        self.engine.FORCE_FINISH_REPLY_GUARD = 999.0
+        self.engine.DET_DAMAGE_TIEBREAK = False
+        self.engine.HYBRID_RULEBOT_LOWCONF = False
+        self.engine.DETERMINISTIC_RERANK = False
+        self.engine.ACTION_DOMINANCE = False
+        self.engine._estimate_best_damage_score = lambda *_: 500.0
+        self.engine._estimate_best_reply_score = lambda *_: 0.0
+        results = [(DummyResult([("thunderwave", 70), ("earthquake", 30)]), 1.0)]
+        choice = self.engine._select_move_from_results(results, battle)
+        self.assertEqual(choice, "earthquake")
+
 
 if __name__ == "__main__":
     unittest.main()

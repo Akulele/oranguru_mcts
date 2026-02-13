@@ -103,6 +103,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
     DET_DAMAGE_TIEBREAK_KO_THRESHOLD = float(
         os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK_KO_THRESHOLD", "220.0")
     )
+    FORCE_FINISH_BLOW = bool(int(os.getenv("ORANGURU_FORCE_FINISH_BLOW", "0")))
+    FORCE_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_FORCE_FINISH_MAX_OPP_HP", "0.45"))
+    FORCE_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_FORCE_FINISH_KO_THRESHOLD", "230.0"))
+    FORCE_FINISH_REPLY_GUARD = float(os.getenv("ORANGURU_FORCE_FINISH_REPLY_GUARD", "250.0"))
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -1317,6 +1321,25 @@ class OranguruEnginePlayer(RuleBotPlayer):
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
             confidence = max(confidence, margin)
+
+        if deterministic and self.FORCE_FINISH_BLOW:
+            active = battle.active_pokemon
+            opponent = battle.opponent_active_pokemon
+            if active is not None and opponent is not None:
+                opp_hp = opponent.current_hp_fraction or 0.0
+                if opp_hp <= self.FORCE_FINISH_MAX_OPP_HP:
+                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                    threshold = self.FORCE_FINISH_KO_THRESHOLD * max(opp_hp, 0.05)
+                    if best_damage >= threshold:
+                        reply_score = self._estimate_best_reply_score(opponent, active, battle)
+                        active_hp = active.current_hp_fraction or 0.0
+                        if reply_score < self.FORCE_FINISH_REPLY_GUARD * max(active_hp, 0.15):
+                            for choice, _weight in ordered:
+                                if choice.startswith("switch "):
+                                    continue
+                                if self._choice_is_non_damaging(choice, battle):
+                                    continue
+                                return choice
 
         if deterministic and self.DET_DAMAGE_TIEBREAK and len(ordered) > 1:
             top_choice, top_weight = ordered[0]
