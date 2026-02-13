@@ -73,40 +73,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
     GATE_MODE = os.getenv("ORANGURU_GATE_MODE", "hard").lower()
     SELECTION_MODE = os.getenv("ORANGURU_SELECTION_MODE", "blend").lower()
     RERANK_TOPK = int(os.getenv("ORANGURU_RERANK_TOPK", "3"))
-    DETERMINISTIC_RERANK = bool(int(os.getenv("ORANGURU_DET_RERANK", "0")))
-    DETERMINISTIC_RERANK_TOPK = int(os.getenv("ORANGURU_DET_RERANK_TOPK", "3"))
-    DETERMINISTIC_RERANK_CONF = float(os.getenv("ORANGURU_DET_RERANK_CONF", "0.58"))
-    DETERMINISTIC_RERANK_MARGIN = float(os.getenv("ORANGURU_DET_RERANK_MARGIN", "0.10"))
-    HYBRID_RULEBOT_LOWCONF = bool(int(os.getenv("ORANGURU_HYBRID_RULEBOT_LOWCONF", "0")))
-    HYBRID_RULEBOT_CONF = float(os.getenv("ORANGURU_HYBRID_RULEBOT_CONF", "0.56"))
-    HYBRID_RULEBOT_MARGIN = float(os.getenv("ORANGURU_HYBRID_RULEBOT_MARGIN", "0.09"))
-    CANDIDATE_TOPK = int(os.getenv("ORANGURU_CANDIDATE_TOPK", "0"))
-    CANDIDATE_MIN_SCORE = float(os.getenv("ORANGURU_CANDIDATE_MIN_SCORE", "0.0"))
-    FINISH_PRESSURE = bool(int(os.getenv("ORANGURU_FINISH_PRESSURE", "0")))
-    FINISH_PRESSURE_THRESHOLD = float(os.getenv("ORANGURU_FINISH_PRESSURE_THRESHOLD", "220.0"))
-    FINISH_PRESSURE_MAX_OPP_HP = float(os.getenv("ORANGURU_FINISH_PRESSURE_MAX_OPP_HP", "0.65"))
-    FINISH_PRESSURE_NON_DAMAGE_SCALE = float(
-        os.getenv("ORANGURU_FINISH_PRESSURE_NON_DAMAGE_SCALE", "0.2")
-    )
-    FINISH_PRESSURE_SWITCH_SCALE = float(
-        os.getenv("ORANGURU_FINISH_PRESSURE_SWITCH_SCALE", "0.4")
-    )
-    FINISH_PRESSURE_REPLY_GUARD = float(os.getenv("ORANGURU_FINISH_PRESSURE_REPLY_GUARD", "260.0"))
-    RECOVERY_KO_GUARD = bool(int(os.getenv("ORANGURU_RECOVERY_KO_GUARD", "0")))
-    RECOVERY_KO_THRESHOLD = float(os.getenv("ORANGURU_RECOVERY_KO_THRESHOLD", "220.0"))
-    SETUP_KO_GUARD = bool(int(os.getenv("ORANGURU_SETUP_KO_GUARD", "0")))
-    SETUP_KO_THRESHOLD = float(os.getenv("ORANGURU_SETUP_KO_THRESHOLD", "220.0"))
-    SETUP_KO_MAX_OPP_HP = float(os.getenv("ORANGURU_SETUP_KO_MAX_OPP_HP", "0.70"))
-    SETUP_REPLY_GUARD = float(os.getenv("ORANGURU_SETUP_REPLY_GUARD", "250.0"))
-    DET_DAMAGE_TIEBREAK = bool(int(os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK", "1")))
-    DET_DAMAGE_TIEBREAK_RATIO = float(os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK_RATIO", "0.88"))
-    DET_DAMAGE_TIEBREAK_KO_THRESHOLD = float(
-        os.getenv("ORANGURU_DET_DAMAGE_TIEBREAK_KO_THRESHOLD", "220.0")
-    )
-    FORCE_FINISH_BLOW = bool(int(os.getenv("ORANGURU_FORCE_FINISH_BLOW", "0")))
-    FORCE_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_FORCE_FINISH_MAX_OPP_HP", "0.45"))
-    FORCE_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_FORCE_FINISH_KO_THRESHOLD", "230.0"))
-    FORCE_FINISH_REPLY_GUARD = float(os.getenv("ORANGURU_FORCE_FINISH_REPLY_GUARD", "250.0"))
     SLEEP_STATUS_IDS = {"slp", "sleep"}
     SLEEP_CLAUSE_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_CLAUSE", "1")))
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
@@ -147,39 +113,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._randbats_initialized = False
         self._randbats_gen = None
         self._randbats_sanitized = False
-        self.ACTION_DOMINANCE = bool(int(os.getenv("ORANGURU_ACTION_DOMINANCE", "1")))
-        self.ACTION_DOMINANCE_THRESHOLD = float(
-            os.getenv("ORANGURU_ACTION_DOMINANCE_THRESHOLD", "180.0")
-        )
-        self.ACTION_DOMINANCE_SCALE = float(
-            os.getenv("ORANGURU_ACTION_DOMINANCE_SCALE", "0.2")
-        )
-        self.NO_PROGRESS_TURNS = int(os.getenv("ORANGURU_NO_PROGRESS_TURNS", "2"))
-        self.NO_PROGRESS_SCALE = float(os.getenv("ORANGURU_NO_PROGRESS_SCALE", "0.5"))
-        self._mcts_stats = {
-            "calls": 0,
-            "states_sampled": 0,
-            "results_kept": 0,
-            "result_none": 0,
-            "result_errors": 0,
-            "empty_results": 0,
-            "deterministic_decisions": 0,
-            "stochastic_decisions": 0,
-            "fallback_super": 0,
-            "fallback_random": 0,
-        }
-
-    def get_mcts_stats(self) -> Dict[str, float]:
-        stats = dict(self._mcts_stats)
-        calls = max(1, int(stats.get("calls", 0)))
-        sampled = max(1, int(stats.get("states_sampled", 0)))
-        stats["empty_results_rate"] = float(stats.get("empty_results", 0)) / calls
-        stats["fallback_super_rate"] = float(stats.get("fallback_super", 0)) / calls
-        stats["fallback_random_rate"] = float(stats.get("fallback_random", 0)) / calls
-        stats["state_failure_rate"] = float(
-            stats.get("result_none", 0) + stats.get("result_errors", 0)
-        ) / sampled
-        return stats
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -336,8 +269,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         level = getattr(mon, "level", None) or (set_info.get("level") if set_info else 100)
         fp_mon = FPPokemon(species, level)
 
-        ability = self._canon_id(getattr(mon, "ability", None)) if getattr(mon, "ability", None) else ""
-        item = self._canon_id(getattr(mon, "item", None)) if getattr(mon, "item", None) else ""
+        ability = normalize_name(str(getattr(mon, "ability", ""))) if getattr(mon, "ability", None) else ""
+        item = normalize_name(str(getattr(mon, "item", ""))) if getattr(mon, "item", None) else ""
         if set_info:
             if set_info.get("ability"):
                 fp_mon.ability = set_info["ability"]
@@ -352,13 +285,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
         tera_type = getattr(mon, "tera_type", None)
         if tera_type is not None:
             fp_mon.tera_type = normalize_name(tera_type.name if hasattr(tera_type, "name") else str(tera_type))
-        terastallized = getattr(mon, "terastallized", None)
-        if terastallized:
-            fp_mon.terastallized = True
-            if isinstance(terastallized, str):
-                fp_mon.tera_type = normalize_name(terastallized)
-        if getattr(mon, "is_terastallized", False):
-            fp_mon.terastallized = True
 
         # Moves
         known_moves: List[str] = []
@@ -929,8 +855,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if user.active and battle.available_moves:
             available = {normalize_name(m.id) for m in battle.available_moves}
             for mv in user.active.moves:
-                move_id = self._fp_move_id(mv)
-                mv.disabled = bool(move_id) and move_id not in available
+                mv.disabled = mv.name not in available
             if self._sleep_clause_blocked(battle):
                 for mv in user.active.moves:
                     if self._fp_move_inflicts_sleep(mv.name):
@@ -1022,119 +947,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 pass
         return fp_battle
 
-    @staticmethod
-    def _fp_move_id(move) -> str:
-        if move is None:
-            return ""
-        for attr in ("id", "move_id"):
-            try:
-                value = getattr(move, attr)
-            except Exception:
-                value = None
-            if value:
-                return normalize_name(str(value))
-        try:
-            name = getattr(move, "name", "")
-        except Exception:
-            name = ""
-        return normalize_name(str(name)) if name else ""
-
-    def _choice_is_non_damaging(self, choice: str, battle: Battle) -> bool:
-        if not choice or choice.startswith("switch"):
-            return False
-        move_id = normalize_name(choice.replace("-tera", ""))
-        for move in battle.available_moves:
-            if move.id != move_id:
-                continue
-            if move.category == MoveCategory.STATUS:
-                return True
-            base_power = move.base_power or 0
-            return base_power <= 0
-        return False
-
-    def _apply_action_dominance(self, final_policy: dict, battle: Battle) -> dict:
-        if not self.ACTION_DOMINANCE or not final_policy:
-            return final_policy
-        active = battle.active_pokemon
-        opponent = battle.opponent_active_pokemon
-        if not active or not opponent:
-            return final_policy
-        best_damage = self._estimate_best_damage_score(active, opponent, battle)
-        opp_hp = opponent.current_hp_fraction or 0.0
-        threshold = self.ACTION_DOMINANCE_THRESHOLD * max(opp_hp, 0.05)
-        if best_damage < threshold:
-            return final_policy
-        scale = max(0.0, min(1.0, self.ACTION_DOMINANCE_SCALE))
-        if scale >= 1.0:
-            return final_policy
-        scaled = dict(final_policy)
-        for c in list(scaled.keys()):
-            if self._choice_is_non_damaging(c, battle):
-                scaled[c] = scaled[c] * scale
-        return scaled
-
-    def _apply_finish_pressure(self, final_policy: dict, battle: Battle) -> dict:
-        if not self.FINISH_PRESSURE or not final_policy:
-            return final_policy
-        active = battle.active_pokemon
-        opponent = battle.opponent_active_pokemon
-        if not active or not opponent:
-            return final_policy
-        opp_hp = opponent.current_hp_fraction or 0.0
-        if opp_hp > self.FINISH_PRESSURE_MAX_OPP_HP:
-            return final_policy
-        best_damage = self._estimate_best_damage_score(active, opponent, battle)
-        threshold = self.FINISH_PRESSURE_THRESHOLD * max(opp_hp, 0.05)
-        if best_damage < threshold:
-            return final_policy
-
-        non_damage_scale = max(0.0, min(1.0, self.FINISH_PRESSURE_NON_DAMAGE_SCALE))
-        switch_scale = max(0.0, min(1.0, self.FINISH_PRESSURE_SWITCH_SCALE))
-        reply_score = self._estimate_best_reply_score(opponent, active, battle)
-        active_hp = active.current_hp_fraction or 0.0
-        if reply_score >= self.FINISH_PRESSURE_REPLY_GUARD * max(active_hp, 0.15):
-            switch_scale = max(switch_scale, 0.9)
-
-        scaled = dict(final_policy)
-        for c in list(scaled.keys()):
-            if c.startswith("switch "):
-                scaled[c] = scaled[c] * switch_scale
-            elif self._choice_is_non_damaging(c, battle):
-                scaled[c] = scaled[c] * non_damage_scale
-        return scaled
-
-    def _hybrid_low_conf_choice(
-        self,
-        battle: Battle,
-        confidence: float,
-        margin: float,
-    ) -> Optional[str]:
-        if not self.HYBRID_RULEBOT_LOWCONF:
-            return None
-        conf_cut = max(0.0, min(1.0, self.HYBRID_RULEBOT_CONF))
-        margin_cut = max(0.0, min(1.0, self.HYBRID_RULEBOT_MARGIN))
-        if confidence >= conf_cut and margin >= margin_cut:
-            return None
-
-        candidates = []
-        for move in battle.available_moves:
-            candidates.append(normalize_name(move.id))
-        for sw in battle.available_switches:
-            candidates.append(f"switch {normalize_name(sw.species)}")
-        if not candidates:
-            return None
-
-        scored = []
-        for choice in candidates:
-            score = self._heuristic_action_score(battle, choice)
-            if score is None or score <= 0.0:
-                continue
-            scored.append((float(score), choice))
-        if not scored:
-            return None
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return scored[0][1]
-
     def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -1165,12 +977,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 safe_recover = reply_score < 150
                 if self._estimate_matchup(active, opponent) > 0.35 and (active.current_hp_fraction or 0.0) < 0.4:
                     safe_recover = True
-                if getattr(self, "RECOVERY_KO_GUARD", False):
-                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                    opp_hp = opponent.current_hp_fraction or 0.0
-                    threshold = getattr(self, "RECOVERY_KO_THRESHOLD", 220.0) * max(opp_hp, 0.05)
-                    if best_damage >= threshold:
-                        return 0.0
                 hp_frac = active.current_hp_fraction or 0.0
                 if hp_frac < 0.65 and safe_recover:
                     missing = 1.0 - hp_frac
@@ -1188,17 +994,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 boosts = getattr(move, "boosts", None) or {}
                 if boosts and move.target and "self" in str(move.target).lower():
                     if self._should_setup_move(move, active, opponent):
-                        if self.SETUP_KO_GUARD:
-                            opp_hp = opponent.current_hp_fraction or 0.0
-                            if opp_hp <= self.SETUP_KO_MAX_OPP_HP:
-                                best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                                threshold = self.SETUP_KO_THRESHOLD * max(opp_hp, 0.05)
-                                if best_damage >= threshold:
-                                    return 0.0
-                            reply_score = self._estimate_best_reply_score(opponent, active, battle)
-                            active_hp = active.current_hp_fraction or 0.0
-                            if reply_score >= self.SETUP_REPLY_GUARD * max(active_hp, 0.15):
-                                return 0.0
                         matchup = self._estimate_matchup(active, opponent)
                         hp_frac = active.current_hp_fraction or 0.0
                         base = 80.0 + 40.0 * max(0.0, min(1.0, matchup + 0.5))
@@ -1234,19 +1029,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> str:
         battle_tag = str(getattr(battle, "battle_tag", "")).lower()
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
-        env_eval_mode = os.getenv("ORANGURU_EVAL_MODE", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
         deterministic = self.MCTS_DETERMINISTIC and (
-            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag or env_eval_mode
+            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
         )
-        if deterministic:
-            self._mcts_stats["deterministic_decisions"] += 1
-        else:
-            self._mcts_stats["stochastic_decisions"] += 1
         final_policy = {}
         for res, weight in results:
             total_visits = res.total_visits or 1
@@ -1260,130 +1045,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
             filtered_policy = {k: v for k, v in final_policy.items() if k not in banned_choices}
             if filtered_policy:
                 final_policy = filtered_policy
-        if self.CANDIDATE_TOPK > 0 and battle.available_moves:
-            scored_moves = []
-            for move in battle.available_moves:
-                choice = normalize_name(move.id)
-                score = self._heuristic_action_score(battle, choice)
-                if score is None:
-                    score = 0.0
-                scored_moves.append((score, choice))
-            scored_moves.sort(key=lambda x: x[0], reverse=True)
-            if scored_moves:
-                topk = max(1, min(self.CANDIDATE_TOPK, len(scored_moves)))
-                best_score = scored_moves[0][0]
-                if best_score >= self.CANDIDATE_MIN_SCORE:
-                    allowed_moves = {m for _, m in scored_moves[:topk] if m}
-                    gated_policy = {}
-                    for choice, weight in final_policy.items():
-                        if choice.startswith("switch "):
-                            gated_policy[choice] = weight
-                            continue
-                        move_choice = normalize_name(choice.replace("-tera", ""))
-                        if move_choice in allowed_moves:
-                            gated_policy[choice] = weight
-                    if gated_policy:
-                        final_policy = gated_policy
-        final_policy = self._apply_finish_pressure(final_policy, battle)
-        final_policy = self._apply_action_dominance(final_policy, battle)
-        mem = self._get_battle_memory(battle)
-        no_progress_turns = int(mem.get("no_progress_turns", 0) or 0)
-        if no_progress_turns >= self.NO_PROGRESS_TURNS:
-            scale = max(0.0, min(1.0, self.NO_PROGRESS_SCALE))
-            if scale < 1.0:
-                scaled = dict(final_policy)
-                for c in list(scaled.keys()):
-                    if self._choice_is_non_damaging(c, battle):
-                        scaled[c] = scaled[c] * scale
-                final_policy = scaled
         ordered = sorted(final_policy.items(), key=lambda x: x[1], reverse=True)
         total_policy = sum(w for _, w in ordered)
         if total_policy <= 0:
             return ordered[0][0]
-
-        def _pick_choice(choices: List[str], weights: List[float]) -> str:
-            if not choices:
-                return ""
-            total = sum(weights) if weights else 0.0
-            if deterministic:
-                if total <= 0:
-                    return choices[0]
-                best_idx = max(range(len(choices)), key=lambda i: weights[i])
-                return choices[best_idx]
-            if total <= 0:
-                return random.choice(choices)
-            return random.choices(choices, weights=weights, k=1)[0]
+        if deterministic:
+            return ordered[0][0]
 
         best = ordered[0][1]
         confidence = best / total_policy if total_policy > 0 else 0.0
-        margin = 1.0
         if len(ordered) > 1:
             second = ordered[1][1]
             margin = (best - second) / total_policy if total_policy > 0 else 0.0
             confidence = max(confidence, margin)
-
-        if deterministic and self.FORCE_FINISH_BLOW:
-            active = battle.active_pokemon
-            opponent = battle.opponent_active_pokemon
-            if active is not None and opponent is not None:
-                opp_hp = opponent.current_hp_fraction or 0.0
-                if opp_hp <= self.FORCE_FINISH_MAX_OPP_HP:
-                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                    threshold = self.FORCE_FINISH_KO_THRESHOLD * max(opp_hp, 0.05)
-                    if best_damage >= threshold:
-                        reply_score = self._estimate_best_reply_score(opponent, active, battle)
-                        active_hp = active.current_hp_fraction or 0.0
-                        if reply_score < self.FORCE_FINISH_REPLY_GUARD * max(active_hp, 0.15):
-                            for choice, _weight in ordered:
-                                if choice.startswith("switch "):
-                                    continue
-                                if self._choice_is_non_damaging(choice, battle):
-                                    continue
-                                return choice
-
-        if deterministic and self.DET_DAMAGE_TIEBREAK and len(ordered) > 1:
-            top_choice, top_weight = ordered[0]
-            if not top_choice.startswith("switch ") and self._choice_is_non_damaging(top_choice, battle):
-                damaging = []
-                for choice, weight in ordered[1:]:
-                    if choice.startswith("switch "):
-                        continue
-                    if self._choice_is_non_damaging(choice, battle):
-                        continue
-                    damaging.append((choice, weight))
-                if damaging:
-                    alt_choice, alt_weight = max(damaging, key=lambda x: x[1])
-                    ratio = max(0.0, min(1.0, self.DET_DAMAGE_TIEBREAK_RATIO))
-                    if top_weight > 0 and alt_weight >= top_weight * ratio:
-                        active = battle.active_pokemon
-                        opponent = battle.opponent_active_pokemon
-                        if active is not None and opponent is not None:
-                            best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                            opp_hp = opponent.current_hp_fraction or 0.0
-                            threshold = self.DET_DAMAGE_TIEBREAK_KO_THRESHOLD * max(opp_hp, 0.05)
-                            if best_damage >= threshold:
-                                return alt_choice
-
-        if deterministic:
-            hybrid_choice = self._hybrid_low_conf_choice(battle, confidence, margin)
-            if hybrid_choice:
-                return hybrid_choice
-
-        if deterministic and self.DETERMINISTIC_RERANK and len(ordered) > 1:
-            conf_cut = max(0.0, min(1.0, self.DETERMINISTIC_RERANK_CONF))
-            margin_cut = max(0.0, min(1.0, self.DETERMINISTIC_RERANK_MARGIN))
-            low_conf = confidence < conf_cut or margin < margin_cut
-            if low_conf:
-                rerank_candidates = ordered[: max(1, self.DETERMINISTIC_RERANK_TOPK)]
-                scored = []
-                for choice, weight in rerank_candidates:
-                    score = self._heuristic_action_score(battle, choice)
-                    if score is None or score <= 0.0:
-                        continue
-                    scored.append((score, weight, choice))
-                if scored:
-                    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-                    return scored[0][2]
 
         cutoff = best * 0.75
         filtered = [o for o in ordered if o[1] >= cutoff]
@@ -1404,8 +1078,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     heuristic_weights.append(max(0.0, score or 0.0))
                 heur_total = sum(heuristic_weights)
                 if heur_total > 0:
-                    return _pick_choice(choices, heuristic_weights)
-            return _pick_choice(choices, policy_weights)
+                    return random.choices(choices, weights=heuristic_weights, k=1)[0]
+            if sum(policy_weights) <= 0:
+                return random.choice(choices)
+            return random.choices(choices, weights=policy_weights, k=1)[0]
 
         if self.SELECTION_MODE == "rerank" and confidence < threshold:
             candidates = filtered[: max(1, self.RERANK_TOPK)]
@@ -1481,14 +1157,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     (1.0 - blend) * m + blend * h for m, h in zip(mcts_norm, heur_norm)
                 ]
 
-        return _pick_choice(choices, combined)
+        if sum(combined) <= 0:
+            return random.choice(choices)
+        return random.choices(choices, weights=combined, k=1)[0]
 
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
-        noop_order = self._empty_order_if_no_choices(battle)
-        if noop_order is not None:
-            return noop_order
         if getattr(battle, "_wait", False) or getattr(battle, "teampreview", False):
             return self.choose_random_move(battle)
 
@@ -1523,7 +1198,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 return self._commit_order(battle, self.create_order(best_switch))
             return self.choose_random_move(battle)
 
-        self._mcts_stats["calls"] += 1
         fp_battles = []
         weights = []
         sample_states = self.SAMPLE_STATES
@@ -1562,7 +1236,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
 
         states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
-        self._mcts_stats["states_sampled"] += len(states)
 
         results = []
         workers = min(self.PARALLELISM, len(states))
@@ -1580,50 +1253,30 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     timeout_sec = max(1.0, (search_time_ms / 1000.0) * 2.0 + 2.0)
                     res = fut.result(timeout=timeout_sec)
                 except Exception:
-                    self._mcts_stats["result_errors"] += 1
                     continue
                 if res is None:
-                    self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
-                self._mcts_stats["results_kept"] += 1
         else:
             for state, weight in zip(states, weights):
                 res = _run_mcts(state, search_time_ms)
                 if res is None:
-                    self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
-                self._mcts_stats["results_kept"] += 1
 
         if not results:
-            self._mcts_stats["empty_results"] += 1
-            self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
 
         banned_choices = self._sleep_clause_banned_choices(battle)
         choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
         if not choice:
-            self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
 
         if choice.startswith("switch "):
-            if self._is_switch_churn_risk(battle) and battle.available_moves:
-                emergency_order = self._choose_emergency_non_switch_order(
-                    battle,
-                    active,
-                    opponent,
-                    len([m for m in battle.team.values() if not m.fainted]),
-                )
-                if emergency_order is not None:
-                    mem = self._get_battle_memory(battle)
-                    mem["switch_churn_breaks"] = int(mem.get("switch_churn_breaks", 0) or 0) + 1
-                    return self._commit_order(battle, emergency_order)
             switch_name = normalize_name(choice.split("switch ", 1)[1])
             for sw in battle.available_switches:
                 if normalize_name(sw.species) == switch_name:
                     return self._commit_order(battle, self.create_order(sw))
-            self._mcts_stats["fallback_random"] += 1
             return self.choose_random_move(battle)
 
         tera = False
@@ -1648,5 +1301,4 @@ class OranguruEnginePlayer(RuleBotPlayer):
                         dynamax=self._should_dynamax(battle, len([m for m in battle.team.values() if not m.fainted])),
                     ),
                 )
-        self._mcts_stats["fallback_random"] += 1
         return self.choose_random_move(battle)
