@@ -17,6 +17,7 @@ from pathlib import Path
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict
 from poke_env.player import Player
+from poke_env.player.battle_order import _EmptyBattleOrder
 from poke_env.battle import AbstractBattle, Battle, Pokemon, Move, MoveCategory, SideCondition
 from poke_env.battle.field import Field
 from poke_env.battle.weather import Weather
@@ -150,6 +151,7 @@ class RuleBotPlayer(Player):
     DEBUG_STATUS = True
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
     STATUS_AVAILABLE_TURNS = 0
+    ANTI_SWITCH_CHURN = bool(int(os.getenv("ORANGURU_ANTI_SWITCH_CHURN", "1")))
     SETUP_BOOST_CAPS = {
         "atk": 2,
         "spa": 2,
@@ -215,6 +217,8 @@ class RuleBotPlayer(Player):
         mem.setdefault("opp_moves_since_switch", {})
         mem.setdefault("last_switch_turn", -1)
         mem.setdefault("last_opp_move_turn", -1)
+        mem.setdefault("self_switch_streak", 0)
+        mem.setdefault("switch_churn_breaks", 0)
         return mem
 
     @staticmethod
@@ -441,12 +445,14 @@ class RuleBotPlayer(Player):
             mem["last_move_type"] = self._move_type_id(move)
             mem["last_move_accuracy"] = move.accuracy
             mem["last_move_category"] = "status" if move.category == MoveCategory.STATUS else "damage"
+            mem["self_switch_streak"] = 0
         else:
             mem["last_action"] = "switch"
             mem["last_move_id"] = None
             mem["last_move_type"] = None
             mem["last_move_accuracy"] = None
             mem["last_move_category"] = None
+            mem["self_switch_streak"] = int(mem.get("self_switch_streak", 0) or 0) + 1
         if opponent:
             mem["last_opponent_species"] = opponent.species
             mem["last_opponent_hp"] = opponent.current_hp_fraction
@@ -454,6 +460,16 @@ class RuleBotPlayer(Player):
     def _commit_order(self, battle: Battle, order):
         self._record_last_action(battle, order)
         return order
+
+    @staticmethod
+    def _empty_order_if_no_choices(battle: Battle):
+        try:
+            orders = getattr(battle, "valid_orders", None)
+            if orders is not None and len(orders) == 0:
+                return _EmptyBattleOrder()
+        except Exception:
+            pass
+        return None
 
     def _estimate_matchup(self, mon: Pokemon, opponent: Pokemon) -> float:
         """Estimate matchup score - positive means we have advantage."""
@@ -2293,6 +2309,107 @@ class RuleBotPlayer(Player):
             return False
         return max(positives) >= 2 or sum(positives) >= 3
 
+    def _is_switch_churn_risk(self, battle: Battle) -> bool:
+        if not self.ANTI_SWITCH_CHURN:
+            return False
+        if battle is None or battle.force_switch:
+            return False
+        if not battle.available_switches or not battle.available_moves:
+            return False
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        if active is None or opponent is None:
+            return False
+
+        mem = self._get_battle_memory(battle)
+        switch_streak = int(mem.get("self_switch_streak", 0) or 0)
+        if switch_streak < 2:
+            return False
+
+        last_opp = normalize_name(mem.get("last_opponent_species"))
+        current_opp = normalize_name(getattr(opponent, "species", ""))
+        if last_opp and current_opp and last_opp != current_opp:
+            return False
+
+        last_opp_hp = mem.get("last_opponent_hp")
+        current_opp_hp = opponent.current_hp_fraction
+        if not isinstance(last_opp_hp, (int, float)) or not isinstance(current_opp_hp, (int, float)):
+            return False
+        if abs(current_opp_hp - last_opp_hp) > 0.05:
+            return False
+
+        current_matchup = self._estimate_matchup(active, opponent)
+        current_reply = self._estimate_best_reply_score(opponent, active, battle)
+        active_hp = active.current_hp_fraction if active.current_hp_fraction is not None else 0.5
+        current_score = current_matchup + active_hp * 0.2 - (current_reply / 400.0)
+        best_switch_score = max(self._score_switch(sw, opponent, battle) for sw in battle.available_switches)
+        no_real_upgrade = best_switch_score <= current_score + 0.2
+
+        speed_boost = int((opponent.boosts or {}).get("spe", 0) or 0) >= 2
+        speed_gap = self._get_effective_speed(opponent) > self._get_effective_speed(active) * 1.05
+        setup_threat = self._opponent_is_set_up(opponent)
+        # Only break switch loops for true speed-control snowballs where switching
+        # no longer meaningfully improves the position.
+        return no_real_upgrade and (speed_boost or (setup_threat and speed_gap))
+
+    def _choose_emergency_non_switch_order(
+        self,
+        battle: Battle,
+        active: Pokemon,
+        opponent: Pokemon,
+        n_remaining_mons: int,
+    ):
+        if not battle.available_moves:
+            return None
+        best_move = None
+        best_score = -1.0
+        my_speed = self._get_effective_speed(active)
+        opp_speed = self._get_effective_speed(opponent)
+        opp_set_up = self._opponent_is_set_up(opponent)
+
+        for move in battle.available_moves:
+            move_entry = self._get_move_entry(move)
+            status_kind = (
+                move.category == MoveCategory.STATUS
+                or self._status_from_move_entry(move_entry) is not None
+            )
+            if self._sleep_clause_blocked(battle) and self._move_inflicts_sleep(move):
+                continue
+
+            if move.id in self.ANTI_SETUP_MOVES and opp_set_up:
+                score = 420.0
+            elif status_kind:
+                score = self._should_use_status_move(move, active, opponent, battle)
+                if score <= 0:
+                    continue
+                status_type = self.STATUS_MOVES.get(move.id) or self._status_from_move_entry(move_entry)
+                if opp_set_up and status_type in {"burn", "para", "sleep", "taunt", "encore", "yawn"}:
+                    score *= 1.25
+            else:
+                score = self._calculate_move_score(move, active, opponent, battle, apply_recoil=False)
+                if score <= 0:
+                    continue
+
+            try:
+                move_priority = int(move_entry.get("priority", 0) or 0)
+            except Exception:
+                move_priority = 0
+            if opp_speed > my_speed and move_priority > 0:
+                score *= 1.2
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        if best_move is None:
+            best_move = battle.available_moves[0]
+
+        return self.create_order(
+            best_move,
+            dynamax=self._should_dynamax(battle, n_remaining_mons),
+            terastallize=self._should_terastallize(battle, best_move),
+        )
+
     def _should_use_protect(self, battle: Battle, reply_score: float) -> bool:
         mem = self._get_battle_memory(battle)
         last_protect_turn = mem.get("last_protect_turn", -99)
@@ -2378,6 +2495,8 @@ class RuleBotPlayer(Player):
 
         if not active or not opponent:
             return False
+        if self._is_switch_churn_risk(battle):
+            return False
 
         # Check if there's a better switch option
         if not battle.available_switches:
@@ -2424,9 +2543,9 @@ class RuleBotPlayer(Player):
         if opponent.status is not None and status_type not in {"seed", "taunt", "encore"}:
             return 0.0
 
-        if self.STATUS_KO_GUARD and battle is not None:
+        if getattr(self, "STATUS_KO_GUARD", False) and battle is not None:
             best_damage = self._estimate_best_damage_score(active, opponent, battle)
-            if best_damage >= self.STATUS_KO_THRESHOLD:
+            if best_damage >= getattr(self, "STATUS_KO_THRESHOLD", 200.0):
                 return 0.0
 
         score = 0.0
@@ -3035,6 +3154,9 @@ class RuleBotPlayer(Player):
         """Main move selection logic with switch prediction and status usage."""
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
+        noop_order = self._empty_order_if_no_choices(battle)
+        if noop_order is not None:
+            return noop_order
 
         self._current_battle = battle
         self._update_immunity_memory(battle)
@@ -3081,9 +3203,10 @@ class RuleBotPlayer(Player):
         predicted_move = self._predict_opponent_move(opponent, active, battle)
         predicted_kind = predicted_move.get("kind")
         predicted_damage = predicted_move.get("damage_score", 0.0)
+        switch_churn = self._is_switch_churn_risk(battle)
 
         # Check if we should switch out
-        if battle.available_moves and (not self._should_switch_out(battle) or not battle.available_switches):
+        if battle.available_moves and (switch_churn or not self._should_switch_out(battle) or not battle.available_switches):
             # Priority 0: punish boosted opponents
             if self._opponent_is_set_up(opponent):
                 for move in battle.available_moves:
@@ -3278,7 +3401,7 @@ class RuleBotPlayer(Player):
                     ))
 
             # Avoid overextending when likely to get KO'd and we can pivot
-            if battle.available_switches and n_remaining > 1:
+            if battle.available_switches and n_remaining > 1 and not switch_churn:
                 if reply_score >= 240 * active.current_hp_fraction and best_damage_score < 200 * opponent.current_hp_fraction:
                     best_switch = max(
                         battle.available_switches,
@@ -3485,6 +3608,13 @@ class RuleBotPlayer(Player):
 
         # Switch to best matchup
         if battle.available_switches:
+            if switch_churn and battle.available_moves:
+                emergency_order = self._choose_emergency_non_switch_order(
+                    battle, active, opponent, n_remaining
+                )
+                if emergency_order is not None:
+                    mem["switch_churn_breaks"] = int(mem.get("switch_churn_breaks", 0) or 0) + 1
+                    return self._commit_order(battle, emergency_order)
             best_switch = max(
                 battle.available_switches,
                 key=lambda s: self._score_switch(s, opponent, battle)

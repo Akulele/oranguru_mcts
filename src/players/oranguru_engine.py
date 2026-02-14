@@ -1233,30 +1233,6 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         return _pick_choice(choices, combined)
 
-    @staticmethod
-    def _empty_order_if_no_choices(battle: Battle):
-        # Compatibility guard: some engine branches call this helper directly.
-        try:
-            orders = getattr(battle, "valid_orders", None)
-            if orders is not None and len(orders) == 0:
-                from poke_env.player.battle_order import _EmptyBattleOrder
-
-                return _EmptyBattleOrder()
-        except Exception:
-            pass
-        return None
-
-    def _is_switch_churn_risk(self, battle: Battle) -> bool:
-        # Compatibility shim for mixed commit states where RuleBot may or may not
-        # define anti-switch-churn logic.
-        try:
-            checker = getattr(RuleBotPlayer, "_is_switch_churn_risk", None)
-            if checker is None:
-                return False
-            return bool(checker(self, battle))
-        except Exception:
-            return False
-
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
