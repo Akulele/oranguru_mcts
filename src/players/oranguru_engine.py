@@ -1246,6 +1246,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
             pass
         return None
 
+    def _is_switch_churn_risk(self, battle: Battle) -> bool:
+        # Compatibility shim for mixed commit states where RuleBot may or may not
+        # define anti-switch-churn logic.
+        try:
+            checker = getattr(RuleBotPlayer, "_is_switch_churn_risk", None)
+            if checker is None:
+                return False
+            return bool(checker(self, battle))
+        except Exception:
+            return False
+
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
