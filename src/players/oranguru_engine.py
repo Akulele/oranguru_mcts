@@ -1029,8 +1029,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> str:
         battle_tag = str(getattr(battle, "battle_tag", "")).lower()
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
+        env_eval_mode = os.getenv("ORANGURU_EVAL_MODE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         deterministic = self.MCTS_DETERMINISTIC and (
-            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag
+            not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag or env_eval_mode
         )
         final_policy = {}
         for res, weight in results:
@@ -1049,8 +1055,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
         total_policy = sum(w for _, w in ordered)
         if total_policy <= 0:
             return ordered[0][0]
-        if deterministic:
-            return ordered[0][0]
+
+        def _pick_choice(choices: List[str], weights: List[float]) -> str:
+            if not choices:
+                return ""
+            total = sum(weights) if weights else 0.0
+            if deterministic:
+                if total <= 0:
+                    return choices[0]
+                best_idx = max(range(len(choices)), key=lambda i: weights[i])
+                return choices[best_idx]
+            if total <= 0:
+                return random.choice(choices)
+            return random.choices(choices, weights=weights, k=1)[0]
 
         best = ordered[0][1]
         confidence = best / total_policy if total_policy > 0 else 0.0
@@ -1078,10 +1095,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     heuristic_weights.append(max(0.0, score or 0.0))
                 heur_total = sum(heuristic_weights)
                 if heur_total > 0:
-                    return random.choices(choices, weights=heuristic_weights, k=1)[0]
-            if sum(policy_weights) <= 0:
-                return random.choice(choices)
-            return random.choices(choices, weights=policy_weights, k=1)[0]
+                    return _pick_choice(choices, heuristic_weights)
+            return _pick_choice(choices, policy_weights)
 
         if self.SELECTION_MODE == "rerank" and confidence < threshold:
             candidates = filtered[: max(1, self.RERANK_TOPK)]
@@ -1157,9 +1172,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     (1.0 - blend) * m + blend * h for m, h in zip(mcts_norm, heur_norm)
                 ]
 
-        if sum(combined) <= 0:
-            return random.choice(choices)
-        return random.choices(choices, weights=combined, k=1)[0]
+        return _pick_choice(choices, combined)
 
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
