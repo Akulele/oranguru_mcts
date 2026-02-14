@@ -152,6 +152,9 @@ class RuleBotPlayer(Player):
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
     STATUS_AVAILABLE_TURNS = 0
     ANTI_SWITCH_CHURN = bool(int(os.getenv("ORANGURU_ANTI_SWITCH_CHURN", "1")))
+    PARA_FINISH_GUARD = bool(int(os.getenv("ORANGURU_PARA_FINISH_GUARD", "1")))
+    PARA_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_PARA_FINISH_MAX_OPP_HP", "0.6"))
+    PARA_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_PARA_FINISH_KO_THRESHOLD", "220.0"))
     SETUP_BOOST_CAPS = {
         "atk": 2,
         "spa": 2,
@@ -2588,6 +2591,13 @@ class RuleBotPlayer(Player):
 
         # Thunder Wave only vs significantly faster threats
         elif status_type == 'para':
+            if self.PARA_FINISH_GUARD and battle is not None:
+                opp_hp = opponent.current_hp_fraction or 0.0
+                if opp_hp <= self.PARA_FINISH_MAX_OPP_HP:
+                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                    threshold = self.PARA_FINISH_KO_THRESHOLD * max(opp_hp, 0.05)
+                    if best_damage >= threshold:
+                        return 0.0
             if self._is_trick_room_active():
                 score = 0.0
             else:
