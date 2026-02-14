@@ -1233,6 +1233,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         return _pick_choice(choices, combined)
 
+    @staticmethod
+    def _empty_order_if_no_choices(battle: Battle):
+        # Compatibility guard: some engine branches call this helper directly.
+        try:
+            orders = getattr(battle, "valid_orders", None)
+            if orders is not None and len(orders) == 0:
+                from poke_env.player.battle_order import _EmptyBattleOrder
+
+                return _EmptyBattleOrder()
+        except Exception:
+            pass
+        return None
+
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
