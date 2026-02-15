@@ -152,11 +152,6 @@ class RuleBotPlayer(Player):
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
     STATUS_AVAILABLE_TURNS = 0
     ANTI_SWITCH_CHURN = bool(int(os.getenv("ORANGURU_ANTI_SWITCH_CHURN", "1")))
-    SETUP_SAFETY_GUARD = bool(int(os.getenv("ORANGURU_SETUP_SAFETY_GUARD", "1")))
-    SETUP_MIN_HP = float(os.getenv("ORANGURU_SETUP_MIN_HP", "0.60"))
-    SETUP_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_SETUP_FINISH_MAX_OPP_HP", "0.55"))
-    SETUP_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_SETUP_FINISH_KO_THRESHOLD", "210.0"))
-    SETUP_REPLY_GUARD = float(os.getenv("ORANGURU_SETUP_REPLY_GUARD", "240.0"))
     PARA_FINISH_GUARD = bool(int(os.getenv("ORANGURU_PARA_FINISH_GUARD", "1")))
     PARA_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_PARA_FINISH_MAX_OPP_HP", "0.6"))
     PARA_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_PARA_FINISH_KO_THRESHOLD", "220.0"))
@@ -2276,21 +2271,6 @@ class RuleBotPlayer(Player):
         """Return True if a boosting move is still worth using."""
         if move is None or not move.boosts or active is None:
             return False
-        battle = getattr(self, "_current_battle", None)
-        if self.SETUP_SAFETY_GUARD:
-            active_hp = active.current_hp_fraction if active.current_hp_fraction is not None else 1.0
-            if active_hp < self.SETUP_MIN_HP:
-                return False
-            if opponent is not None and battle is not None:
-                opp_hp = opponent.current_hp_fraction or 0.0
-                if opp_hp <= self.SETUP_FINISH_MAX_OPP_HP:
-                    best_damage = self._estimate_best_damage_score(active, opponent, battle)
-                    threshold = self.SETUP_FINISH_KO_THRESHOLD * max(opp_hp, 0.05)
-                    if best_damage >= threshold:
-                        return False
-                reply_score = self._estimate_best_reply_score(opponent, active, battle)
-                if reply_score >= self.SETUP_REPLY_GUARD * max(active_hp, 0.15):
-                    return False
         if move.id == "noretreat":
             effects = getattr(active, "effects", None) or {}
             if Effect.NO_RETREAT in effects:
