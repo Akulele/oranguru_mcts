@@ -8,6 +8,7 @@ Set credentials via environment variables:
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -374,6 +375,8 @@ async def ladder_rulebot(
     chat_message: str = "",
     challenge_opponents: list[str] | None = None,
     challenge_battles: int | None = None,
+    snapshot_log: str | None = None,
+    snapshot_every: int = 1,
 ):
     if username is None:
         username = os.environ.get("PS_USERNAME")
@@ -466,6 +469,8 @@ async def ladder_rulebot(
             self._chat_message = chat_message or ""
             self._chat_sent = set()
             self._guard_errors: int = 0
+            self._snapshot_log_path = snapshot_log
+            self._snapshot_every = max(0, int(snapshot_every))
             self._switch_mass_stats = {
                 "count": 0,
                 "sum": 0.0,
@@ -478,6 +483,73 @@ async def ladder_rulebot(
                 "raw_low": 0,
                 "boosted": 0,
             }
+
+        def _build_snapshot_payload(self, reason: str, battle=None) -> dict:
+            counts = self._summary_counts
+            finished = counts["finished"]
+            wins = counts["won"]
+            losses = counts["lost"]
+            ties = counts["tied"]
+            turns = battle_stats["turns"]
+            remaining = battle_stats["remaining"]
+            opp_remaining = battle_stats["opp_remaining"]
+            payload = {
+                "ts": time.time(),
+                "reason": reason,
+                "account": username,
+                "finished": finished,
+                "target": self._total_battles,
+                "wins": wins,
+                "losses": losses,
+                "ties": ties,
+                "win_rate": (wins / finished) if finished else 0.0,
+                "avg_turns": (sum(turns) / len(turns)) if turns else None,
+                "avg_remaining": (sum(remaining) / len(remaining)) if remaining else None,
+                "avg_opp_remaining": (sum(opp_remaining) / len(opp_remaining)) if opp_remaining else None,
+                "forfeits": battle_stats["forfeits"],
+                "guard_errors": action_stats["guard_errors"],
+            }
+            if battle is not None:
+                try:
+                    my_remaining = sum(1 for p in battle.team.values() if not p.fainted)
+                except Exception:
+                    my_remaining = None
+                try:
+                    opp_rem = sum(1 for p in battle.opponent_team.values() if not p.fainted)
+                except Exception:
+                    opp_rem = None
+                payload.update(
+                    {
+                        "battle_tag": getattr(battle, "battle_tag", None),
+                        "turn": getattr(battle, "turn", None),
+                        "won": bool(getattr(battle, "won", False)),
+                        "lost": bool(getattr(battle, "lost", False)),
+                        "tied": bool(
+                            not getattr(battle, "won", False)
+                            and not getattr(battle, "lost", False)
+                        ),
+                        "remaining": my_remaining,
+                        "opp_remaining": opp_rem,
+                    }
+                )
+            return payload
+
+        def _emit_snapshot(self, reason: str, battle=None):
+            payload = self._build_snapshot_payload(reason, battle=battle)
+            finished = payload["finished"]
+            target = payload["target"]
+            turns = payload["avg_turns"]
+            turns_s = f"{turns:.1f}" if isinstance(turns, (float, int)) else "n/a"
+            print(
+                "📍 Snapshot: "
+                f"{finished}/{target} W/L/T {payload['wins']}/{payload['losses']}/{payload['ties']} "
+                f"({payload['win_rate']:.1%}) avg_turns={turns_s}"
+            )
+            if self._snapshot_log_path:
+                path = Path(self._snapshot_log_path)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
         def _status_available_in_moves(self, moves):
             moves_data = load_moves()
@@ -551,6 +623,8 @@ async def ladder_rulebot(
                     pass
                 if battle_has_forfeit(battle):
                     battle_stats["forfeits"] += 1
+                if self._snapshot_every and (self._summary_counts["finished"] % self._snapshot_every == 0):
+                    self._emit_snapshot("battle_end", battle=battle)
             self._battles.pop(battle.battle_tag, None)
 
         def _log_action(self, battle, order, duration_ms):
@@ -587,6 +661,7 @@ async def ladder_rulebot(
                     battle_tag,
                     exc,
                 )
+                self._emit_snapshot("guard_error")
                 try:
                     if hasattr(self.ps_client, "send_message"):
                         await self.ps_client.send_message(f"/leave {battle_tag}")
@@ -1157,6 +1232,11 @@ async def ladder_rulebot(
             await _safe_stop(bot)
     if interrupted:
         print("⚠️ Ladder interrupted; printing partial summary.")
+    if bot is not None:
+        try:
+            bot._emit_snapshot("final")
+        except Exception:
+            pass
 
     # Commit finished battles to data collector
     if data_collector:
@@ -1325,6 +1405,8 @@ async def ladder_rulebot_multi(
     chat_message: str = "",
     challenge_opponents: list[str] | None = None,
     challenge_battles: int | None = None,
+    snapshot_log: str | None = None,
+    snapshot_every: int = 1,
 ):
     if not accounts:
         print("❌ No accounts provided.")
@@ -1391,6 +1473,8 @@ async def ladder_rulebot_multi(
                 chat_message=chat_message,
                 challenge_opponents=challenge_opponents,
                 challenge_battles=challenge_battles,
+                snapshot_log=snapshot_log,
+                snapshot_every=snapshot_every,
             )
         )
 
@@ -1505,6 +1589,10 @@ if __name__ == "__main__":
                         help="Challenge specific players (repeatable, comma-separated)")
     parser.add_argument("--challenge-battles", type=int, default=0,
                         help="Battles per challenge opponent (0 uses --battles)")
+    parser.add_argument("--snapshot-log", type=str, default="",
+                        help="Optional JSONL file for per-battle progress snapshots")
+    parser.add_argument("--snapshot-every", type=int, default=1,
+                        help="Emit snapshot every N finished battles (0 disables)")
     args = parser.parse_args()
 
     open_timeout = None if args.open_timeout <= 0 else args.open_timeout
@@ -1525,6 +1613,9 @@ if __name__ == "__main__":
             if name:
                 challenge_opponents.append(name)
     challenge_battles = args.challenge_battles if args.challenge_battles > 0 else None
+    snapshot_log = args.snapshot_log.strip() if args.snapshot_log else ""
+    snapshot_log = snapshot_log or None
+    snapshot_every = max(0, int(args.snapshot_every))
     account_names = []
     for entry in args.account_name or []:
         for name in entry.split(","):
@@ -1594,6 +1685,8 @@ if __name__ == "__main__":
                 chat_message=args.chat_message,
                 challenge_opponents=challenge_opponents,
                 challenge_battles=challenge_battles,
+                snapshot_log=snapshot_log,
+                snapshot_every=snapshot_every,
             )
         return await ladder_rulebot(
             args.battles,
@@ -1644,6 +1737,8 @@ if __name__ == "__main__":
             chat_message=args.chat_message,
             challenge_opponents=challenge_opponents,
             challenge_battles=challenge_battles,
+            snapshot_log=snapshot_log,
+            snapshot_every=snapshot_every,
         )
 
     raise SystemExit(asyncio.run(_run()))

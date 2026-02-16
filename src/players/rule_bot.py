@@ -2698,8 +2698,9 @@ class RuleBotPlayer(Player):
         respect_immunity_memory: bool = True,
     ) -> float:
         """Calculate move score - similar to SimpleHeuristics but with improvements."""
+        move_category = self._effective_move_category(move, active)
         # Skip status moves entirely - focus on damage
-        if move.category == MoveCategory.STATUS:
+        if move_category == MoveCategory.STATUS:
             return 0.0
 
         base_power = move.base_power or 0
@@ -2719,7 +2720,7 @@ class RuleBotPlayer(Player):
                     return 0.0
 
         # Stat ratio for damage calculation
-        if move.category == MoveCategory.PHYSICAL:
+        if move_category == MoveCategory.PHYSICAL:
             stat_ratio = self._stat_estimation(active, "atk") / max(self._stat_estimation(opponent, "def"), 1)
         else:
             stat_ratio = self._stat_estimation(active, "spa") / max(self._stat_estimation(opponent, "spd"), 1)
@@ -2782,6 +2783,20 @@ class RuleBotPlayer(Player):
                     score *= 0.85
 
         return score
+
+    def _effective_move_category(self, move: Move, attacker: Pokemon):
+        """Return the effective attacking category for scoring.
+
+        Tera Blast becomes physical when Attack >= SpA (after boosts), otherwise special.
+        """
+        if move is None:
+            return None
+        category = getattr(move, "category", None)
+        if move.id != "terablast" or attacker is None:
+            return category
+        atk = self._stat_estimation(attacker, "atk")
+        spa = self._stat_estimation(attacker, "spa")
+        return MoveCategory.PHYSICAL if atk >= spa else MoveCategory.SPECIAL
 
     def _move_type_id(self, move: Move) -> Optional[str]:
         if move is None or move.type is None:
