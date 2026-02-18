@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -124,16 +125,21 @@ class LadderDataCollector:
             self.skipped["short_actions"] += 1
             return
 
-        rating = getattr(battle, "rating", None)
-        opponent_rating = getattr(battle, "opponent_rating", None)
+        rating, opponent_rating = self._extract_battle_ratings(battle)
         rating_value = rating if rating is not None else opponent_rating
         if self.min_rating and (rating_value is None or rating_value < self.min_rating):
+            if rating_value is None:
+                self.skipped["missing_rating"] += 1
             self.skipped["low_rating"] += 1
             return
         if self.min_player_rating and (rating is None or rating < self.min_player_rating):
+            if rating is None:
+                self.skipped["missing_player_rating"] += 1
             self.skipped["low_player_rating"] += 1
             return
         if self.min_opponent_rating and (opponent_rating is None or opponent_rating < self.min_opponent_rating):
+            if opponent_rating is None:
+                self.skipped["missing_opponent_rating"] += 1
             self.skipped["low_opponent_rating"] += 1
             return
 
@@ -247,6 +253,57 @@ class LadderDataCollector:
         if not team:
             return None
         return sum(1 for mon in team.values() if not getattr(mon, "fainted", False))
+
+    def _extract_battle_ratings(self, battle) -> tuple[int | None, int | None]:
+        """Get player/opponent ratings with fallback parsing from observation events.
+
+        Some Showdown flows don't populate `battle.rating` / `battle.opponent_rating`
+        even though rating updates are present in raw battle messages.
+        """
+        rating = getattr(battle, "rating", None)
+        opponent_rating = getattr(battle, "opponent_rating", None)
+        if rating is not None and opponent_rating is not None:
+            return rating, opponent_rating
+
+        player_name = to_id_str(getattr(battle, "player_username", "") or "")
+        opp_name = to_id_str(getattr(battle, "opponent_username", "") or "")
+
+        # Example source strings:
+        # "A_Jar_Of_Water's rating: 1242 -> 1266"
+        # "A_Jar_Of_Water's rating: 1242 &rarr; <strong>1266</strong>"
+        pattern = re.compile(r"(.+?)'s rating:\s*(\d+)\s*(?:->|→)?\s*(\d+)")
+        observations = getattr(battle, "_observations", {})
+
+        for obs in observations.values():
+            for event in getattr(obs, "events", []):
+                if not event:
+                    continue
+                for chunk in event:
+                    if not isinstance(chunk, str) or "rating:" not in chunk:
+                        continue
+                    text = chunk.replace("&rarr;", "->")
+                    text = re.sub(r"<[^>]+>", " ", text)
+                    for line in text.splitlines():
+                        m = pattern.search(line)
+                        if not m:
+                            continue
+                        name = to_id_str(m.group(1).strip())
+                        try:
+                            new_rating = int(m.group(3))
+                        except Exception:
+                            continue
+                        if player_name and name == player_name and rating is None:
+                            rating = new_rating
+                        elif opp_name and name == opp_name and opponent_rating is None:
+                            opponent_rating = new_rating
+                        elif rating is None:
+                            rating = new_rating
+                        elif opponent_rating is None:
+                            opponent_rating = new_rating
+                        if rating is not None and opponent_rating is not None:
+                            return rating, opponent_rating
+
+        return rating, opponent_rating
 
 
 def load_checkpoint_for_ladder(path: str, device: str):
