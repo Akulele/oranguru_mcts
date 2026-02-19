@@ -29,6 +29,7 @@ class PSWebsocketClient:
     @classmethod
     async def create(cls, username, password, address, login_uri=None):
         self = PSWebsocketClient()
+        self.requested_username = username
         self.username = username
         self.password = password
         self.address = address
@@ -91,7 +92,9 @@ class PSWebsocketClient:
             # Guest login for local servers
             message = ["/trn " + self.username + ",0,"]
             await self.send_message("", message)
-            actual_name = await self._wait_for_updateuser(timeout_s=3.0)
+            actual_name = await self._wait_for_updateuser(
+                timeout_s=3.0, prefer_non_guest=True
+            )
             if actual_name:
                 self.username = actual_name
             return self._to_id(self.username)
@@ -126,8 +129,11 @@ class PSWebsocketClient:
     def _to_id(self, name: str) -> str:
         return "".join(ch for ch in name.lower() if ch.isalnum())
 
-    async def _wait_for_updateuser(self, timeout_s: float = 3.0):
+    async def _wait_for_updateuser(
+        self, timeout_s: float = 3.0, prefer_non_guest: bool = False
+    ):
         deadline = time.time() + timeout_s
+        best_name = None
         while time.time() < deadline:
             try:
                 msg = await asyncio.wait_for(self.receive_message(), timeout=0.5)
@@ -135,8 +141,14 @@ class PSWebsocketClient:
                 continue
             split_msg = msg.split("|")
             if len(split_msg) > 2 and split_msg[1] == "updateuser":
-                return split_msg[2]
-        return None
+                candidate = split_msg[2]
+                if candidate:
+                    best_name = candidate
+                    if not prefer_non_guest:
+                        return candidate
+                    if not self._to_id(candidate).startswith("guest"):
+                        return candidate
+        return best_name
 
     async def update_team(self, team):
         await self.send_message("", ["/utm {}".format(team)])
@@ -177,7 +189,13 @@ class PSWebsocketClient:
                 continue
             sender = split_msg[2].strip()
             receiver = split_msg[3].strip().replace("!", "").replace("‽", "")
-            if self._to_id(receiver) != self._to_id(self.username):
+            receiver_id = self._to_id(receiver)
+            valid_receivers = {
+                self._to_id(self.username),
+                self._to_id(getattr(self, "requested_username", "")),
+            }
+            valid_receivers.discard("")
+            if receiver_id and receiver_id not in valid_receivers:
                 continue
             message = split_msg[4].strip()
             if not message.startswith("/challenge"):
