@@ -307,10 +307,12 @@ def main():
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
             torch.save({
+                'model': model.state_dict(),
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
                 'val_acc': val_acc,
+                'model_type': 'feedforward',
                 'config': {
                     'feature_dim': 272,
                     'd_model': 512,

@@ -327,7 +327,12 @@ def load_checkpoint_for_ladder(path: str, device: str):
         )
     else:
         model = ActorCritic(config.feature_dim, config.d_model, config.n_actions)
-    model.load_state_dict(checkpoint["model"])
+    if "model" in checkpoint:
+        model.load_state_dict(checkpoint["model"])
+    elif "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        raise ValueError("Checkpoint missing model weights.")
     model.to(device)
     model.eval()
     return model, config
