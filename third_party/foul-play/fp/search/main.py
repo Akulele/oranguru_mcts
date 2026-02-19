@@ -18,23 +18,58 @@ logger = logging.getLogger(__name__)
 
 def select_move_from_mcts_results(mcts_results: list[(MctsResult, float, int)]) -> str:
     final_policy = {}
+    fallback_choices: list[str] = []
     for mcts_result, sample_chance, index in mcts_results:
+        if not getattr(mcts_result, "side_one", None):
+            logger.warning("Policy %s: empty side_one; skipping", index)
+            continue
+        if mcts_result.total_visits <= 0:
+            logger.warning(
+                "Policy %s: total_visits=0; using uniform fallback over legal moves",
+                index,
+            )
+            choices = [
+                opt.move_choice
+                for opt in mcts_result.side_one
+                if getattr(opt, "move_choice", None)
+            ]
+            if choices:
+                uniform = sample_chance / len(choices)
+                for choice in choices:
+                    final_policy[choice] = final_policy.get(choice, 0.0) + uniform
+                fallback_choices.extend(choices)
+            continue
+
         this_policy = max(mcts_result.side_one, key=lambda x: x.visits)
+        avg_score = (
+            round(this_policy.total_score / this_policy.visits, 3)
+            if this_policy.visits > 0
+            else "n/a"
+        )
         logger.info(
             "Policy {}: {} visited {}% avg_score={} sample_chance_multiplier={}".format(
                 index,
                 this_policy.move_choice,
                 round(100 * this_policy.visits / mcts_result.total_visits, 2),
-                round(this_policy.total_score / this_policy.visits, 3),
+                avg_score,
                 round(sample_chance, 3),
             )
         )
         for s1_option in mcts_result.side_one:
+            if s1_option.visits <= 0:
+                continue
             final_policy[s1_option.move_choice] = final_policy.get(
                 s1_option.move_choice, 0
             ) + (sample_chance * (s1_option.visits / mcts_result.total_visits))
+            fallback_choices.append(s1_option.move_choice)
 
     final_policy = sorted(final_policy.items(), key=lambda x: x[1], reverse=True)
+    if not final_policy:
+        if fallback_choices:
+            choice = random.choice(fallback_choices)
+            logger.warning("No weighted policy available; random fallback choice: %s", choice)
+            return choice
+        raise ValueError("No MCTS choices available")
 
     # Consider all moves that are close to the best move
     highest_percentage = final_policy[0][1]
@@ -43,7 +78,11 @@ def select_move_from_mcts_results(mcts_results: list[(MctsResult, float, int)]) 
     for i, policy in enumerate(final_policy):
         logger.info(f"\t{round(policy[1] * 100, 3)}%: {policy[0]}")
 
-    choice = random.choices(final_policy, weights=[p[1] for p in final_policy])[0]
+    weights = [max(0.0, p[1]) for p in final_policy]
+    if sum(weights) <= 0:
+        choice = random.choice(final_policy)
+    else:
+        choice = random.choices(final_policy, weights=weights)[0]
     return choice[0]
 
 

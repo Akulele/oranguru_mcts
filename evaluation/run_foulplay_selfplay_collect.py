@@ -79,6 +79,21 @@ def _build_cmd(
     return cmd
 
 
+def _count_new_winners(path: Path, offset: int) -> tuple[int, int]:
+    if not path.exists():
+        return offset, 0
+    size = path.stat().st_size
+    if size < offset:
+        offset = 0
+    if size == offset:
+        return offset, 0
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        f.seek(offset)
+        chunk = f.read()
+        new_offset = f.tell()
+    return new_offset, chunk.count("Winner:")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--foulplay-python", default="venv/bin/python")
@@ -95,6 +110,8 @@ def main() -> int:
     parser.add_argument("--manifest-out", default="")
     parser.add_argument("--userid-timeout", type=float, default=30.0)
     parser.add_argument("--max-runtime-min", type=float, default=360.0)
+    parser.add_argument("--progress-every-sec", type=float, default=30.0)
+    parser.add_argument("--stall-timeout-min", type=float, default=15.0)
     args = parser.parse_args()
 
     run_ts = time.strftime("%Y%m%d_%H%M%S")
@@ -157,13 +174,58 @@ def main() -> int:
             a_proc = subprocess.Popen(cmd_a, stdout=a_handle, stderr=subprocess.STDOUT, text=True)
 
         max_runtime_s = args.max_runtime_min * 60.0
+        stall_timeout_s = args.stall_timeout_min * 60.0
         start = time.time()
+        last_report = start
+        last_progress_ts = start
+        winners_a = 0
+        winners_b = 0
+        a_off = 0
+        b_off = 0
         while True:
-            a_done = a_proc.poll() is not None
-            b_done = b_proc.poll() is not None
+            a_rc_now = a_proc.poll()
+            b_rc_now = b_proc.poll()
+            a_done = a_rc_now is not None
+            b_done = b_rc_now is not None
+
+            a_off, inc_a = _count_new_winners(a_log, a_off)
+            b_off, inc_b = _count_new_winners(b_log, b_off)
+            if inc_a or inc_b:
+                winners_a += inc_a
+                winners_b += inc_b
+                last_progress_ts = time.time()
+
             if a_done and b_done:
                 break
-            if (time.time() - start) > max_runtime_s:
+            if a_done != b_done:
+                print(
+                    "One bot exited early "
+                    f"(a_done={a_done}, b_done={b_done}, a_rc={a_rc_now}, b_rc={b_rc_now}). "
+                    "Terminating the other bot."
+                )
+                if not a_done:
+                    a_proc.terminate()
+                if not b_done:
+                    b_proc.terminate()
+                break
+
+            now = time.time()
+            if (now - last_report) >= args.progress_every_sec:
+                print(
+                    f"[progress] winners a/b={winners_a}/{winners_b} "
+                    f"elapsed_min={(now - start)/60:.1f}"
+                )
+                last_report = now
+
+            if (now - last_progress_ts) > stall_timeout_s:
+                print(
+                    "No battle completions observed within stall timeout; "
+                    "terminating both bots."
+                )
+                a_proc.terminate()
+                b_proc.terminate()
+                break
+            if (now - start) > max_runtime_s:
                 print("Timeout reached; terminating both bots.")
                 a_proc.terminate()
                 b_proc.terminate()
