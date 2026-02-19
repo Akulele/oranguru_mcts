@@ -2229,10 +2229,12 @@ class RuleBotPlayer(Player):
             return 100
 
         # Try to get actual speed stat
-        if mon.stats and mon.stats.get('spe'):
-            base_speed = mon.stats['spe']
-        elif mon.base_stats and mon.base_stats.get('spe'):
-            base_speed = mon.base_stats['spe']
+        stats = getattr(mon, "stats", None) or {}
+        base_stats = getattr(mon, "base_stats", None) or {}
+        if stats and stats.get('spe'):
+            base_speed = stats['spe']
+        elif base_stats and base_stats.get('spe'):
+            base_speed = base_stats['spe']
         else:
             base_speed = 100
 
@@ -2543,7 +2545,7 @@ class RuleBotPlayer(Player):
             return 0.0
 
         # Don't status already statused Pokemon (except seed/taunt/encore)
-        if opponent.status is not None and status_type not in {"seed", "taunt", "encore"}:
+        if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
             return 0.0
 
         if getattr(self, "STATUS_KO_GUARD", False) and battle is not None:
@@ -2554,7 +2556,8 @@ class RuleBotPlayer(Player):
         score = 0.0
 
         # Check accuracy
-        accuracy = (move.accuracy / 100.0) if move.accuracy else 1.0
+        move_accuracy = getattr(move, "accuracy", None)
+        accuracy = (move_accuracy / 100.0) if move_accuracy else 1.0
         if accuracy < 0.7:  # Too risky
             return 0.0
 

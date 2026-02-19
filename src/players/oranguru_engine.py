@@ -22,7 +22,7 @@ from poke_env.battle.field import Field
 from poke_env.battle.weather import Weather
 
 from src.players.rule_bot import RuleBotPlayer
-from src.utils.damage_calc import normalize_name
+from src.utils.damage_calc import normalize_name, get_type_effectiveness
 
 FP_ROOT = Path(__file__).resolve().parents[2] / "third_party" / "foul-play"
 if str(FP_ROOT) not in sys.path:
@@ -78,6 +78,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     STALL_SHUTDOWN_BOOST = bool(int(os.getenv("ORANGURU_STALL_SHUTDOWN_BOOST", "1")))
     AUTO_TERA = bool(int(os.getenv("ORANGURU_AUTO_TERA", "1")))
     SPEED_BOUNDS_ENABLED = bool(int(os.getenv("ORANGURU_SPEED_BOUNDS", "1")))
+    MOVE_SAFETY_GUARD = bool(int(os.getenv("ORANGURU_MOVE_SAFETY_GUARD", "1")))
+    TACTICAL_KO_THRESHOLD = float(os.getenv("ORANGURU_TACTICAL_KO_THRESHOLD", "220.0"))
+    STATUS_STALL_MAX = int(os.getenv("ORANGURU_STATUS_STALL_MAX", "2"))
     _VOLATILE_RAW = {
         _maybe_effect("CONFUSION"): constants.CONFUSION,
         _maybe_effect("LEECH_SEED"): constants.LEECH_SEED,
@@ -996,6 +999,159 @@ class OranguruEnginePlayer(RuleBotPlayer):
             name = ""
         return normalize_name(str(name)) if name else ""
 
+    def _best_damaging_move(self, battle: Battle, active: Pokemon, opponent: Pokemon):
+        best_move = None
+        best_score = 0.0
+        for move in battle.available_moves:
+            try:
+                if move.category == MoveCategory.STATUS:
+                    continue
+            except Exception:
+                continue
+            score = self._calculate_move_score(move, active, opponent, battle)
+            if score > best_score:
+                best_score = score
+                best_move = move
+        return best_move, best_score
+
+    def _switch_faints_to_entry_hazards(self, battle: Battle, mon: Pokemon) -> bool:
+        if battle is None or mon is None:
+            return False
+        if self._has_heavy_duty_boots(mon):
+            return False
+        hp_frac = mon.current_hp_fraction if mon.current_hp_fraction is not None else 1.0
+        if hp_frac <= 0:
+            return True
+        side_conditions = getattr(battle, "side_conditions", None) or {}
+        if not side_conditions:
+            return False
+
+        hazard_fraction = 0.0
+        if SideCondition.STEALTH_ROCK in side_conditions:
+            def_types = [t.name.lower() for t in (mon.types or []) if t is not None]
+            rock_mult = get_type_effectiveness("rock", def_types)
+            hazard_fraction += (1.0 / 8.0) * rock_mult
+
+        try:
+            grounded = battle.is_grounded(mon)
+        except Exception:
+            grounded = True
+
+        if grounded:
+            spikes_layers = side_conditions.get(SideCondition.SPIKES, 0)
+            if spikes_layers == 1:
+                hazard_fraction += 1.0 / 8.0
+            elif spikes_layers == 2:
+                hazard_fraction += 1.0 / 6.0
+            elif spikes_layers >= 3:
+                hazard_fraction += 1.0 / 4.0
+
+        return hazard_fraction >= max(0.0, hp_frac - 1e-6)
+
+    def _status_choice_is_obviously_bad(
+        self,
+        battle: Battle,
+        move,
+        active: Pokemon,
+        opponent: Pokemon,
+    ) -> bool:
+        move_entry = self._get_move_entry(move)
+        status_type = self.STATUS_MOVES.get(move.id)
+        if status_type is None:
+            status_type = self._status_from_move_entry(move_entry)
+        if status_type is None:
+            return False
+
+        if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
+            return True
+        if status_type == "sleep" and self._sleep_clause_blocked(battle):
+            return True
+        if status_type == "poison" and (
+            self._opponent_has_type(opponent, "steel") or self._opponent_has_type(opponent, "poison")
+        ):
+            return True
+        if status_type == "burn" and self._opponent_has_type(opponent, "fire"):
+            return True
+        if status_type == "para":
+            if move.id == "thunderwave" and (
+                self._opponent_has_type(opponent, "ground")
+                or self._opponent_has_type(opponent, "electric")
+            ):
+                return True
+        if status_type == "sap" or move.id == "strengthsap":
+            opp_atk = self._stat_estimation(opponent, "atk")
+            opp_spa = self._stat_estimation(opponent, "spa")
+            hp_frac = active.current_hp_fraction or 0.0
+            if opp_atk <= opp_spa and hp_frac > 0.45:
+                return True
+
+        mem = self._get_battle_memory(battle)
+        if (
+            int(mem.get("status_stall_streak", 0) or 0) >= self.STATUS_STALL_MAX
+            and mem.get("last_move_id") == move.id
+        ):
+            return True
+        return False
+
+    def _apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, opponent: Pokemon) -> str:
+        if not self.MOVE_SAFETY_GUARD:
+            return choice
+
+        best_damage_move, best_damage_score = self._best_damaging_move(battle, active, opponent)
+        opp_hp = opponent.current_hp_fraction or 0.0
+        ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+        has_ko_window = best_damage_move is not None and best_damage_score >= ko_threshold
+
+        if choice.startswith("switch "):
+            switch_name = normalize_name(choice.split("switch ", 1)[1])
+            chosen_switch = None
+            for sw in battle.available_switches:
+                if normalize_name(sw.species) == switch_name:
+                    chosen_switch = sw
+                    break
+            if chosen_switch is not None and self._switch_faints_to_entry_hazards(battle, chosen_switch):
+                survivable = [sw for sw in battle.available_switches if not self._switch_faints_to_entry_hazards(battle, sw)]
+                if survivable:
+                    best_sw = max(survivable, key=lambda s: self._score_switch(s, opponent, battle))
+                    return f"switch {normalize_name(best_sw.species)}"
+                if best_damage_move is not None and not battle.force_switch:
+                    return best_damage_move.id
+            return choice
+
+        tera_suffix = choice.endswith("-tera")
+        move_id = normalize_name(choice.replace("-tera", ""))
+        selected_move = None
+        for move in battle.available_moves:
+            if move.id == move_id:
+                selected_move = move
+                break
+        if selected_move is None:
+            return choice
+
+        try:
+            is_status = selected_move.category == MoveCategory.STATUS
+        except Exception:
+            is_status = False
+        is_recovery = self._is_recovery_move(selected_move)
+        is_setup = bool(getattr(selected_move, "boosts", None) or {}) and (
+            selected_move.target and "self" in str(selected_move.target).lower()
+        )
+
+        if is_status and self._status_choice_is_obviously_bad(battle, selected_move, active, opponent):
+            if best_damage_move is not None:
+                return best_damage_move.id
+
+        if has_ko_window and (is_status or is_recovery or is_setup):
+            if best_damage_move is not None:
+                return best_damage_move.id
+
+        if has_ko_window and move_id in self.PROTECT_MOVES and best_damage_move is not None:
+            return best_damage_move.id
+
+        if tera_suffix:
+            return f"{move_id}-tera"
+        return choice
+
     def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -1258,6 +1414,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._update_switch_flags(battle)
         self._update_substitute_memory(battle)
         self._cleanup_battle_memory(battle)
+        mem = self._get_battle_memory(battle)
+        last_action = mem.get("last_action")
+        if last_action == "move" and mem.get("last_move_category") == "status":
+            prev_hp = mem.get("last_opponent_hp")
+            cur_hp = getattr(battle.opponent_active_pokemon, "current_hp_fraction", None)
+            unchanged = (
+                isinstance(prev_hp, (int, float))
+                and isinstance(cur_hp, (int, float))
+                and abs(cur_hp - prev_hp) <= 0.03
+            )
+            if unchanged:
+                mem["status_stall_streak"] = int(mem.get("status_stall_streak", 0) or 0) + 1
+            else:
+                mem["status_stall_streak"] = 0
+        else:
+            mem["status_stall_streak"] = 0
 
         active = battle.active_pokemon
         opponent = battle.opponent_active_pokemon
@@ -1356,6 +1528,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if not choice:
             self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
+        choice = self._apply_tactical_safety(battle, choice, active, opponent)
 
         if choice.startswith("switch "):
             if self._is_switch_churn_risk(battle) and battle.available_moves:
