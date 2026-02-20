@@ -81,6 +81,37 @@ def format_decision(battle, decision):
     return [message, str(battle.rqid)]
 
 
+def _fallback_decision_from_request(battle):
+    """Emergency fallback when MCTS fails: choose first legal request option."""
+    req = battle.request_json or {}
+    side = req.get("side") or {}
+    team = side.get("pokemon") or []
+    force_switch = bool(req.get("forceSwitch"))
+
+    if not force_switch:
+        active = (req.get("active") or [{}])[0] or {}
+        for move in active.get("moves") or []:
+            if move.get("disabled"):
+                continue
+            pp = move.get("pp")
+            if isinstance(pp, int) and pp <= 0:
+                continue
+            move_id = move.get("id") or move.get("move")
+            if move_id:
+                return [f"/choose move {move_id}", str(battle.rqid)]
+
+    for idx, mon in enumerate(team, start=1):
+        if mon.get("active"):
+            continue
+        condition = str(mon.get("condition") or "").lower()
+        if "fnt" in condition:
+            continue
+        return [f"/switch {idx}", str(battle.rqid)]
+
+    # Last resort; should almost never happen.
+    return ["/choose move 1", str(battle.rqid)]
+
+
 def battle_is_finished(battle_tag, msg):
     return (
         msg.startswith(">{}".format(battle_tag))
@@ -102,15 +133,23 @@ async def async_pick_move(battle):
     if not battle_copy.team_preview:
         battle_copy.user.update_from_request_json(battle_copy.request_json)
 
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        best_move = await loop.run_in_executor(pool, find_best_move, battle_copy)
-    battle.user.last_selected_move = LastUsedMove(
-        battle.user.active.name,
-        best_move.removesuffix("-tera").removesuffix("-mega"),
-        battle.turn,
-    )
-    return format_decision(battle_copy, best_move)
+    try:
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            best_move = await loop.run_in_executor(pool, find_best_move, battle_copy)
+        battle.user.last_selected_move = LastUsedMove(
+            battle.user.active.name,
+            best_move.removesuffix("-tera").removesuffix("-mega"),
+            battle.turn,
+        )
+        return format_decision(battle_copy, best_move)
+    except Exception:
+        logger.exception("MCTS failed; using emergency legal-choice fallback")
+        if battle_copy.team_preview and battle.user.reserve:
+            return format_decision(
+                battle_copy, f"switch {battle.user.reserve[0].name}"
+            )
+        return _fallback_decision_from_request(battle_copy)
 
 
 async def handle_team_preview(battle, ps_websocket_client):
