@@ -1591,6 +1591,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if self._should_trigger_adaptive_fallback(battle, ordered, confidence, threshold):
             mem = self._get_battle_memory(battle)
             mem["adaptive_fallback_last_turn"] = int(getattr(battle, "turn", 0) or 0)
+            mem["adaptive_fallback_pending"] = 1
             return ""
         if self.SELECTION_MODE == "policy":
             cutoff_ratio = max(0.0, min(1.0, self.POLICY_CUTOFF))
@@ -1697,6 +1698,93 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     ]
 
         return _pick_choice(choices, combined)
+
+    def _is_damaging_move_choice(self, battle: Battle, choice: str) -> bool:
+        move_id = normalize_name(choice.replace("-tera", ""))
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) != move_id:
+                continue
+            category = getattr(move, "category", None)
+            base_power = float(getattr(move, "base_power", 0) or 0)
+            damage_attr = getattr(move, "damage", None)
+            return bool(
+                base_power > 0
+                or damage_attr is not None
+                or (category is not None and category != MoveCategory.STATUS)
+            )
+        return False
+
+    def _choose_adaptive_fallback_order(
+        self, battle: Battle, active: Pokemon, opponent: Pokemon
+    ):
+        if battle.force_switch:
+            if battle.available_switches:
+                best_switch = max(
+                    battle.available_switches,
+                    key=lambda s: self._score_switch(s, opponent, battle),
+                )
+                return self.create_order(best_switch)
+            return None
+
+        move_candidates: List[Tuple[str, float]] = []
+        for move in battle.available_moves or []:
+            choice = normalize_name(getattr(move, "id", ""))
+            if not choice:
+                continue
+            score = self._heuristic_action_score(battle, choice)
+            move_candidates.append((choice, float(score or 0.0)))
+            if getattr(battle, "can_tera", False):
+                tera_choice = f"{choice}-tera"
+                tera_score = self._heuristic_action_score(battle, tera_choice)
+                move_candidates.append((tera_choice, float(tera_score or 0.0)))
+
+        switch_candidates: List[Tuple[str, float]] = []
+        for sw in battle.available_switches or []:
+            sw_choice = f"switch {normalize_name(sw.species)}"
+            score = self._heuristic_action_score(battle, sw_choice)
+            switch_candidates.append((sw_choice, float(score or 0.0)))
+
+        if not move_candidates and not switch_candidates:
+            return None
+
+        selected: Optional[str] = None
+        if move_candidates:
+            move_candidates.sort(key=lambda x: x[1], reverse=True)
+            best_move, best_score = move_candidates[0]
+            if best_score > 0:
+                damaging = [
+                    (c, s)
+                    for c, s in move_candidates
+                    if self._is_damaging_move_choice(battle, c) and s >= best_score * 0.85
+                ]
+                if damaging:
+                    damaging.sort(key=lambda x: x[1], reverse=True)
+                    selected = damaging[0][0]
+                else:
+                    selected = best_move
+
+        if selected is None and switch_candidates:
+            switch_candidates.sort(key=lambda x: x[1], reverse=True)
+            selected = switch_candidates[0][0]
+
+        if not selected:
+            return None
+        if selected.startswith("switch "):
+            switch_name = normalize_name(selected.split("switch ", 1)[1])
+            for sw in battle.available_switches or []:
+                if normalize_name(sw.species) == switch_name:
+                    return self.create_order(sw)
+            return None
+
+        tera = False
+        if selected.endswith("-tera"):
+            selected = selected.replace("-tera", "")
+            tera = bool(getattr(battle, "can_tera", False))
+        move_id = normalize_name(selected)
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                return self.create_order(move, terastallize=tera)
+        return None
 
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
@@ -1835,6 +1923,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
         banned_choices = self._sleep_clause_banned_choices(battle)
         choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
         if not choice:
+            mem = self._get_battle_memory(battle)
+            if int(mem.get("adaptive_fallback_pending", 0) or 0) == 1:
+                mem["adaptive_fallback_pending"] = 0
+                adaptive_order = self._choose_adaptive_fallback_order(battle, active, opponent)
+                if adaptive_order is not None:
+                    return self._commit_order(battle, adaptive_order)
             self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
         choice = self._apply_tactical_safety(battle, choice, active, opponent)
