@@ -195,113 +195,86 @@ def _features_from_request(request: dict, force_switch: bool, mask: list[bool]) 
     return feat
 
 
-def _extract_events(text: str) -> list[tuple[int, str, dict]]:
-    events: list[tuple[int, str, dict]] = []
-    decoder = json.JSONDecoder()
-    i = 0
-    while True:
-        idx = text.find(REQUEST_TOKEN, i)
-        if idx < 0:
-            break
-        json_start = idx + len("|request|")
-        try:
-            payload, consumed = decoder.raw_decode(text[json_start:])
-        except Exception:
-            i = idx + len(REQUEST_TOKEN)
-            continue
-        prefix = text[max(0, idx - 300):idx]
-        battle_tags = BATTLE_TAG_RE.findall(prefix)
-        if battle_tags and isinstance(payload, dict):
-            rqid = payload.get("rqid")
-            events.append(
-                (
-                    idx,
-                    "request",
-                    {
-                        "battle_tag": battle_tags[-1],
-                        "rqid": int(rqid) if isinstance(rqid, int) else rqid,
-                        "request": payload,
-                    },
-                )
-            )
-        i = json_start + consumed
-
-    for m in CHOOSE_RE.finditer(text):
-        battle_tag = m.group(1).strip()
-        choice = m.group(2).strip()
-        rqid = int(m.group(3))
-        events.append(
-            (
-                m.start(),
-                "choose",
-                {"battle_tag": battle_tag, "rqid": rqid, "choice": choice},
-            )
-        )
-
-    events.sort(key=lambda x: x[0])
-    return events
-
-
 def parse_log(path: Path, counters: Counter) -> list[dict]:
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    events = _extract_events(text)
-
     pending: dict[tuple[str, int], dict] = {}
     latest_by_battle: dict[str, tuple[int, dict]] = {}
     demos: list[dict] = []
+    last_battle_tag = ""
 
-    for _, etype, payload in events:
-        if etype == "request":
-            battle_tag = payload["battle_tag"]
-            rqid = payload["rqid"]
-            req = payload["request"]
-            if not isinstance(rqid, int):
-                counters["skip_request_no_rqid"] += 1
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line_no, line in enumerate(handle, start=1):
+            if line_no % 200000 == 0:
+                print(
+                    f"{path.name}: lines={line_no} demos={counters['demos']}",
+                    flush=True,
+                )
+
+            battle_match = BATTLE_TAG_RE.search(line)
+            if battle_match:
+                last_battle_tag = battle_match.group(1).strip()
+
+            if REQUEST_TOKEN in line:
+                json_start = line.find("|request|") + len("|request|")
+                payload_str = line[json_start:].strip()
+                try:
+                    req = json.loads(payload_str)
+                except Exception:
+                    counters["skip_request_parse_error"] += 1
+                    req = None
+                if isinstance(req, dict):
+                    rqid = req.get("rqid")
+                    if not isinstance(rqid, int):
+                        counters["skip_request_no_rqid"] += 1
+                    elif last_battle_tag:
+                        pending[(last_battle_tag, rqid)] = req
+                        latest_by_battle[last_battle_tag] = (rqid, req)
+                        counters["requests"] += 1
+                    else:
+                        counters["skip_request_no_battle_tag"] += 1
+
+            choose_match = CHOOSE_RE.search(line)
+            if not choose_match:
                 continue
-            pending[(battle_tag, rqid)] = req
-            latest_by_battle[battle_tag] = (rqid, req)
-            counters["requests"] += 1
-            continue
+            battle_tag = choose_match.group(1).strip()
+            choice = choose_match.group(2).strip()
+            rqid = int(choose_match.group(3))
 
-        battle_tag = payload["battle_tag"]
-        rqid = payload["rqid"]
-        choice = payload["choice"]
-        request = pending.pop((battle_tag, rqid), None)
-        if request is None:
-            latest = latest_by_battle.get(battle_tag)
-            if latest and latest[0] == rqid:
-                request = latest[1]
-        if request is None:
-            counters["skip_choose_missing_request"] += 1
-            continue
+            request = pending.pop((battle_tag, rqid), None)
+            if request is None:
+                latest = latest_by_battle.get(battle_tag)
+                if latest and latest[0] == rqid:
+                    request = latest[1]
+            if request is None:
+                counters["skip_choose_missing_request"] += 1
+                continue
 
-        mask, move_ids, switch_map, force_switch = _build_mask_and_maps(request)
-        action = _action_from_choice(choice, mask, move_ids, switch_map)
-        if action is None:
-            counters["skip_unmapped_action"] += 1
-            continue
-        if not mask[action]:
-            counters["skip_illegal_action"] += 1
-            continue
+            mask, move_ids, switch_map, force_switch = _build_mask_and_maps(request)
+            action = _action_from_choice(choice, mask, move_ids, switch_map)
+            if action is None:
+                counters["skip_unmapped_action"] += 1
+                continue
+            if not mask[action]:
+                counters["skip_illegal_action"] += 1
+                continue
 
-        features = _features_from_request(request, force_switch, mask)
-        if len(features) != FEATURE_DIM:
-            counters["skip_feature_dim"] += 1
-            continue
+            features = _features_from_request(request, force_switch, mask)
+            if len(features) != FEATURE_DIM:
+                counters["skip_feature_dim"] += 1
+                continue
 
-        demos.append(
-            {
-                "features": features,
-                "action": int(action),
-                "mask": mask,
-                "rating": None,
-                "weight": 1.0,
-                "battle_tag": battle_tag,
-                "rqid": rqid,
-                "source_log": str(path),
-            }
-        )
-        counters["demos"] += 1
+            demos.append(
+                {
+                    "features": features,
+                    "action": int(action),
+                    "mask": mask,
+                    "rating": None,
+                    "weight": 1.0,
+                    "battle_tag": battle_tag,
+                    "rqid": rqid,
+                    "source_log": str(path),
+                }
+            )
+            counters["demos"] += 1
     return demos
 
 
