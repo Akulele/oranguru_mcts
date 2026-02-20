@@ -97,6 +97,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
         os.getenv("ORANGURU_ADAPTIVE_FALLBACK_MAX_HEURISTIC", "70.0")
     )
     ADAPTIVE_FALLBACK_TOPK = int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_TOPK", "4"))
+    ADAPTIVE_FALLBACK_MIN_TURN = int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_MIN_TURN", "4"))
+    ADAPTIVE_FALLBACK_COOLDOWN = int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_COOLDOWN", "3"))
+    ADAPTIVE_FALLBACK_MAX_TOP_RATIO = float(
+        os.getenv("ORANGURU_ADAPTIVE_FALLBACK_MAX_TOP_RATIO", "0.45")
+    )
+    ADAPTIVE_FALLBACK_NONDAMAGING_SHARE = float(
+        os.getenv("ORANGURU_ADAPTIVE_FALLBACK_NONDAMAGING_SHARE", "0.75")
+    )
+    ADAPTIVE_FALLBACK_REQUIRE_STALLISH = bool(
+        int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_REQUIRE_STALLISH", "1"))
+    )
     _VOLATILE_RAW = {
         _maybe_effect("CONFUSION"): constants.CONFUSION,
         _maybe_effect("LEECH_SEED"): constants.LEECH_SEED,
@@ -348,20 +359,68 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return False
         if not ordered:
             return False
+        if int(getattr(battle, "turn", 0) or 0) < max(1, self.ADAPTIVE_FALLBACK_MIN_TURN):
+            return False
+
+        mem = self._get_battle_memory(battle)
+        last_turn = int(mem.get("adaptive_fallback_last_turn", -999) or -999)
+        now_turn = int(getattr(battle, "turn", 0) or 0)
+        if now_turn - last_turn < max(0, self.ADAPTIVE_FALLBACK_COOLDOWN):
+            return False
+
         conf_gate = min(max(0.0, self.ADAPTIVE_FALLBACK_CONFIDENCE), threshold)
         if confidence > conf_gate:
             return False
 
         topk = max(1, self.ADAPTIVE_FALLBACK_TOPK)
         candidates = ordered[:topk]
+        top_total = sum(max(0.0, w) for _, w in candidates)
+        if top_total > 0:
+            top_ratio = max(0.0, candidates[0][1]) / top_total
+            if top_ratio > max(0.0, min(1.0, self.ADAPTIVE_FALLBACK_MAX_TOP_RATIO)):
+                return False
+
         heuristics: List[float] = []
+        nondamaging = 0
         for choice, _ in candidates:
             score = self._heuristic_action_score(battle, choice)
             if score is not None:
                 heuristics.append(float(score))
+            move_id = normalize_name(choice.replace("-tera", ""))
+            is_damaging = False
+            for move in battle.available_moves or []:
+                if normalize_name(getattr(move, "id", "")) != move_id:
+                    continue
+                category = getattr(move, "category", None)
+                base_power = float(getattr(move, "base_power", 0) or 0)
+                damage_attr = getattr(move, "damage", None)
+                is_damaging = bool(
+                    base_power > 0
+                    or damage_attr is not None
+                    or (category is not None and category != MoveCategory.STATUS)
+                )
+                break
+            if not is_damaging:
+                nondamaging += 1
+            if is_damaging and score is not None and float(score) >= (
+                max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC) * 0.90
+            ):
+                return False
         if not heuristics:
             return False
-        return max(heuristics) <= max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC)
+        if max(heuristics) > max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC):
+            return False
+
+        nondamaging_share = nondamaging / max(1, len(candidates))
+        if self.ADAPTIVE_FALLBACK_REQUIRE_STALLISH:
+            status_stall = int(mem.get("status_stall_streak", 0) or 0)
+            if (
+                nondamaging_share
+                < max(0.0, min(1.0, self.ADAPTIVE_FALLBACK_NONDAMAGING_SHARE))
+                and status_stall < 1
+            ):
+                return False
+        return True
 
     def get_mcts_stats(self) -> Dict[str, float]:
         stats = dict(self._mcts_stats)
@@ -1530,6 +1589,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         threshold = max(0.0, min(1.0, self.MCTS_CONFIDENCE_THRESHOLD))
         if self._should_trigger_adaptive_fallback(battle, ordered, confidence, threshold):
+            mem = self._get_battle_memory(battle)
+            mem["adaptive_fallback_last_turn"] = int(getattr(battle, "turn", 0) or 0)
             return ""
         if self.SELECTION_MODE == "policy":
             cutoff_ratio = max(0.0, min(1.0, self.POLICY_CUTOFF))
