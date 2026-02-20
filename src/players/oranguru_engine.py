@@ -81,6 +81,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     MOVE_SAFETY_GUARD = bool(int(os.getenv("ORANGURU_MOVE_SAFETY_GUARD", "1")))
     TACTICAL_KO_THRESHOLD = float(os.getenv("ORANGURU_TACTICAL_KO_THRESHOLD", "220.0"))
     STATUS_STALL_MAX = int(os.getenv("ORANGURU_STATUS_STALL_MAX", "2"))
+    RL_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_RL_PRIOR", "0")))
+    RL_PRIOR_CHECKPOINT = os.getenv(
+        "ORANGURU_RL_PRIOR_CHECKPOINT",
+        "checkpoints/rl/replay_imitation_gen9human.pt",
+    )
+    RL_PRIOR_BLEND = float(os.getenv("ORANGURU_RL_PRIOR_BLEND", "0.2"))
+    RL_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_RL_PRIOR_LOWCONF_ONLY", "1")))
+    RL_PRIOR_DEVICE = os.getenv("ORANGURU_RL_PRIOR_DEVICE", "cpu").strip().lower()
     _VOLATILE_RAW = {
         _maybe_effect("CONFUSION"): constants.CONFUSION,
         _maybe_effect("LEECH_SEED"): constants.LEECH_SEED,
@@ -128,6 +136,198 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "fallback_super": 0,
             "fallback_random": 0,
         }
+        self._rl_prior_ready = False
+        self._rl_prior_failed = False
+        self._rl_prior_model = None
+        self._rl_prior_feature_builder = None
+        self._rl_prior_device = "cpu"
+        self._rl_prior_torch = None
+        self._rl_prior_checkpoint = ""
+
+    def _init_rl_prior(self) -> bool:
+        if self._rl_prior_failed:
+            return False
+        if self._rl_prior_ready and self._rl_prior_model is not None:
+            return True
+        if not self.RL_PRIOR_ENABLED:
+            return False
+        try:
+            import torch  # local import to avoid hard dependency on non-RL runs
+            from src.models.actor_critic import ActorCritic, RecurrentActorCritic
+            from src.utils.features import EnhancedFeatureBuilder
+            from training.config import RLConfig
+        except Exception:
+            self._rl_prior_failed = True
+            return False
+
+        ckpt_path = Path(self.RL_PRIOR_CHECKPOINT)
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
+        if not ckpt_path.exists():
+            self._rl_prior_failed = True
+            return False
+
+        device = self.RL_PRIOR_DEVICE
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
+        try:
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            ckpt_config = checkpoint.get("config", {})
+            config = RLConfig()
+            config.feature_dim = ckpt_config.get("feature_dim", config.feature_dim)
+            config.prediction_features_enabled = ckpt_config.get(
+                "prediction_features_enabled", config.prediction_features_enabled
+            )
+            d_model = ckpt_config.get("d_model", config.d_model)
+            n_actions = ckpt_config.get("n_actions", config.n_actions)
+            model_type = checkpoint.get("model_type", "feedforward")
+            if model_type == "recurrent":
+                model = RecurrentActorCritic(
+                    feature_dim=config.feature_dim,
+                    d_model=d_model,
+                    n_actions=n_actions,
+                    rnn_hidden=ckpt_config.get("rnn_hidden", config.rnn_hidden),
+                    rnn_layers=ckpt_config.get("rnn_layers", config.rnn_layers),
+                ).to(device)
+            else:
+                model = ActorCritic(
+                    feature_dim=config.feature_dim,
+                    d_model=d_model,
+                    n_actions=n_actions,
+                ).to(device)
+
+            if "model" in checkpoint:
+                model.load_state_dict(checkpoint["model"])
+            elif "model_state_dict" in checkpoint:
+                model.load_state_dict(checkpoint["model_state_dict"])
+            else:
+                self._rl_prior_failed = True
+                return False
+            model.eval()
+            self._rl_prior_model = model
+            self._rl_prior_feature_builder = EnhancedFeatureBuilder(
+                enable_prediction_features=getattr(config, "prediction_features_enabled", False)
+            )
+            self._rl_prior_device = device
+            self._rl_prior_torch = torch
+            self._rl_prior_checkpoint = str(ckpt_path)
+            self._rl_prior_ready = True
+            return True
+        except Exception:
+            self._rl_prior_failed = True
+            return False
+
+    def _build_rl_action_mask_and_maps(
+        self, battle: Battle
+    ) -> Tuple[List[bool], Dict[str, int], Dict[str, int]]:
+        mask = [False] * 13
+        move_map: Dict[str, int] = {}
+        switch_map: Dict[str, int] = {}
+
+        if battle.force_switch:
+            for i in range(min(5, len(battle.available_switches))):
+                sw = battle.available_switches[i]
+                mask[4 + i] = True
+                switch_map[normalize_name(sw.species)] = 4 + i
+            return mask, move_map, switch_map
+
+        for i in range(min(4, len(battle.available_moves))):
+            move = battle.available_moves[i]
+            move_id = normalize_name(getattr(move, "id", ""))
+            mask[i] = True
+            if move_id:
+                move_map[move_id] = i
+
+        for i in range(min(5, len(battle.available_switches))):
+            sw = battle.available_switches[i]
+            sw_id = normalize_name(sw.species)
+            mask[4 + i] = True
+            if sw_id:
+                switch_map[sw_id] = 4 + i
+
+        if getattr(battle, "can_tera", False):
+            for i in range(min(4, len(battle.available_moves))):
+                mask[9 + i] = True
+        return mask, move_map, switch_map
+
+    def _choice_to_rl_action_idx(
+        self,
+        choice: str,
+        mask: List[bool],
+        move_map: Dict[str, int],
+        switch_map: Dict[str, int],
+    ) -> Optional[int]:
+        if not choice:
+            return None
+        raw = choice.strip()
+        if raw.startswith("switch "):
+            target = normalize_name(raw.split("switch ", 1)[1])
+            idx = switch_map.get(target)
+            if idx is not None and 0 <= idx < len(mask) and mask[idx]:
+                return idx
+            return None
+
+        tera = raw.endswith("-tera")
+        move_id = normalize_name(raw.replace("-tera", ""))
+        idx = move_map.get(move_id)
+        if idx is None:
+            return None
+        if tera:
+            tera_idx = idx + 9
+            if 0 <= tera_idx < len(mask) and mask[tera_idx]:
+                return tera_idx
+        if 0 <= idx < len(mask) and mask[idx]:
+            return idx
+        return None
+
+    def _rl_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
+        if not choices or not self.RL_PRIOR_ENABLED:
+            return None
+        if not self._init_rl_prior():
+            return None
+        torch = self._rl_prior_torch
+        model = self._rl_prior_model
+        feature_builder = self._rl_prior_feature_builder
+        if torch is None or model is None or feature_builder is None:
+            return None
+        try:
+            features = feature_builder.build(battle)
+            features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in features
+            ]
+            mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+            if not any(mask):
+                return None
+            mask_t = torch.tensor([mask], dtype=torch.bool, device=self._rl_prior_device)
+            feat_t = torch.tensor([features], dtype=torch.float32, device=self._rl_prior_device)
+
+            with torch.no_grad():
+                if getattr(model, "is_recurrent", False):
+                    logits, _, _ = model.forward_step(feat_t, None)
+                    logits = logits.masked_fill(~mask_t, -1e9)
+                else:
+                    logits, _ = model(feat_t, mask_t)
+                logits = torch.clamp(logits, min=-1e8, max=1e8)
+                probs = torch.softmax(logits, dim=-1)
+                probs = torch.clamp(probs, min=1e-8)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
+            probs_arr = probs[0].detach().cpu().tolist()
+
+            priors: List[float] = []
+            for choice in choices:
+                idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+                if idx is None or idx >= len(probs_arr):
+                    priors.append(0.0)
+                else:
+                    priors.append(max(0.0, float(probs_arr[idx])))
+            if sum(priors) <= 0:
+                return None
+            return priors
+        except Exception:
+            self._rl_prior_failed = True
+            return None
 
     def get_mcts_stats(self) -> Dict[str, float]:
         stats = dict(self._mcts_stats)
@@ -1386,6 +1586,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 combined = [
                     (1.0 - blend) * m + blend * h for m, h in zip(mcts_norm, heur_norm)
                 ]
+
+        rl_blend = max(0.0, min(1.0, self.RL_PRIOR_BLEND))
+        if rl_blend > 0.0 and (not self.RL_PRIOR_LOWCONF_ONLY or confidence < threshold):
+            rl_priors = self._rl_choice_priors(battle, choices)
+            if rl_priors:
+                rl_total = sum(rl_priors)
+                if rl_total > 0:
+                    rl_norm = [w / rl_total for w in rl_priors]
+                    combined = [
+                        (1.0 - rl_blend) * base + rl_blend * rl
+                        for base, rl in zip(combined, rl_norm)
+                    ]
 
         return _pick_choice(choices, combined)
 
