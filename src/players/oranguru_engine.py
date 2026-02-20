@@ -108,6 +108,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ADAPTIVE_FALLBACK_REQUIRE_STALLISH = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_REQUIRE_STALLISH", "1"))
     )
+    ADAPTIVE_FALLBACK_MODE = os.getenv(
+        "ORANGURU_ADAPTIVE_FALLBACK_MODE", "super"
+    ).strip().lower()
     _VOLATILE_RAW = {
         _maybe_effect("CONFUSION"): constants.CONFUSION,
         _maybe_effect("LEECH_SEED"): constants.LEECH_SEED,
@@ -154,6 +157,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "stochastic_decisions": 0,
             "fallback_super": 0,
             "fallback_random": 0,
+            "adaptive_triggered": 0,
+            "adaptive_heuristic_used": 0,
+            "adaptive_heuristic_failed": 0,
+            "adaptive_super_used": 0,
         }
         self._rl_prior_ready = False
         self._rl_prior_failed = False
@@ -1592,6 +1599,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             mem = self._get_battle_memory(battle)
             mem["adaptive_fallback_last_turn"] = int(getattr(battle, "turn", 0) or 0)
             mem["adaptive_fallback_pending"] = 1
+            self._mcts_stats["adaptive_triggered"] += 1
             return ""
         if self.SELECTION_MODE == "policy":
             cutoff_ratio = max(0.0, min(1.0, self.POLICY_CUTOFF))
@@ -1924,11 +1932,16 @@ class OranguruEnginePlayer(RuleBotPlayer):
         choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
         if not choice:
             mem = self._get_battle_memory(battle)
-            if int(mem.get("adaptive_fallback_pending", 0) or 0) == 1:
+            adaptive_pending = int(mem.get("adaptive_fallback_pending", 0) or 0) == 1
+            if adaptive_pending:
                 mem["adaptive_fallback_pending"] = 0
-                adaptive_order = self._choose_adaptive_fallback_order(battle, active, opponent)
-                if adaptive_order is not None:
-                    return self._commit_order(battle, adaptive_order)
+                if self.ADAPTIVE_FALLBACK_MODE == "heuristic":
+                    adaptive_order = self._choose_adaptive_fallback_order(battle, active, opponent)
+                    if adaptive_order is not None:
+                        self._mcts_stats["adaptive_heuristic_used"] += 1
+                        return self._commit_order(battle, adaptive_order)
+                    self._mcts_stats["adaptive_heuristic_failed"] += 1
+                self._mcts_stats["adaptive_super_used"] += 1
             self._mcts_stats["fallback_super"] += 1
             return super().choose_move(battle)
         choice = self._apply_tactical_safety(battle, choice, active, opponent)
