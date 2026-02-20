@@ -89,6 +89,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     RL_PRIOR_BLEND = float(os.getenv("ORANGURU_RL_PRIOR_BLEND", "0.2"))
     RL_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_RL_PRIOR_LOWCONF_ONLY", "1")))
     RL_PRIOR_DEVICE = os.getenv("ORANGURU_RL_PRIOR_DEVICE", "cpu").strip().lower()
+    ADAPTIVE_FALLBACK_ENABLED = bool(int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK", "0")))
+    ADAPTIVE_FALLBACK_CONFIDENCE = float(
+        os.getenv("ORANGURU_ADAPTIVE_FALLBACK_CONFIDENCE", "0.30")
+    )
+    ADAPTIVE_FALLBACK_MAX_HEURISTIC = float(
+        os.getenv("ORANGURU_ADAPTIVE_FALLBACK_MAX_HEURISTIC", "70.0")
+    )
+    ADAPTIVE_FALLBACK_TOPK = int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK_TOPK", "4"))
     _VOLATILE_RAW = {
         _maybe_effect("CONFUSION"): constants.CONFUSION,
         _maybe_effect("LEECH_SEED"): constants.LEECH_SEED,
@@ -328,6 +336,32 @@ class OranguruEnginePlayer(RuleBotPlayer):
         except Exception:
             self._rl_prior_failed = True
             return None
+
+    def _should_trigger_adaptive_fallback(
+        self,
+        battle: Battle,
+        ordered: List[Tuple[str, float]],
+        confidence: float,
+        threshold: float,
+    ) -> bool:
+        if not self.ADAPTIVE_FALLBACK_ENABLED:
+            return False
+        if not ordered:
+            return False
+        conf_gate = min(max(0.0, self.ADAPTIVE_FALLBACK_CONFIDENCE), threshold)
+        if confidence > conf_gate:
+            return False
+
+        topk = max(1, self.ADAPTIVE_FALLBACK_TOPK)
+        candidates = ordered[:topk]
+        heuristics: List[float] = []
+        for choice, _ in candidates:
+            score = self._heuristic_action_score(battle, choice)
+            if score is not None:
+                heuristics.append(float(score))
+        if not heuristics:
+            return False
+        return max(heuristics) <= max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC)
 
     def get_mcts_stats(self) -> Dict[str, float]:
         stats = dict(self._mcts_stats)
@@ -1495,6 +1529,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         filtered = [o for o in ordered if o[1] >= cutoff]
 
         threshold = max(0.0, min(1.0, self.MCTS_CONFIDENCE_THRESHOLD))
+        if self._should_trigger_adaptive_fallback(battle, ordered, confidence, threshold):
+            return ""
         if self.SELECTION_MODE == "policy":
             cutoff_ratio = max(0.0, min(1.0, self.POLICY_CUTOFF))
             cutoff = best * cutoff_ratio
