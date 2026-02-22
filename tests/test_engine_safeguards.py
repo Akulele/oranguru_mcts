@@ -1,11 +1,13 @@
 import unittest
 from types import SimpleNamespace
+from collections import defaultdict
 
-from poke_env.battle import PokemonType, MoveCategory
+from poke_env.battle import PokemonType, MoveCategory, SideCondition
 from poke_env.battle.effect import Effect
 from poke_env.data.gen_data import GenData
 
 from src.players.oranguru_engine import OranguruEnginePlayer
+import constants
 
 
 class DummyMove:
@@ -277,6 +279,28 @@ class EngineSafeguardTests(unittest.TestCase):
         results = [(DummyResult([("thunderwave", 55), ("earthquake", 50)]), 1.0)]
         choice = self.engine._select_move_from_results(results, battle)
         self.assertEqual(choice, "earthquake")
+
+    def test_map_side_conditions_clamps_negative_and_large_values(self):
+        src = {
+            SideCondition.SPIKES: 9,
+            SideCondition.TOXIC_SPIKES: -2,
+            SideCondition.REFLECT: 99,
+            SideCondition.STEALTH_ROCK: 4,
+        }
+        dest = defaultdict(lambda: 0)
+        self.engine._map_side_conditions(src, dest)
+        self.assertEqual(dest[constants.SPIKES], 3)
+        self.assertEqual(dest[constants.TOXIC_SPIKES], 0)
+        self.assertEqual(dest[constants.REFLECT], 8)
+        self.assertEqual(dest[constants.STEALTH_ROCK], 1)
+
+    def test_sanitize_fp_side_conditions_clamps_toxic_count(self):
+        battler = SimpleNamespace(side_conditions=defaultdict(lambda: 0))
+        battler.side_conditions[constants.TOXIC_COUNT] = 1000
+        battler.side_conditions[constants.TAILWIND] = -3
+        self.engine._sanitize_fp_side_conditions(battler)
+        self.assertEqual(battler.side_conditions[constants.TOXIC_COUNT], 15)
+        self.assertEqual(battler.side_conditions[constants.TAILWIND], 0)
 
     def test_det_damage_tiebreak_does_not_trigger_if_not_near_tied(self):
         active = DummyPokemon(status=None, current_hp_fraction=1.0)

@@ -138,6 +138,28 @@ class OranguruEnginePlayer(RuleBotPlayer):
         "ground": {"levitate", "eartheater"},
         "grass": {"sapsipper"},
     }
+    # Keep side condition counters in poke-engine-supported ranges.
+    SIDE_CONDITION_CAPS = {
+        constants.AURORA_VEIL: 8,
+        "craftyshield": 1,
+        constants.HEALING_WISH: 1,
+        constants.LIGHT_SCREEN: 8,
+        "luckychant": 8,
+        "lunardance": 1,
+        "matblock": 1,
+        constants.MIST: 8,
+        constants.PROTECT: 1,
+        "quickguard": 1,
+        constants.REFLECT: 8,
+        constants.SAFEGUARD: 8,
+        constants.SPIKES: 3,
+        constants.STEALTH_ROCK: 1,
+        constants.STICKY_WEB: 1,
+        constants.TAILWIND: 8,
+        constants.TOXIC_COUNT: 15,
+        constants.TOXIC_SPIKES: 2,
+        "wideguard": 1,
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -745,26 +767,54 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def _map_side_conditions(self, src: dict, dest: dict) -> None:
         if not src:
             return
+        def _clamped(value: object, cap: int) -> int:
+            try:
+                if isinstance(value, float):
+                    if not math.isfinite(value):
+                        return 0
+                v = int(value)
+            except Exception:
+                v = 0
+            return max(0, min(cap, v))
+
         if SideCondition.SPIKES in src:
-            dest[constants.SPIKES] = int(src[SideCondition.SPIKES])
+            dest[constants.SPIKES] = _clamped(src[SideCondition.SPIKES], 3)
         if SideCondition.STEALTH_ROCK in src:
-            dest[constants.STEALTH_ROCK] = int(src[SideCondition.STEALTH_ROCK])
+            dest[constants.STEALTH_ROCK] = _clamped(src[SideCondition.STEALTH_ROCK], 1)
         if SideCondition.TOXIC_SPIKES in src:
-            dest[constants.TOXIC_SPIKES] = int(src[SideCondition.TOXIC_SPIKES])
+            dest[constants.TOXIC_SPIKES] = _clamped(src[SideCondition.TOXIC_SPIKES], 2)
         if SideCondition.STICKY_WEB in src:
-            dest[constants.STICKY_WEB] = int(src[SideCondition.STICKY_WEB])
+            dest[constants.STICKY_WEB] = _clamped(src[SideCondition.STICKY_WEB], 1)
         if SideCondition.REFLECT in src:
-            dest[constants.REFLECT] = int(src[SideCondition.REFLECT])
+            dest[constants.REFLECT] = _clamped(src[SideCondition.REFLECT], 8)
         if SideCondition.LIGHT_SCREEN in src:
-            dest[constants.LIGHT_SCREEN] = int(src[SideCondition.LIGHT_SCREEN])
+            dest[constants.LIGHT_SCREEN] = _clamped(src[SideCondition.LIGHT_SCREEN], 8)
         if SideCondition.AURORA_VEIL in src:
-            dest[constants.AURORA_VEIL] = int(src[SideCondition.AURORA_VEIL])
+            dest[constants.AURORA_VEIL] = _clamped(src[SideCondition.AURORA_VEIL], 8)
         if SideCondition.TAILWIND in src:
-            dest[constants.TAILWIND] = int(src[SideCondition.TAILWIND])
+            dest[constants.TAILWIND] = _clamped(src[SideCondition.TAILWIND], 8)
         if SideCondition.SAFEGUARD in src:
-            dest[constants.SAFEGUARD] = int(src[SideCondition.SAFEGUARD])
+            dest[constants.SAFEGUARD] = _clamped(src[SideCondition.SAFEGUARD], 8)
         if SideCondition.MIST in src:
-            dest[constants.MIST] = int(src[SideCondition.MIST])
+            dest[constants.MIST] = _clamped(src[SideCondition.MIST], 8)
+
+    def _sanitize_fp_side_conditions(self, battler: Battler) -> None:
+        side_conditions = getattr(battler, "side_conditions", None)
+        if side_conditions is None:
+            return
+        for key, cap in self.SIDE_CONDITION_CAPS.items():
+            try:
+                raw = side_conditions.get(key, 0)
+            except Exception:
+                raw = 0
+            try:
+                if isinstance(raw, float) and not math.isfinite(raw):
+                    value = 0
+                else:
+                    value = int(raw)
+            except Exception:
+                value = 0
+            side_conditions[key] = max(0, min(cap, value))
 
     def _map_weather(self, battle: Battle) -> Optional[str]:
         weather = getattr(battle, "weather", None)
@@ -1176,6 +1226,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         # Side conditions
         self._map_side_conditions(battle.side_conditions, user.side_conditions)
         self._map_side_conditions(battle.opponent_side_conditions, opponent.side_conditions)
+        self._sanitize_fp_side_conditions(user)
+        self._sanitize_fp_side_conditions(opponent)
 
         if active:
             user.active = self._poke_env_to_fp(active, battle, None)
@@ -1888,8 +1940,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 fp_battles.append(self._build_fp_battle(battle, seed, fill_opponent_sets=True))
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
 
-        states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
-        self._mcts_stats["states_sampled"] += len(states)
+        states = []
+        state_weights = []
+        failed_state_builds = 0
+        for fp_battle, weight in zip(fp_battles, weights):
+            try:
+                self._sanitize_fp_side_conditions(fp_battle.user)
+                self._sanitize_fp_side_conditions(fp_battle.opponent)
+                states.append(battle_to_poke_engine_state(fp_battle).to_string())
+                state_weights.append(weight)
+            except Exception:
+                failed_state_builds += 1
+                self._mcts_stats["result_errors"] += 1
+        self._mcts_stats["states_sampled"] += len(states) + failed_state_builds
 
         results = []
         workers = min(self.PARALLELISM, len(states))
@@ -1902,7 +1965,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 executor.submit(_run_mcts, state, search_time_ms)  # type: ignore[union-attr]
                 for state in states
             ]
-            for fut, weight in zip(futures, weights):
+            for fut, weight in zip(futures, state_weights):
                 try:
                     timeout_sec = max(1.0, (search_time_ms / 1000.0) * 2.0 + 2.0)
                     res = fut.result(timeout=timeout_sec)
@@ -1915,7 +1978,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 results.append((res, weight))
                 self._mcts_stats["results_kept"] += 1
         else:
-            for state, weight in zip(states, weights):
+            for state, weight in zip(states, state_weights):
                 res = _run_mcts(state, search_time_ms)
                 if res is None:
                     self._mcts_stats["result_none"] += 1
