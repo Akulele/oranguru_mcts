@@ -382,6 +382,9 @@ def main() -> int:
             out_path = Path(args.output)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_cfg = dict((checkpoint.get("config", {}) or {}))
+            out_cfg.setdefault("switch_bias_enabled", False)
+            out_cfg.setdefault("switch_stay_penalty_strength", 0.0)
+            out_cfg.setdefault("attack_eff_penalty_enabled", False)
             torch.save(
                 {
                     "model": model.state_dict(),

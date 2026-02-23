@@ -338,6 +338,14 @@ def load_checkpoint_for_ladder(path: str, device: str):
     return model, config
 
 
+def apply_rl_inference_overrides(config: RLConfig, disable_biases: bool) -> None:
+    if not disable_biases:
+        return
+    config.switch_bias_enabled = False
+    config.switch_stay_penalty_strength = 0.0
+    config.attack_eff_penalty_enabled = False
+
+
 def battle_has_forfeit(battle) -> bool:
     observations = getattr(battle, "_observations", {})
     for obs in observations.values():
@@ -411,6 +419,7 @@ async def ladder_rulebot(
     sample_actions: bool,
     switch_mass_min: float,
     switch_mass_warn: float,
+    rl_disable_biases: bool,
     collect_data: bool = False,
     wins_only: bool = False,
     data_output: str = "ladder_demos.pkl",
@@ -1190,6 +1199,7 @@ async def ladder_rulebot(
                     print("❌ --checkpoint is required when --player rl")
                     return 1
                 model, config = load_checkpoint_for_ladder(checkpoint_path, device)
+                apply_rl_inference_overrides(config, rl_disable_biases)
                 bot = TrackedRLPlayer(
                     model=model,
                     config=config,
@@ -1443,6 +1453,7 @@ async def ladder_rulebot_multi(
     sample_actions: bool,
     switch_mass_min: float,
     switch_mass_warn: float,
+    rl_disable_biases: bool,
     collect_data: bool,
     wins_only: bool,
     data_output: str,
@@ -1509,6 +1520,7 @@ async def ladder_rulebot_multi(
                 sample_actions,
                 switch_mass_min,
                 switch_mass_warn,
+                rl_disable_biases,
                 collect_data,
                 wins_only,
                 output_path,
@@ -1593,6 +1605,10 @@ if __name__ == "__main__":
                         help="Minimum probability mass to allocate to switches")
     parser.add_argument("--switch-mass-warn", type=float, default=0.05,
                         help="Threshold for low switch-mass warning stats")
+    parser.add_argument("--rl-disable-biases", action="store_true", default=True,
+                        help="Disable RLPlayer switch/attack inference biases (default: on).")
+    parser.add_argument("--no-rl-disable-biases", action="store_true",
+                        help="Keep RLPlayer switch/attack inference biases enabled.")
     parser.add_argument("--start-timer", action="store_true", default=True,
                         help="Start Showdown battle timer automatically (default: on)")
     parser.add_argument("--no-start-timer", action="store_true",
@@ -1656,6 +1672,8 @@ if __name__ == "__main__":
     parser.add_argument("--snapshot-every", type=int, default=1,
                         help="Emit snapshot every N finished battles (0 disables)")
     args = parser.parse_args()
+    if args.no_rl_disable_biases:
+        args.rl_disable_biases = False
 
     open_timeout = None if args.open_timeout <= 0 else args.open_timeout
     ping_interval = None if args.ping_interval <= 0 else args.ping_interval
@@ -1723,6 +1741,7 @@ if __name__ == "__main__":
                 args.sample_actions,
                 args.switch_mass_min,
                 args.switch_mass_warn,
+                args.rl_disable_biases,
                 args.collect_data,
                 args.wins_only,
                 args.data_output,
@@ -1775,6 +1794,7 @@ if __name__ == "__main__":
             args.sample_actions,
             args.switch_mass_min,
             args.switch_mass_warn,
+            args.rl_disable_biases,
             args.collect_data,
             args.wins_only,
             args.data_output,

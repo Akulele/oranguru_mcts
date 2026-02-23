@@ -320,6 +320,10 @@ def main() -> int:
                         "rnn_hidden": args.rnn_hidden,
                         "rnn_layers": args.rnn_layers,
                         "prediction_features_enabled": False,
+                        # Keep sequence checkpoints "policy-only" at inference time.
+                        "switch_bias_enabled": False,
+                        "switch_stay_penalty_strength": 0.0,
+                        "attack_eff_penalty_enabled": False,
                     },
                 },
                 out_path,

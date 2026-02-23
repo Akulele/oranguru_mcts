@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import math
+from dataclasses import fields
 from collections import Counter
 from pathlib import Path
 import json
@@ -95,17 +96,16 @@ def _account_with_name(base: str) -> AccountConfiguration:
     return AccountConfiguration.generate(safe, rand=True)
 
 
-def _load_model(checkpoint_path: str, device: str, config: RLConfig):
+def _load_model(checkpoint_path: str, device: str):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     ckpt_config = checkpoint.get("config", {})
-    config.feature_dim = ckpt_config.get("feature_dim", config.feature_dim)
-    config.prediction_features_enabled = ckpt_config.get(
-        "prediction_features_enabled", config.prediction_features_enabled
-    )
-    d_model = ckpt_config.get("d_model", config.d_model)
-    n_actions = ckpt_config.get("n_actions", config.n_actions)
-    rnn_hidden = ckpt_config.get("rnn_hidden", config.rnn_hidden)
-    rnn_layers = ckpt_config.get("rnn_layers", config.rnn_layers)
+    cfg_fields = {f.name for f in fields(RLConfig)}
+    filtered = {k: v for k, v in ckpt_config.items() if k in cfg_fields}
+    config = RLConfig(**filtered) if filtered else RLConfig()
+    d_model = config.d_model
+    n_actions = config.n_actions
+    rnn_hidden = config.rnn_hidden
+    rnn_layers = config.rnn_layers
     model_type = checkpoint.get("model_type", "feedforward")
 
     if model_type == "recurrent":
@@ -131,7 +131,17 @@ def _load_model(checkpoint_path: str, device: str, config: RLConfig):
         raise ValueError("Checkpoint missing model weights.")
 
     model.eval()
-    return model
+    return model, config
+
+
+def _apply_rl_eval_overrides(config: RLConfig, disable_biases: bool) -> None:
+    if not disable_biases:
+        return
+    # Sequence/BC checkpoints often don't encode these fields; default RLConfig
+    # switch/attack penalties can dominate policy behavior at inference time.
+    config.switch_bias_enabled = False
+    config.switch_stay_penalty_strength = 0.0
+    config.attack_eff_penalty_enabled = False
 
 
 def _percentile(values: list[int], pct: float) -> float | None:
@@ -711,7 +721,20 @@ async def main():
     )
     parser.add_argument("--ws-uri", default="ws://localhost:8000/showdown/websocket")
     parser.add_argument("--no-login", action="store_true", help="Use guest /trn for local servers")
+    parser.add_argument(
+        "--rl-disable-biases",
+        action="store_true",
+        default=True,
+        help="Disable RLPlayer switch/attack heuristic logit biases (default: on for eval stability).",
+    )
+    parser.add_argument(
+        "--no-rl-disable-biases",
+        action="store_true",
+        help="Keep RLPlayer heuristic biases enabled.",
+    )
     args = parser.parse_args()
+    if args.no_rl_disable_biases:
+        args.rl_disable_biases = False
 
     foulplay_path = Path(args.foulplay_path)
     if not foulplay_path.exists():
@@ -755,8 +778,8 @@ async def main():
         agent = OranguruEnginePlayer(**kwargs)
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        config = RLConfig()
-        model = _load_model(args.checkpoint, device, config)
+        model, config = _load_model(args.checkpoint, device)
+        _apply_rl_eval_overrides(config, args.rl_disable_biases)
         agent = RLPlayer(model=model, config=config, device=device, training=False, **kwargs)
 
     bot_mode = "challenge_user" if args.foulplay_challenges else "accept_challenge"
