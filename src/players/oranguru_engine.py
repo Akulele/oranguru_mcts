@@ -23,6 +23,7 @@ from poke_env.battle.weather import Weather
 
 from src.players.rule_bot import RuleBotPlayer
 from src.utils.damage_calc import normalize_name, get_type_effectiveness
+from src.utils.damage_belief import score_set_damage_consistency
 
 FP_ROOT = Path(__file__).resolve().parents[2] / "third_party" / "foul-play"
 if str(FP_ROOT) not in sys.path:
@@ -64,6 +65,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
     STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "0")))
     STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
     IMMUNITY_INFER = bool(int(os.getenv("ORANGURU_IMMUNITY_INFER", "0")))
+    DAMAGE_BELIEF = bool(int(os.getenv("ORANGURU_DAMAGE_BELIEF", "0")))
+    DAMAGE_BELIEF_MODE = os.getenv("ORANGURU_DAMAGE_BELIEF_MODE", "soft").strip().lower()
+    DAMAGE_BELIEF_TOPK = int(os.getenv("ORANGURU_DAMAGE_BELIEF_TOPK", "6"))
+    DAMAGE_BELIEF_MIN_OBS = int(os.getenv("ORANGURU_DAMAGE_BELIEF_MIN_OBS", "2"))
+    DAMAGE_BELIEF_STRICT_ONLY = bool(int(os.getenv("ORANGURU_DAMAGE_BELIEF_STRICT_ONLY", "1")))
+    DAMAGE_BELIEF_PER_OBS_MIN = float(os.getenv("ORANGURU_DAMAGE_BELIEF_PER_OBS_MIN", "0.90"))
+    DAMAGE_BELIEF_PER_OBS_MAX = float(os.getenv("ORANGURU_DAMAGE_BELIEF_PER_OBS_MAX", "1.10"))
+    DAMAGE_BELIEF_FINAL_MIN = float(os.getenv("ORANGURU_DAMAGE_BELIEF_FINAL_MIN", "0.80"))
+    DAMAGE_BELIEF_FINAL_MAX = float(os.getenv("ORANGURU_DAMAGE_BELIEF_FINAL_MAX", "1.20"))
+    DECISION_DIAG_ENABLED = bool(int(os.getenv("ORANGURU_DECISION_DIAG", "0")))
+    DECISION_DIAG_LOG = bool(int(os.getenv("ORANGURU_DECISION_DIAG_LOG", "0")))
+    DECISION_DIAG_TOPK = int(os.getenv("ORANGURU_DECISION_DIAG_TOPK", "3"))
+    DECISION_DIAG_LOW_MARGIN = float(os.getenv("ORANGURU_DECISION_DIAG_LOW_MARGIN", "0.08"))
     MCTS_DETERMINISTIC = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC", "0")))
     MCTS_DETERMINISTIC_EVAL_ONLY = bool(int(os.getenv("ORANGURU_MCTS_DETERMINISTIC_EVAL_ONLY", "0")))
     BELIEF_SAMPLING = bool(int(os.getenv("ORANGURU_BELIEF_SAMPLING", "1")))
@@ -159,6 +173,53 @@ class OranguruEnginePlayer(RuleBotPlayer):
         "ground": {"levitate", "eartheater"},
         "grass": {"sapsipper"},
     }
+    DAMAGE_BELIEF_UNSTABLE_MOVES = {
+        "acrobatics",
+        "avalanche",
+        "beatup",
+        "brine",
+        "counter",
+        "crushgrip",
+        "dragonenergy",
+        "electroball",
+        "endeavor",
+        "eruption",
+        "facade",
+        "ficklebeam",
+        "finalgambit",
+        "flail",
+        "foulplay",
+        "grassknot",
+        "gyroball",
+        "heatcrash",
+        "hex",
+        "hydrosteam",
+        "knockoff",
+        "lastrespects",
+        "lowkick",
+        "magnitude",
+        "metalburst",
+        "mirrorcoat",
+        "naturesmadness",
+        "nightshade",
+        "payback",
+        "powertrip",
+        "present",
+        "psywave",
+        "ragefist",
+        "retaliate",
+        "reversal",
+        "risingvoltage",
+        "ruination",
+        "seismictoss",
+        "spitup",
+        "storedpower",
+        "superfang",
+        "terrainpulse",
+        "waterspout",
+        "weatherball",
+        "wringout",
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -186,6 +247,44 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "adaptive_rerank_failed": 0,
             "adaptive_second_pass_used": 0,
             "adaptive_second_pass_failed": 0,
+            "diag_turns": 0,
+            "diag_low_conf_turns": 0,
+            "diag_low_margin_turns": 0,
+            "diag_non_top1_choices": 0,
+            "diag_choice_delta_sum": 0.0,
+            "diag_move_choices": 0,
+            "diag_switch_choices": 0,
+            "diag_tera_choices": 0,
+            "diag_forced_switch_turns": 0,
+            "diag_path_mcts": 0,
+            "diag_path_adaptive_rerank": 0,
+            "diag_path_policy": 0,
+            "diag_path_rerank": 0,
+            "diag_path_blend": 0,
+            "diag_path_fallback_super": 0,
+            "diag_path_fallback_random": 0,
+            "diag_adaptive_reason_triggered": 0,
+            "diag_adaptive_reason_disabled": 0,
+            "diag_adaptive_reason_empty": 0,
+            "diag_adaptive_reason_early_turn": 0,
+            "diag_adaptive_reason_cooldown": 0,
+            "diag_adaptive_reason_confidence": 0,
+            "diag_adaptive_reason_top_ratio": 0,
+            "diag_adaptive_reason_no_heuristics": 0,
+            "diag_adaptive_reason_high_heuristic": 0,
+            "diag_adaptive_reason_damaging_available": 0,
+            "diag_adaptive_reason_not_stallish": 0,
+            "diag_battles_finished": 0,
+            "diag_battles_won": 0,
+            "diag_battles_lost": 0,
+            "diag_loss_fast": 0,
+            "diag_loss_low_conf": 0,
+            "diag_loss_switch_heavy": 0,
+            "diag_loss_status_loop": 0,
+            "diag_loss_forced_switch": 0,
+            "diag_loss_adaptive_used": 0,
+            "diag_loss_churn_breaks": 0,
+            "diag_loss_other": 0,
         }
         self._rl_prior_ready = False
         self._rl_prior_failed = False
@@ -194,6 +293,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._rl_prior_device = "cpu"
         self._rl_prior_torch = None
         self._rl_prior_checkpoint = ""
+        self._diag_finished_battle_tags = set()
 
     def _init_rl_prior(self) -> bool:
         if self._rl_prior_failed:
@@ -387,21 +487,31 @@ class OranguruEnginePlayer(RuleBotPlayer):
         confidence: float,
         threshold: float,
     ) -> bool:
+        mem = self._get_battle_memory(battle)
         if not self.ADAPTIVE_FALLBACK_ENABLED:
+            self._diag_record_adaptive_reason("disabled")
+            mem["diag_last_adaptive_reason"] = "disabled"
             return False
         if not ordered:
+            self._diag_record_adaptive_reason("empty")
+            mem["diag_last_adaptive_reason"] = "empty"
             return False
         if int(getattr(battle, "turn", 0) or 0) < max(1, self.ADAPTIVE_FALLBACK_MIN_TURN):
+            self._diag_record_adaptive_reason("early_turn")
+            mem["diag_last_adaptive_reason"] = "early_turn"
             return False
 
-        mem = self._get_battle_memory(battle)
         last_turn = int(mem.get("adaptive_fallback_last_turn", -999) or -999)
         now_turn = int(getattr(battle, "turn", 0) or 0)
         if now_turn - last_turn < max(0, self.ADAPTIVE_FALLBACK_COOLDOWN):
+            self._diag_record_adaptive_reason("cooldown")
+            mem["diag_last_adaptive_reason"] = "cooldown"
             return False
 
         conf_gate = min(max(0.0, self.ADAPTIVE_FALLBACK_CONFIDENCE), threshold)
         if confidence > conf_gate:
+            self._diag_record_adaptive_reason("confidence")
+            mem["diag_last_adaptive_reason"] = "confidence"
             return False
 
         topk = max(1, self.ADAPTIVE_FALLBACK_TOPK)
@@ -410,6 +520,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if top_total > 0:
             top_ratio = max(0.0, candidates[0][1]) / top_total
             if top_ratio > max(0.0, min(1.0, self.ADAPTIVE_FALLBACK_MAX_TOP_RATIO)):
+                self._diag_record_adaptive_reason("top_ratio")
+                mem["diag_last_adaptive_reason"] = "top_ratio"
                 return False
 
         heuristics: List[float] = []
@@ -437,10 +549,16 @@ class OranguruEnginePlayer(RuleBotPlayer):
             if is_damaging and score is not None and float(score) >= (
                 max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC) * 0.90
             ):
+                self._diag_record_adaptive_reason("damaging_available")
+                mem["diag_last_adaptive_reason"] = "damaging_available"
                 return False
         if not heuristics:
+            self._diag_record_adaptive_reason("no_heuristics")
+            mem["diag_last_adaptive_reason"] = "no_heuristics"
             return False
         if max(heuristics) > max(0.0, self.ADAPTIVE_FALLBACK_MAX_HEURISTIC):
+            self._diag_record_adaptive_reason("high_heuristic")
+            mem["diag_last_adaptive_reason"] = "high_heuristic"
             return False
 
         nondamaging_share = nondamaging / max(1, len(candidates))
@@ -451,7 +569,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 < max(0.0, min(1.0, self.ADAPTIVE_FALLBACK_NONDAMAGING_SHARE))
                 and status_stall < 1
             ):
+                self._diag_record_adaptive_reason("not_stallish")
+                mem["diag_last_adaptive_reason"] = "not_stallish"
                 return False
+        self._diag_record_adaptive_reason("triggered")
+        mem["diag_last_adaptive_reason"] = "triggered"
         return True
 
     def get_mcts_stats(self) -> Dict[str, float]:
@@ -464,7 +586,149 @@ class OranguruEnginePlayer(RuleBotPlayer):
         stats["state_failure_rate"] = float(
             stats.get("result_none", 0) + stats.get("result_errors", 0)
         ) / sampled
+        diag_turns = max(1, int(stats.get("diag_turns", 0)))
+        stats["diag_low_conf_rate"] = float(stats.get("diag_low_conf_turns", 0)) / diag_turns
+        stats["diag_low_margin_rate"] = float(stats.get("diag_low_margin_turns", 0)) / diag_turns
+        stats["diag_non_top1_rate"] = float(stats.get("diag_non_top1_choices", 0)) / diag_turns
+        stats["diag_switch_rate"] = float(stats.get("diag_switch_choices", 0)) / diag_turns
+        stats["diag_choice_delta_avg"] = float(stats.get("diag_choice_delta_sum", 0.0)) / diag_turns
         return stats
+
+    def _diag_record_adaptive_reason(self, reason: str) -> None:
+        if not reason:
+            return
+        key = f"diag_adaptive_reason_{reason}"
+        self._mcts_stats[key] = int(self._mcts_stats.get(key, 0) or 0) + 1
+
+    def _diag_record_choice(
+        self,
+        battle: Battle,
+        ordered: List[Tuple[str, float]],
+        chosen: str,
+        confidence: float,
+        threshold: float,
+        path: str,
+    ) -> None:
+        mem = self._get_battle_memory(battle)
+        self._mcts_stats["diag_turns"] += 1
+        mem["diag_turns"] = int(mem.get("diag_turns", 0) or 0) + 1
+        mem["diag_status_stall_peak"] = max(
+            int(mem.get("diag_status_stall_peak", 0) or 0),
+            int(mem.get("status_stall_streak", 0) or 0),
+        )
+
+        if confidence < threshold:
+            self._mcts_stats["diag_low_conf_turns"] += 1
+            mem["diag_low_conf_turns"] = int(mem.get("diag_low_conf_turns", 0) or 0) + 1
+
+        if ordered:
+            total = sum(max(0.0, float(w)) for _, w in ordered)
+            best_choice = ordered[0][0]
+            best_weight = max(0.0, float(ordered[0][1]))
+            second_weight = max(0.0, float(ordered[1][1])) if len(ordered) > 1 else 0.0
+            margin = ((best_weight - second_weight) / total) if total > 0 else 0.0
+            if margin < max(0.0, self.DECISION_DIAG_LOW_MARGIN):
+                self._mcts_stats["diag_low_margin_turns"] += 1
+                mem["diag_low_margin_turns"] = int(mem.get("diag_low_margin_turns", 0) or 0) + 1
+            if chosen and chosen != best_choice:
+                self._mcts_stats["diag_non_top1_choices"] += 1
+                mem["diag_non_top1_choices"] = int(mem.get("diag_non_top1_choices", 0) or 0) + 1
+                best_prob = (best_weight / total) if total > 0 else 0.0
+                chosen_weight = 0.0
+                for c, w in ordered:
+                    if c == chosen:
+                        chosen_weight = max(0.0, float(w))
+                        break
+                chosen_prob = (chosen_weight / total) if total > 0 else 0.0
+                delta = max(0.0, best_prob - chosen_prob)
+                self._mcts_stats["diag_choice_delta_sum"] += delta
+                mem["diag_choice_delta_sum"] = float(mem.get("diag_choice_delta_sum", 0.0) or 0.0) + delta
+
+        if chosen.startswith("switch "):
+            self._mcts_stats["diag_switch_choices"] += 1
+            mem["diag_switch_choices"] = int(mem.get("diag_switch_choices", 0) or 0) + 1
+        elif chosen:
+            self._mcts_stats["diag_move_choices"] += 1
+            mem["diag_move_choices"] = int(mem.get("diag_move_choices", 0) or 0) + 1
+        if chosen.endswith("-tera"):
+            self._mcts_stats["diag_tera_choices"] += 1
+            mem["diag_tera_choices"] = int(mem.get("diag_tera_choices", 0) or 0) + 1
+
+        path_key = f"diag_path_{path}"
+        self._mcts_stats[path_key] = int(self._mcts_stats.get(path_key, 0) or 0) + 1
+        mem[path_key] = int(mem.get(path_key, 0) or 0) + 1
+
+        if self.DECISION_DIAG_ENABLED and self.DECISION_DIAG_LOG and ordered:
+            topk = max(1, self.DECISION_DIAG_TOPK)
+            head = ", ".join(
+                f"{c}:{w:.3f}" for c, w in ordered[:topk]
+            )
+            print(
+                "[diag] turn={} conf={:.3f}/{:.3f} path={} chosen={} top={}".format(
+                    int(getattr(battle, "turn", 0) or 0),
+                    float(confidence),
+                    float(threshold),
+                    path,
+                    chosen or "<none>",
+                    head,
+                )
+            )
+
+    def _flush_finished_battle_diags(self) -> None:
+        battles = getattr(self, "battles", {}) or {}
+        if not battles:
+            return
+        battle_memory = getattr(self, "_battle_memory", {}) or {}
+        for tag, battle in battles.items():
+            if tag in self._diag_finished_battle_tags:
+                continue
+            if not getattr(battle, "finished", False):
+                continue
+            self._diag_finished_battle_tags.add(tag)
+            self._mcts_stats["diag_battles_finished"] += 1
+            won = bool(getattr(battle, "won", False))
+            lost = bool(getattr(battle, "lost", False))
+            if won:
+                self._mcts_stats["diag_battles_won"] += 1
+            elif lost:
+                self._mcts_stats["diag_battles_lost"] += 1
+
+            mem = battle_memory.get(tag, {}) if isinstance(battle_memory, dict) else {}
+            if not isinstance(mem, dict):
+                mem = {}
+            if not lost:
+                continue
+
+            tags = 0
+            turns = int(getattr(battle, "turn", 0) or 0)
+            if 0 < turns <= 12:
+                self._mcts_stats["diag_loss_fast"] += 1
+                tags += 1
+
+            diag_turns = int(mem.get("diag_turns", 0) or 0)
+            low_conf = int(mem.get("diag_low_conf_turns", 0) or 0)
+            switch_turns = int(mem.get("diag_switch_choices", 0) or 0)
+            if diag_turns > 0 and (low_conf / diag_turns) >= 0.5:
+                self._mcts_stats["diag_loss_low_conf"] += 1
+                tags += 1
+            if diag_turns > 0 and (switch_turns / diag_turns) >= 0.45:
+                self._mcts_stats["diag_loss_switch_heavy"] += 1
+                tags += 1
+
+            if int(mem.get("diag_status_stall_peak", 0) or 0) >= 2:
+                self._mcts_stats["diag_loss_status_loop"] += 1
+                tags += 1
+            if int(mem.get("diag_forced_switch_turns", 0) or 0) >= 3:
+                self._mcts_stats["diag_loss_forced_switch"] += 1
+                tags += 1
+            if int(mem.get("adaptive_fallback_pending", 0) or 0) == 1 or int(mem.get("diag_adaptive_triggered", 0) or 0) > 0:
+                self._mcts_stats["diag_loss_adaptive_used"] += 1
+                tags += 1
+            if int(mem.get("switch_churn_breaks", 0) or 0) > 0:
+                self._mcts_stats["diag_loss_churn_breaks"] += 1
+                tags += 1
+            if tags == 0:
+                self._mcts_stats["diag_loss_other"] += 1
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -979,6 +1243,330 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return
         fp_mon.speed_range = StatRange(min=min_speed, max=max_speed)
 
+    def _damage_belief_has_unmodeled_state(self, battle: Battle) -> bool:
+        # Screen effects (opponent side) are not modeled by our lightweight
+        # damage estimate; skip these turns to avoid poisoning observations.
+        opp_sc = set((battle.opponent_side_conditions or {}).keys())
+        screen_conds = {SideCondition.REFLECT, SideCondition.LIGHT_SCREEN}
+        aurora = getattr(SideCondition, "AURORA_VEIL", None)
+        if aurora is not None:
+            screen_conds.add(aurora)
+        if opp_sc.intersection(screen_conds):
+            return True
+
+        # Model currently covers only sun/rain weather modifiers.
+        for w in battle.weather:
+            wn = normalize_name(w.name if hasattr(w, "name") else str(w))
+            if "sun" in wn or "sunnyday" in wn or "rain" in wn or "raindance" in wn:
+                continue
+            if wn:
+                return True
+        return False
+
+    def _damage_belief_observations(self, battle: Battle, species: str) -> List[dict]:
+        mem = self._get_battle_memory(battle)
+        obs = list(mem.get("damage_observations", {}).get(species, []) or [])
+        if not obs:
+            return []
+        if self.DAMAGE_BELIEF_STRICT_ONLY:
+            obs = [entry for entry in obs if entry.get("high_confidence", False)]
+        return obs
+
+    # ------------------------------------------------------------------
+    # Damage-belief: capture attacker context at action time
+    # ------------------------------------------------------------------
+    def _record_last_action(self, battle: Battle, order) -> None:
+        super()._record_last_action(battle, order)
+        if not self.DAMAGE_BELIEF:
+            return
+        mem = self._get_battle_memory(battle)
+        order_obj = getattr(order, "order", None)
+        if not hasattr(order_obj, "category"):
+            # Not a move — nothing extra to record
+            mem.pop("_dmg_pending", None)
+            return
+        move = order_obj
+        if move.category == MoveCategory.STATUS:
+            mem.pop("_dmg_pending", None)
+            return
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        if move_id in self.DAMAGE_BELIEF_UNSTABLE_MOVES:
+            mem.pop("_dmg_pending", None)
+            return
+
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        if active is None or opponent is None:
+            mem.pop("_dmg_pending", None)
+            return
+        if self._damage_belief_has_unmodeled_state(battle):
+            mem.pop("_dmg_pending", None)
+            return
+
+        # Base power
+        entry = self._get_move_entry(move)
+        bp = int(entry.get("basePower", 0) or 0) or (move.base_power or 0)
+        if bp <= 0:
+            mem.pop("_dmg_pending", None)
+            return
+
+        # Skip multi-hit moves (unreliable single-observation scoring)
+        multihit = entry.get("multihit")
+        if multihit:
+            mem.pop("_dmg_pending", None)
+            return
+
+        move_cat = "physical" if move.category == MoveCategory.PHYSICAL else "special"
+        move_type_str = self._move_type_id(move) or ""
+        if not move_type_str:
+            mem.pop("_dmg_pending", None)
+            return
+
+        # Attacker actual stat (already including base+level+IV+EV+nature, no boosts)
+        atk_stats = active.stats or {}
+        if move_cat == "physical":
+            stat_key = "atk"
+        else:
+            stat_key = "spa"
+        raw_stat = atk_stats.get(stat_key) or 100
+
+        # Apply boost to get effective stat
+        boost_val = (active.boosts or {}).get(stat_key, 0) or 0
+        if boost_val > 0:
+            eff_stat = int(raw_stat * (2 + boost_val) / 2)
+        elif boost_val < 0:
+            eff_stat = int(raw_stat * 2 / (2 - boost_val))
+        else:
+            eff_stat = raw_stat
+
+        atk_types = [t.name.lower() for t in active.types if t is not None] if active.types else []
+        atk_ability_str = ""
+        if active.ability:
+            atk_ability_str = normalize_name(str(active.ability))
+        atk_item_str = ""
+        if active.item:
+            atk_item_str = normalize_name(str(active.item))
+
+        atk_status_str = ""
+        if active.status:
+            atk_status_str = normalize_name(str(active.status))
+
+        opp_types = [t.name.lower() for t in opponent.types if t is not None] if opponent.types else []
+        opp_boosts = dict(opponent.boosts) if opponent.boosts else {}
+
+        weather_str = ""
+        for w in battle.weather:
+            weather_str = w.name.lower() if hasattr(w, "name") else str(w).lower()
+            break
+
+        terrain_str = ""
+        for f in battle.fields:
+            fn = f.name.lower() if hasattr(f, "name") else str(f).lower()
+            if "terrain" in fn:
+                terrain_str = fn
+                break
+
+        mem["_dmg_pending"] = {
+            "turn": battle.turn,
+            "move_id": move_id,
+            "move_bp": bp,
+            "move_type": move_type_str,
+            "move_category": move_cat,
+            "attacker_stat": eff_stat,
+            "attacker_level": active.level,
+            "attacker_types": atk_types,
+            "attacker_boosts": {stat_key: boost_val},
+            "attacker_status": atk_status_str,
+            "attacker_ability": atk_ability_str,
+            "attacker_item": atk_item_str,
+            "defender_types": opp_types,
+            "defender_boosts": opp_boosts,
+            "opponent_species": normalize_name(opponent.species),
+            "weather": weather_str,
+            "terrain": terrain_str,
+            "high_confidence": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Damage-belief: parse events to find observed damage
+    # ------------------------------------------------------------------
+    def _update_damage_observation(self, battle: Battle) -> None:
+        if not self.DAMAGE_BELIEF:
+            return
+        mem = self._get_battle_memory(battle)
+        mem.setdefault("damage_observations", {})
+
+        pending = mem.get("_dmg_pending")
+        if not pending:
+            return
+        pending_turn = pending.get("turn", -1)
+        last_obs_turn = mem.get("_dmg_last_obs_turn", -1)
+        if pending_turn <= last_obs_turn:
+            return
+        # The pending was recorded at commit time (turn T). The events for
+        # that turn appear in observations[T] (after the server resolves).
+        last_turn = pending_turn
+        observations = getattr(battle, "observations", {})
+        obs = observations.get(last_turn)
+        if obs is None:
+            return
+
+        role = getattr(battle, "player_role", None)
+        if not role:
+            return
+
+        # Mark processed
+        mem["_dmg_last_obs_turn"] = pending_turn
+
+        species = pending["opponent_species"]
+
+        # Walk events to find our move and the resulting damage on the opponent
+        opp_prefix = "p2" if role == "p1" else "p1"
+        our_prefix = role
+
+        # Track current opponent HP fraction through events
+        tracked_hp = None  # will be set as we encounter events
+        found_our_move = False
+        pre_hit_hp = None
+        post_hit_hp = None
+        was_crit = False
+        skip = False
+
+        for event in obs.events:
+            if len(event) < 2:
+                continue
+            kind = event[1]
+
+            # --- Before our move: track opponent HP changes ---
+            if not found_our_move:
+                # Switch/drag for opponent: parse HP
+                if kind in ("switch", "drag") and len(event) >= 5:
+                    who = event[2]
+                    if who.startswith(opp_prefix):
+                        hp_str = event[4] if len(event) >= 5 else ""
+                        tracked_hp = self._parse_hp_fraction(hp_str)
+                        # If species changed, this observation doesn't apply
+                        ev_species = self._species_from_event(battle, event)
+                        if ev_species and ev_species != species:
+                            skip = True
+                            break
+
+                # HP changes on opponent before our move
+                if kind in ("-damage", "-heal") and len(event) >= 4:
+                    who = event[2]
+                    if who.startswith(opp_prefix):
+                        tracked_hp = self._parse_hp_fraction(event[3])
+
+                # Our move event
+                if kind == "move" and len(event) >= 4:
+                    who = event[2]
+                    if who.startswith(our_prefix):
+                        if tracked_hp is None:
+                            # Infer from opponent's current state at start of turn
+                            opp = battle.opponent_active_pokemon
+                            if opp and opp.species and normalize_name(opp.species) == species:
+                                # We don't have a better source; try the HP we
+                                # recorded at commit time
+                                tracked_hp = mem.get("last_opponent_hp")
+                        pre_hit_hp = tracked_hp
+                        found_our_move = True
+                        continue
+
+            # --- After our move: look for damage on opponent ---
+            if found_our_move:
+                if kind == "-miss":
+                    skip = True
+                    break
+                if kind == "-immune":
+                    skip = True
+                    break
+                if kind == "-fail":
+                    skip = True
+                    break
+                if kind == "-activate" and len(event) >= 4:
+                    act = event[3].lower() if len(event) >= 4 else ""
+                    if "protect" in act or "substitute" in act:
+                        skip = True
+                        break
+
+                if kind == "-crit":
+                    was_crit = True
+                    continue
+
+                if kind in ("-damage", "damage") and len(event) >= 4:
+                    who = event[2]
+                    if who.startswith(opp_prefix):
+                        # Check for indirect damage sources (residual, item, etc.)
+                        ev_lower = " ".join(event).lower()
+                        has_from = "[from]" in ev_lower
+                        if has_from and "move:" not in ev_lower:
+                            # Residual damage (Stealth Rock, poison, etc.) — skip
+                            continue
+                        post_hit_hp = self._parse_hp_fraction(event[3])
+                        break
+
+                # Another move event means the damage window passed
+                if kind == "move":
+                    break
+                # Switch events also end the window
+                if kind in ("switch", "drag"):
+                    break
+
+        if skip or pre_hit_hp is None or post_hit_hp is None:
+            return
+
+        observed_frac = pre_hit_hp - post_hit_hp
+        if observed_frac <= 0.01:
+            return
+
+        # Build the observation record
+        obs_record = {
+            "move_id": pending.get("move_id", ""),
+            "move_bp": pending["move_bp"],
+            "move_type": pending["move_type"],
+            "move_category": pending["move_category"],
+            "attacker_stat": pending["attacker_stat"],
+            "attacker_level": pending["attacker_level"],
+            "attacker_types": pending["attacker_types"],
+            "attacker_boosts": pending.get("attacker_boosts", {}),
+            "attacker_status": pending.get("attacker_status", ""),
+            "attacker_ability": pending.get("attacker_ability", ""),
+            "attacker_item": pending.get("attacker_item", ""),
+            "defender_boosts": pending.get("defender_boosts", {}),
+            "defender_hp_frac": pre_hit_hp,
+            "observed_frac": observed_frac,
+            "weather": pending.get("weather", ""),
+            "terrain": pending.get("terrain", ""),
+            "is_crit": was_crit,
+            "high_confidence": bool(pending.get("high_confidence", False)),
+        }
+        mem["damage_observations"].setdefault(species, []).append(obs_record)
+        # Cap stored observations per species
+        if len(mem["damage_observations"][species]) > 8:
+            mem["damage_observations"][species] = mem["damage_observations"][species][-8:]
+
+    @staticmethod
+    def _parse_hp_fraction(hp_str: str) -> Optional[float]:
+        """Parse HP string like '78/100' or '0 fnt' into a fraction [0..1]."""
+        if not hp_str:
+            return None
+        try:
+            hp_str = hp_str.strip().split()[0]  # drop "fnt" or condition tags
+            if "/" in hp_str:
+                parts = hp_str.split("/")
+                cur = float(parts[0])
+                mx = float(parts[1])
+                if mx <= 0:
+                    return 0.0
+                return cur / mx
+            # Percentage like "78"
+            val = float(hp_str)
+            if val > 1.0:
+                return val / 100.0
+            return val
+        except Exception:
+            return None
+
     def _ensure_randbats_sets(self, battle: Battle) -> str:
         gen_num = getattr(battle, "gen", None) or 9
         gen_name = f"gen{gen_num}"
@@ -1012,27 +1600,64 @@ class OranguruEnginePlayer(RuleBotPlayer):
         fp_mon: FPPokemon,
         set_info: dict,
         battle: Battle,
+        apply_damage: bool = True,
     ) -> float:
         species = normalize_name(fp_mon.name)
         mem = self._get_battle_memory(battle)
-        immune_types = mem.get("immune_types", {}).get(species, set())
-        if not immune_types:
-            return 1.0
         ability = normalize_name(set_info.get("ability", "") or "")
-        if not ability:
-            return 1.0
-        types = set(fp_mon.types or [])
+
+        # --- Immunity-based scoring (existing) ---
         multiplier = 1.0
-        for immune_type in immune_types:
-            if immune_type in types:
-                continue
-            candidates = self.IMMUNITY_ABILITY_MAP.get(immune_type, set())
-            if not candidates:
-                continue
-            if ability in candidates:
-                multiplier *= self.BELIEF_IMMUNITY_MATCH
-            else:
-                multiplier *= self.BELIEF_IMMUNITY_MISS
+        immune_types = mem.get("immune_types", {}).get(species, set())
+        if immune_types and ability:
+            types = set(fp_mon.types or [])
+            for immune_type in immune_types:
+                if immune_type in types:
+                    continue
+                candidates = self.IMMUNITY_ABILITY_MAP.get(immune_type, set())
+                if not candidates:
+                    continue
+                if ability in candidates:
+                    multiplier *= self.BELIEF_IMMUNITY_MATCH
+                else:
+                    multiplier *= self.BELIEF_IMMUNITY_MISS
+
+        # --- Damage-based scoring ---
+        if self.DAMAGE_BELIEF and apply_damage:
+            dmg_obs = self._damage_belief_observations(battle, species)
+            if dmg_obs:
+                set_item = normalize_name(set_info.get("item", "") or "")
+                base_stats = {}
+                if fp_mon.base_stats:
+                    raw = fp_mon.base_stats
+                    # FP pokedex uses long-form keys; normalize to short form
+                    base_stats = {
+                        "hp": raw.get("hp", 80),
+                        "atk": raw.get("attack", raw.get("atk", 80)),
+                        "def": raw.get("defense", raw.get("def", 80)),
+                        "spa": raw.get("special-attack", raw.get("spa", 80)),
+                        "spd": raw.get("special-defense", raw.get("spd", 80)),
+                        "spe": raw.get("speed", raw.get("spe", 80)),
+                    }
+                if not base_stats:
+                    base_stats = {"hp": 80, "atk": 80, "def": 80, "spa": 80, "spd": 80, "spe": 80}
+                level = int(set_info.get("level", 0) or 0) or int(fp_mon.level or 100)
+                sp_types = list(fp_mon.types or [])
+                dmg_weight = score_set_damage_consistency(
+                    observations=dmg_obs,
+                    set_ability=ability,
+                    set_item=set_item,
+                    species_base_stats=base_stats,
+                    species_level=level,
+                    species_types=sp_types,
+                    mode=self.DAMAGE_BELIEF_MODE,
+                    per_obs_min=self.DAMAGE_BELIEF_PER_OBS_MIN,
+                    per_obs_max=self.DAMAGE_BELIEF_PER_OBS_MAX,
+                    final_min=self.DAMAGE_BELIEF_FINAL_MIN,
+                    final_max=self.DAMAGE_BELIEF_FINAL_MAX,
+                )
+                multiplier *= dmg_weight
+
         return multiplier
 
     def _candidate_randombattle_sets(self, opponent: Pokemon, battle: Battle) -> List[Tuple[dict, float]]:
@@ -1071,7 +1696,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
             weight = float(pset.count or 0)
             if weight <= 0:
                 continue
-            weight = weight * self._belief_weight_for_set(fp_mon, set_info, battle)
+            weight = weight * self._belief_weight_for_set(
+                fp_mon,
+                set_info,
+                battle,
+                apply_damage=False,
+            )
             if weight <= 0:
                 continue
             candidates.append((set_info, weight))
@@ -1080,6 +1710,48 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return super()._candidate_randombattle_sets(opponent, battle)
 
         candidates.sort(key=lambda x: x[1], reverse=True)
+        if self.DAMAGE_BELIEF:
+            species = normalize_name(fp_mon.name)
+            dmg_obs = self._damage_belief_observations(battle, species)
+            if len(dmg_obs) >= self.DAMAGE_BELIEF_MIN_OBS:
+                topk = max(1, min(self.DAMAGE_BELIEF_TOPK, len(candidates)))
+                base_stats = {}
+                if fp_mon.base_stats:
+                    raw = fp_mon.base_stats
+                    base_stats = {
+                        "hp": raw.get("hp", 80),
+                        "atk": raw.get("attack", raw.get("atk", 80)),
+                        "def": raw.get("defense", raw.get("def", 80)),
+                        "spa": raw.get("special-attack", raw.get("spa", 80)),
+                        "spd": raw.get("special-defense", raw.get("spd", 80)),
+                        "spe": raw.get("speed", raw.get("spe", 80)),
+                    }
+                if not base_stats:
+                    base_stats = {"hp": 80, "atk": 80, "def": 80, "spa": 80, "spd": 80, "spe": 80}
+                sp_types = list(fp_mon.types or [])
+
+                reranked = list(candidates)
+                for idx in range(topk):
+                    set_info, base_weight = reranked[idx]
+                    set_ability = normalize_name(set_info.get("ability", "") or "")
+                    set_item = normalize_name(set_info.get("item", "") or "")
+                    level = int(set_info.get("level", 0) or 0) or int(fp_mon.level or 100)
+                    dmg_weight = score_set_damage_consistency(
+                        observations=dmg_obs,
+                        set_ability=set_ability,
+                        set_item=set_item,
+                        species_base_stats=base_stats,
+                        species_level=level,
+                        species_types=sp_types,
+                        mode=self.DAMAGE_BELIEF_MODE,
+                        per_obs_min=self.DAMAGE_BELIEF_PER_OBS_MIN,
+                        per_obs_max=self.DAMAGE_BELIEF_PER_OBS_MAX,
+                        final_min=self.DAMAGE_BELIEF_FINAL_MIN,
+                        final_max=self.DAMAGE_BELIEF_FINAL_MAX,
+                    )
+                    reranked[idx] = (set_info, base_weight * dmg_weight)
+                candidates = reranked
+                candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates[:20]
 
     def _extract_last_opponent_move(self, battle: Battle) -> Optional[Tuple[str, str, int]]:
@@ -1786,8 +2458,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
         )
         if not ordered:
             return ""
+        def _return_choice(chosen_choice: str, path: str) -> str:
+            if chosen_choice:
+                self._diag_record_choice(
+                    battle,
+                    ordered,
+                    chosen_choice,
+                    confidence,
+                    threshold,
+                    path,
+                )
+            return chosen_choice
         if total_policy <= 0:
-            return ordered[0][0]
+            return _return_choice(ordered[0][0], "mcts")
 
         def _pick_choice(choices: List[str], weights: List[float]) -> str:
             if not choices:
@@ -1820,10 +2503,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 )
                 if reranked:
                     self._mcts_stats["adaptive_rerank_used"] += 1
-                    return reranked
+                    mem["diag_adaptive_triggered"] = int(mem.get("diag_adaptive_triggered", 0) or 0) + 1
+                    return _return_choice(reranked, "adaptive_rerank")
                 self._mcts_stats["adaptive_rerank_failed"] += 1
-                return ordered[0][0]
+                return _return_choice(ordered[0][0], "mcts")
             mem["adaptive_fallback_pending"] = 1
+            mem["diag_adaptive_triggered"] = int(mem.get("diag_adaptive_triggered", 0) or 0) + 1
             return ""
         if self.SELECTION_MODE == "policy":
             cutoff_ratio = max(0.0, min(1.0, self.POLICY_CUTOFF))
@@ -1840,8 +2525,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     heuristic_weights.append(max(0.0, score or 0.0))
                 heur_total = sum(heuristic_weights)
                 if heur_total > 0:
-                    return _pick_choice(choices, heuristic_weights)
-            return _pick_choice(choices, policy_weights)
+                    return _return_choice(_pick_choice(choices, heuristic_weights), "policy")
+            return _return_choice(_pick_choice(choices, policy_weights), "policy")
 
         if self.SELECTION_MODE == "rerank" and confidence < threshold:
             candidates = filtered[: max(1, self.RERANK_TOPK)]
@@ -1853,7 +2538,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 scored.append((score, weight, choice))
             if scored:
                 scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-                return scored[0][2]
+                return _return_choice(scored[0][2], "rerank")
 
         blend = max(0.0, min(1.0, self.HEURISTIC_BLEND))
         min_blend = max(0.0, min(1.0, self.MIN_HEURISTIC_BLEND))
@@ -1901,8 +2586,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
         else:
             mcts_norm = [w / mcts_total for w in mcts_weights]
 
+        selection_path = "blend"
         if blend <= 0:
             combined = mcts_norm
+            selection_path = "mcts"
         else:
             heuristic_weights = []
             for choice in choices:
@@ -1911,6 +2598,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             heur_total = sum(heuristic_weights)
             if heur_total <= 0:
                 combined = mcts_norm
+                selection_path = "mcts"
             else:
                 heur_norm = [w / heur_total for w in heuristic_weights]
                 combined = [
@@ -1929,7 +2617,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                         for base, rl in zip(combined, rl_norm)
                     ]
 
-        return _pick_choice(choices, combined)
+        return _return_choice(_pick_choice(choices, combined), selection_path)
 
     def _is_damaging_move_choice(self, battle: Battle, choice: str) -> bool:
         move_id = normalize_name(choice.replace("-tera", ""))
@@ -2021,6 +2709,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def choose_move(self, battle: AbstractBattle):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
+        self._flush_finished_battle_diags()
         noop_order = self._empty_order_if_no_choices(battle)
         if noop_order is not None:
             return noop_order
@@ -2042,6 +2731,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._update_field_memory(battle)
         self._update_switch_flags(battle)
         self._update_substitute_memory(battle)
+        self._update_damage_observation(battle)
         self._cleanup_battle_memory(battle)
         mem = self._get_battle_memory(battle)
         last_action = mem.get("last_action")
@@ -2066,6 +2756,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return self.choose_random_move(battle)
 
         if battle.force_switch:
+            self._mcts_stats["diag_forced_switch_turns"] += 1
+            mem = self._get_battle_memory(battle)
+            mem["diag_forced_switch_turns"] = int(mem.get("diag_forced_switch_turns", 0) or 0) + 1
             if battle.available_switches:
                 best_switch = max(
                     battle.available_switches,
@@ -2103,6 +2796,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if not results:
             self._mcts_stats["empty_results"] += 1
             self._mcts_stats["fallback_super"] += 1
+            self._mcts_stats["diag_path_fallback_super"] += 1
             return super().choose_move(battle)
 
         banned_choices = self._sleep_clause_banned_choices(battle)
@@ -2152,10 +2846,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     adaptive_order = self._choose_adaptive_fallback_order(battle, active, opponent)
                     if adaptive_order is not None:
                         self._mcts_stats["adaptive_heuristic_used"] += 1
+                        self._mcts_stats["diag_path_fallback_super"] += 1
                         return self._commit_order(battle, adaptive_order)
                     self._mcts_stats["adaptive_heuristic_failed"] += 1
                 self._mcts_stats["adaptive_super_used"] += 1
             self._mcts_stats["fallback_super"] += 1
+            self._mcts_stats["diag_path_fallback_super"] += 1
             return super().choose_move(battle)
         choice = self._apply_tactical_safety(battle, choice, active, opponent)
 
@@ -2176,6 +2872,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 if normalize_name(sw.species) == switch_name:
                     return self._commit_order(battle, self.create_order(sw))
             self._mcts_stats["fallback_random"] += 1
+            self._mcts_stats["diag_path_fallback_random"] += 1
             return self.choose_random_move(battle)
 
         tera = False
@@ -2201,4 +2898,5 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     ),
                 )
         self._mcts_stats["fallback_random"] += 1
+        self._mcts_stats["diag_path_fallback_random"] += 1
         return self.choose_random_move(battle)

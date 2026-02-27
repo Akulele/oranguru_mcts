@@ -1507,6 +1507,65 @@ async def main():
                     adaptive_second_pass,
                 )
             )
+        diag_turns = int(mcts_stats.get("diag_turns", 0))
+        if diag_turns > 0:
+            print("\n📌 Decision Diagnostics")
+            print(
+                "   Low conf/margin/non-top1: {:.1%}/{:.1%}/{:.1%}".format(
+                    float(mcts_stats.get("diag_low_conf_rate", 0.0)),
+                    float(mcts_stats.get("diag_low_margin_rate", 0.0)),
+                    float(mcts_stats.get("diag_non_top1_rate", 0.0)),
+                )
+            )
+            print(
+                "   Choice mix move/switch/tera: {}/{}/{}".format(
+                    int(mcts_stats.get("diag_move_choices", 0)),
+                    int(mcts_stats.get("diag_switch_choices", 0)),
+                    int(mcts_stats.get("diag_tera_choices", 0)),
+                )
+            )
+            print(
+                "   Avg delta(best-chosen): {:.3f}".format(
+                    float(mcts_stats.get("diag_choice_delta_avg", 0.0))
+                )
+            )
+            print(
+                "   Paths mcts/policy/rerank/blend/adapt/fallbackS/fallbackR: {}/{}/{}/{}/{}/{}/{}".format(
+                    int(mcts_stats.get("diag_path_mcts", 0)),
+                    int(mcts_stats.get("diag_path_policy", 0)),
+                    int(mcts_stats.get("diag_path_rerank", 0)),
+                    int(mcts_stats.get("diag_path_blend", 0)),
+                    int(mcts_stats.get("diag_path_adaptive_rerank", 0)),
+                    int(mcts_stats.get("diag_path_fallback_super", 0)),
+                    int(mcts_stats.get("diag_path_fallback_random", 0)),
+                )
+            )
+            reason_keys = sorted(
+                [k for k in mcts_stats.keys() if k.startswith("diag_adaptive_reason_")]
+            )
+            reason_counts = []
+            for key in reason_keys:
+                count = int(mcts_stats.get(key, 0))
+                if count > 0:
+                    reason_counts.append((key.replace("diag_adaptive_reason_", ""), count))
+            if reason_counts:
+                reason_counts.sort(key=lambda x: x[1], reverse=True)
+                top_reasons = ", ".join(f"{name}:{count}" for name, count in reason_counts[:5])
+                print(f"   Adaptive reasons(top): {top_reasons}")
+            loss_total = int(mcts_stats.get("diag_battles_lost", 0))
+            if loss_total > 0:
+                print(
+                    "   Loss clusters fast/lowconf/switch/status/forced/adapt/churn/other: {}/{}/{}/{}/{}/{}/{}/{}".format(
+                        int(mcts_stats.get("diag_loss_fast", 0)),
+                        int(mcts_stats.get("diag_loss_low_conf", 0)),
+                        int(mcts_stats.get("diag_loss_switch_heavy", 0)),
+                        int(mcts_stats.get("diag_loss_status_loop", 0)),
+                        int(mcts_stats.get("diag_loss_forced_switch", 0)),
+                        int(mcts_stats.get("diag_loss_adaptive_used", 0)),
+                        int(mcts_stats.get("diag_loss_churn_breaks", 0)),
+                        int(mcts_stats.get("diag_loss_other", 0)),
+                    )
+                )
 
     if move_count:
         print("\n📌 Action Summary")
