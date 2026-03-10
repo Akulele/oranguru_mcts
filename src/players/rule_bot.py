@@ -155,6 +155,11 @@ class RuleBotPlayer(Player):
     PARA_FINISH_GUARD = bool(int(os.getenv("ORANGURU_PARA_FINISH_GUARD", "1")))
     PARA_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_PARA_FINISH_MAX_OPP_HP", "0.6"))
     PARA_FINISH_KO_THRESHOLD = float(os.getenv("ORANGURU_PARA_FINISH_KO_THRESHOLD", "220.0"))
+    SWITCH_MIN_GAIN = float(os.getenv("ORANGURU_SWITCH_MIN_GAIN", "0.22"))
+    SWITCH_DANGER_IMPROVEMENT = float(os.getenv("ORANGURU_SWITCH_DANGER_IMPROVEMENT", "35.0"))
+    SWITCH_HAZARD_MULT = float(os.getenv("ORANGURU_SWITCH_HAZARD_MULT", "1.35"))
+    SWITCH_STREAK_PENALTY = float(os.getenv("ORANGURU_SWITCH_STREAK_PENALTY", "0.18"))
+    SWITCH_LOW_GAIN_PENALTY = float(os.getenv("ORANGURU_SWITCH_LOW_GAIN_PENALTY", "1.25"))
     SETUP_BOOST_CAPS = {
         "atk": 2,
         "spa": 2,
@@ -2185,7 +2190,34 @@ class RuleBotPlayer(Player):
         reply = self._estimate_best_reply_score(opponent, switch, battle)
         hp = switch.current_hp_fraction if switch.current_hp_fraction is not None else 0.5
         hazard_penalty = self._hazard_switch_penalty(battle, switch)
-        return matchup + hp * 0.2 - (reply / 400.0) - hazard_penalty
+        score = matchup + hp * 0.2 - (reply / 400.0) - (hazard_penalty * self.SWITCH_HAZARD_MULT)
+
+        active = getattr(battle, "active_pokemon", None)
+        if active is not None:
+            cur_matchup = self._estimate_matchup(active, opponent)
+            cur_reply = self._estimate_best_reply_score(opponent, active, battle)
+            matchup_gain = matchup - cur_matchup
+            reply_improvement = cur_reply - reply
+
+            if matchup_gain < self.SWITCH_MIN_GAIN:
+                score -= (self.SWITCH_MIN_GAIN - matchup_gain) * self.SWITCH_LOW_GAIN_PENALTY
+            else:
+                score += min(0.45, matchup_gain * 0.35)
+
+            if reply_improvement < self.SWITCH_DANGER_IMPROVEMENT:
+                score -= (self.SWITCH_DANGER_IMPROVEMENT - reply_improvement) / 180.0
+            else:
+                score += min(0.35, reply_improvement / 240.0)
+
+            if hazard_penalty > 0 and matchup_gain < (self.SWITCH_MIN_GAIN + 0.08):
+                score -= hazard_penalty * 0.9
+
+        mem = self._get_battle_memory(battle)
+        switch_streak = int(mem.get("self_switch_streak", 0) or 0)
+        if switch_streak > 0:
+            score -= self.SWITCH_STREAK_PENALTY * min(4, switch_streak)
+
+        return score
 
     def _opponent_is_stallish(self, opponent: Pokemon) -> bool:
         """Heuristic: detect stall tendencies based on known moves and bulk."""
