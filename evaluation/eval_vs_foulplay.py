@@ -1555,12 +1555,14 @@ async def main():
             loss_total = int(mcts_stats.get("diag_battles_lost", 0))
             if loss_total > 0:
                 print(
-                    "   Loss clusters fast/lowconf/switch/status/forced/adapt/churn/other: {}/{}/{}/{}/{}/{}/{}/{}".format(
+                    "   Loss clusters fast/lowconf/switch/passive/forced/hazard/tempo/adapt/churn/other: {}/{}/{}/{}/{}/{}/{}/{}/{}/{}".format(
                         int(mcts_stats.get("diag_loss_fast", 0)),
                         int(mcts_stats.get("diag_loss_low_conf", 0)),
                         int(mcts_stats.get("diag_loss_switch_heavy", 0)),
-                        int(mcts_stats.get("diag_loss_status_loop", 0)),
+                        int(mcts_stats.get("diag_loss_passive", mcts_stats.get("diag_loss_status_loop", 0))),
                         int(mcts_stats.get("diag_loss_forced_switch", 0)),
+                        int(mcts_stats.get("diag_loss_hazard_pivot", 0)),
+                        int(mcts_stats.get("diag_loss_tempo", 0)),
                         int(mcts_stats.get("diag_loss_adaptive_used", 0)),
                         int(mcts_stats.get("diag_loss_churn_breaks", 0)),
                         int(mcts_stats.get("diag_loss_other", 0)),

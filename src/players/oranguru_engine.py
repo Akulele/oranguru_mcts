@@ -145,6 +145,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
     LOOP_BREAKER_MIN_SCORE = float(os.getenv("ORANGURU_LOOP_BREAKER_MIN_SCORE", "120.0"))
     LOOP_BREAKER_KO_FRACTION = float(os.getenv("ORANGURU_LOOP_BREAKER_KO_FRACTION", "0.60"))
     LOSS_FORCED_SWITCH_RATIO = float(os.getenv("ORANGURU_LOSS_FORCED_SWITCH_RATIO", "0.35"))
+    LOSS_PASSIVE_RATIO = float(os.getenv("ORANGURU_LOSS_PASSIVE_RATIO", "0.18"))
+    LOSS_HAZARD_SWITCH_RATIO = float(os.getenv("ORANGURU_LOSS_HAZARD_SWITCH_RATIO", "0.16"))
+    LOSS_TEMPO_RATIO = float(os.getenv("ORANGURU_LOSS_TEMPO_RATIO", "0.28"))
+    PROGRESS_NEED_MATCHUP = float(os.getenv("ORANGURU_PROGRESS_NEED_MATCHUP", "-0.05"))
+    PROGRESS_NEED_REPLY = float(os.getenv("ORANGURU_PROGRESS_NEED_REPLY", "190.0"))
+    PROGRESS_NEED_DAMAGE = float(os.getenv("ORANGURU_PROGRESS_NEED_DAMAGE", "140.0"))
+    PASSIVE_BREAK_RECOVERY_HP_MAX = float(
+        os.getenv("ORANGURU_PASSIVE_BREAK_RECOVERY_HP_MAX", "0.42")
+    )
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -270,6 +279,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "diag_switch_choices": 0,
             "diag_tera_choices": 0,
             "diag_forced_switch_turns": 0,
+            "diag_hazard_switch_choices": 0,
+            "diag_passive_no_progress_turns": 0,
             "diag_path_mcts": 0,
             "diag_path_adaptive_rerank": 0,
             "diag_path_policy": 0,
@@ -296,6 +307,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "diag_loss_switch_heavy": 0,
             "diag_loss_status_loop": 0,
             "diag_loss_forced_switch": 0,
+            "diag_loss_passive": 0,
+            "diag_loss_hazard_pivot": 0,
+            "diag_loss_tempo": 0,
             "diag_loss_adaptive_used": 0,
             "diag_loss_churn_breaks": 0,
             "diag_loss_other": 0,
@@ -661,6 +675,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if chosen.startswith("switch "):
             self._mcts_stats["diag_switch_choices"] += 1
             mem["diag_switch_choices"] = int(mem.get("diag_switch_choices", 0) or 0) + 1
+            if self._side_hazard_pressure(battle) > 0:
+                self._mcts_stats["diag_hazard_switch_choices"] += 1
+                mem["diag_hazard_switch_choices"] = int(
+                    mem.get("diag_hazard_switch_choices", 0) or 0
+                ) + 1
         elif chosen:
             self._mcts_stats["diag_move_choices"] += 1
             mem["diag_move_choices"] = int(mem.get("diag_move_choices", 0) or 0) + 1
@@ -724,6 +743,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             diag_turns = int(mem.get("diag_turns", 0) or 0)
             low_conf = int(mem.get("diag_low_conf_turns", 0) or 0)
             switch_turns = int(mem.get("diag_switch_choices", 0) or 0)
+            low_margin = int(mem.get("diag_low_margin_turns", 0) or 0)
+            hazard_switch_turns = int(mem.get("diag_hazard_switch_choices", 0) or 0)
+            passive_turns = int(mem.get("diag_passive_no_progress_turns", 0) or 0)
             if diag_turns > 0 and (low_conf / diag_turns) >= 0.5:
                 self._mcts_stats["diag_loss_low_conf"] += 1
                 tags += 1
@@ -731,16 +753,44 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 self._mcts_stats["diag_loss_switch_heavy"] += 1
                 tags += 1
 
-            if int(mem.get("diag_status_stall_peak", 0) or 0) >= 2:
+            passive_ratio = (passive_turns / max(1, diag_turns)) if diag_turns > 0 else 0.0
+            if (
+                int(mem.get("diag_status_stall_peak", 0) or 0) >= 2
+                or passive_ratio >= max(0.0, self.LOSS_PASSIVE_RATIO)
+            ):
                 self._mcts_stats["diag_loss_status_loop"] += 1
+                self._mcts_stats["diag_loss_passive"] += 1
                 tags += 1
             forced_turns = int(mem.get("diag_forced_switch_turns", 0) or 0)
             if diag_turns > 0:
                 forced_ratio = forced_turns / max(1, diag_turns)
             else:
                 forced_ratio = 0.0
-            if turns >= 15 and forced_ratio >= max(0.0, min(1.0, self.LOSS_FORCED_SWITCH_RATIO)):
+            if (
+                turns <= 24
+                and forced_turns >= 4
+                and forced_ratio >= max(0.0, min(1.0, self.LOSS_FORCED_SWITCH_RATIO))
+            ):
                 self._mcts_stats["diag_loss_forced_switch"] += 1
+                tags += 1
+            hazard_switch_ratio = (
+                hazard_switch_turns / max(1, diag_turns)
+                if diag_turns > 0
+                else 0.0
+            )
+            if (
+                diag_turns > 0
+                and hazard_switch_ratio >= max(0.0, self.LOSS_HAZARD_SWITCH_RATIO)
+                and (switch_turns / max(1, diag_turns)) >= 0.25
+            ):
+                self._mcts_stats["diag_loss_hazard_pivot"] += 1
+                tags += 1
+            tempo_ratio = max(low_conf, low_margin) / max(1, diag_turns)
+            if (
+                tempo_ratio >= max(0.0, self.LOSS_TEMPO_RATIO)
+                and passive_ratio < max(0.0, self.LOSS_PASSIVE_RATIO)
+            ):
+                self._mcts_stats["diag_loss_tempo"] += 1
                 tags += 1
             if int(mem.get("adaptive_fallback_pending", 0) or 0) == 1 or int(mem.get("diag_adaptive_triggered", 0) or 0) > 0:
                 self._mcts_stats["diag_loss_adaptive_used"] += 1
@@ -1293,15 +1343,142 @@ class OranguruEnginePlayer(RuleBotPlayer):
             obs = [entry for entry in obs if entry.get("high_confidence", False)]
         return obs
 
+    def _side_hazard_pressure(self, battle: Battle) -> float:
+        side_conditions = getattr(battle, "side_conditions", None) or {}
+        pressure = 0.0
+        if SideCondition.STEALTH_ROCK in side_conditions:
+            pressure += 0.125
+        spikes_layers = int(side_conditions.get(SideCondition.SPIKES, 0) or 0)
+        if spikes_layers == 1:
+            pressure += 0.125
+        elif spikes_layers == 2:
+            pressure += 1.0 / 6.0
+        elif spikes_layers >= 3:
+            pressure += 0.25
+        tspikes_layers = int(side_conditions.get(SideCondition.TOXIC_SPIKES, 0) or 0)
+        if tspikes_layers > 0:
+            pressure += 0.08
+        if SideCondition.STICKY_WEB in side_conditions:
+            pressure += 0.05
+        return pressure
+
+    def _opponent_progress_markers(self, battle: Battle, opponent: Optional[Pokemon]) -> dict:
+        status = normalize_name(str(getattr(opponent, "status", "") or "")) if opponent is not None else ""
+        opp_sc = getattr(battle, "opponent_side_conditions", None) or {}
+        return {
+            "status": status,
+            "rocks": int(SideCondition.STEALTH_ROCK in opp_sc),
+            "web": int(SideCondition.STICKY_WEB in opp_sc),
+            "spikes": int(opp_sc.get(SideCondition.SPIKES, 0) or 0),
+            "tspikes": int(opp_sc.get(SideCondition.TOXIC_SPIKES, 0) or 0),
+        }
+
+    def _resolve_passive_progress(self, battle: Battle) -> None:
+        mem = self._get_battle_memory(battle)
+        pending = mem.get("pending_passive_action")
+        if not isinstance(pending, dict):
+            return
+        pending_turn = int(pending.get("turn", -1) or -1)
+        current_turn = int(getattr(battle, "turn", 0) or 0)
+        if current_turn <= pending_turn:
+            return
+
+        opponent = battle.opponent_active_pokemon
+        active = battle.active_pokemon
+        prev_opp_hp = pending.get("opp_hp")
+        cur_opp_hp = getattr(opponent, "current_hp_fraction", None)
+        opp_hp_drop = 0.0
+        if isinstance(prev_opp_hp, (int, float)) and isinstance(cur_opp_hp, (int, float)):
+            opp_hp_drop = max(0.0, float(prev_opp_hp) - float(cur_opp_hp))
+
+        prev_self_hp = pending.get("self_hp")
+        cur_self_hp = getattr(active, "current_hp_fraction", None)
+        self_hp_gain = 0.0
+        if isinstance(prev_self_hp, (int, float)) and isinstance(cur_self_hp, (int, float)):
+            self_hp_gain = max(0.0, float(cur_self_hp) - float(prev_self_hp))
+
+        prev_markers = pending.get("opp_markers", {}) or {}
+        cur_markers = self._opponent_progress_markers(battle, opponent)
+        progress = opp_hp_drop >= 0.06
+        progress = progress or cur_markers.get("status") != prev_markers.get("status")
+        for key in ("rocks", "web", "spikes", "tspikes"):
+            if int(cur_markers.get(key, 0) or 0) > int(prev_markers.get(key, 0) or 0):
+                progress = True
+                break
+
+        kind = pending.get("kind", "")
+        if kind == "recovery" and self_hp_gain >= 0.20:
+            progress = True
+
+        if progress:
+            mem["passive_no_progress_streak"] = 0
+        else:
+            mem["passive_no_progress_streak"] = int(mem.get("passive_no_progress_streak", 0) or 0) + 1
+            if self.DECISION_DIAG_ENABLED:
+                self._mcts_stats["diag_passive_no_progress_turns"] += 1
+                mem["diag_passive_no_progress_turns"] = int(
+                    mem.get("diag_passive_no_progress_turns", 0) or 0
+                ) + 1
+        mem.pop("pending_passive_action", None)
+
+    def _passive_choice_kind(self, move) -> str:
+        if move is None:
+            return ""
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        if move_id in self.PROTECT_MOVES:
+            return "protect"
+        if self._is_recovery_move(move):
+            return "recovery"
+        try:
+            if move.category == MoveCategory.STATUS:
+                return "status"
+        except Exception:
+            return ""
+        return ""
+
+    def _progress_need_score(
+        self,
+        battle: Battle,
+        active: Pokemon,
+        opponent: Pokemon,
+        best_damage_score: float,
+    ) -> int:
+        score = 0
+        if self._estimate_matchup(active, opponent) <= self.PROGRESS_NEED_MATCHUP:
+            score += 1
+        if self._side_hazard_pressure(battle) > 0:
+            score += 1
+        if self._estimate_best_reply_score(opponent, active, battle) >= self.PROGRESS_NEED_REPLY:
+            score += 1
+        if best_damage_score >= self.PROGRESS_NEED_DAMAGE and (opponent.current_hp_fraction or 0.0) >= 0.25:
+            score += 1
+        return score
+
     # ------------------------------------------------------------------
     # Damage-belief: capture attacker context at action time
     # ------------------------------------------------------------------
     def _record_last_action(self, battle: Battle, order) -> None:
         super()._record_last_action(battle, order)
-        if not self.DAMAGE_BELIEF:
-            return
         mem = self._get_battle_memory(battle)
         order_obj = getattr(order, "order", None)
+        passive_kind = self._passive_choice_kind(order_obj)
+        if passive_kind:
+            mem["pending_passive_action"] = {
+                "turn": int(getattr(battle, "turn", 0) or 0),
+                "kind": passive_kind,
+                "self_hp": getattr(getattr(battle, "active_pokemon", None), "current_hp_fraction", None),
+                "opp_hp": getattr(
+                    getattr(battle, "opponent_active_pokemon", None), "current_hp_fraction", None
+                ),
+                "opp_markers": self._opponent_progress_markers(
+                    battle, getattr(battle, "opponent_active_pokemon", None)
+                ),
+            }
+        else:
+            mem.pop("pending_passive_action", None)
+            mem["passive_no_progress_streak"] = 0
+        if not self.DAMAGE_BELIEF:
+            return
         if not hasattr(order_obj, "category"):
             # Not a move — nothing extra to record
             mem.pop("_dmg_pending", None)
@@ -2116,7 +2293,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return choice
 
         best_damage_move, best_damage_score = self._best_damaging_move(battle, active, opponent)
+        reply_score = self._estimate_best_reply_score(opponent, active, battle)
         opp_hp = opponent.current_hp_fraction or 0.0
+        active_hp = active.current_hp_fraction or 0.0
         ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
         has_ko_window = best_damage_move is not None and best_damage_score >= ko_threshold
 
@@ -2157,6 +2336,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         is_protect = selected_move.id in self.PROTECT_MOVES
         mem = self._get_battle_memory(battle)
         stall = int(mem.get("status_stall_streak", 0) or 0)
+        passive_streak = int(mem.get("passive_no_progress_streak", 0) or 0)
+        passive_kind = self._passive_choice_kind(selected_move)
+        progress_need = self._progress_need_score(
+            battle,
+            active,
+            opponent,
+            best_damage_score,
+        )
 
         # Loop breaker: when we repeatedly pick low-progress status/recovery/protect
         # lines in uncertain states, force a high-value damaging move.
@@ -2180,6 +2367,31 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if is_status and self._status_choice_is_obviously_bad(battle, selected_move, active, opponent):
             if best_damage_move is not None:
                 return best_damage_move.id
+
+        if (
+            passive_kind
+            and best_damage_move is not None
+            and best_damage_move.id != move_id
+            and not battle.force_switch
+        ):
+            if passive_kind == "protect" and self._should_use_protect(battle, reply_score):
+                if progress_need <= 1 and passive_streak <= 0:
+                    pass
+                elif best_damage_score >= self.PROGRESS_NEED_DAMAGE:
+                    return best_damage_move.id
+            elif passive_kind == "recovery":
+                safe_low_hp_recover = (
+                    active_hp <= self.PASSIVE_BREAK_RECOVERY_HP_MAX and reply_score < self.PROGRESS_NEED_REPLY
+                )
+                if not safe_low_hp_recover and progress_need >= 2 and (
+                    passive_streak >= 1 or active_hp >= 0.55
+                ):
+                    if best_damage_score >= self.PROGRESS_NEED_DAMAGE:
+                        return best_damage_move.id
+            elif passive_kind == "status":
+                if progress_need >= 2 and (stall >= 1 or passive_streak >= 1):
+                    if best_damage_score >= self.PROGRESS_NEED_DAMAGE:
+                        return best_damage_move.id
 
         if has_ko_window and (is_status or is_recovery or is_setup):
             if best_damage_move is not None:
@@ -2805,6 +3017,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._update_switch_flags(battle)
         self._update_substitute_memory(battle)
         self._update_damage_observation(battle)
+        self._resolve_passive_progress(battle)
         self._cleanup_battle_memory(battle)
         mem = self._get_battle_memory(battle)
         last_action = mem.get("last_action")
