@@ -1424,6 +1424,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def _passive_choice_kind(self, move) -> str:
         if move is None:
             return ""
+        if not hasattr(move, "id"):
+            return ""
         move_id = normalize_name(getattr(move, "id", "") or "")
         if move_id in self.PROTECT_MOVES:
             return "protect"
