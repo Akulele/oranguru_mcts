@@ -160,6 +160,12 @@ class RuleBotPlayer(Player):
     SWITCH_HAZARD_MULT = float(os.getenv("ORANGURU_SWITCH_HAZARD_MULT", "1.35"))
     SWITCH_STREAK_PENALTY = float(os.getenv("ORANGURU_SWITCH_STREAK_PENALTY", "0.18"))
     SWITCH_LOW_GAIN_PENALTY = float(os.getenv("ORANGURU_SWITCH_LOW_GAIN_PENALTY", "1.25"))
+    TEMPO_PRESSURE_REPLY = float(os.getenv("ORANGURU_TEMPO_PRESSURE_REPLY", "180.0"))
+    TEMPO_PRESSURE_MATCHUP = float(os.getenv("ORANGURU_TEMPO_PRESSURE_MATCHUP", "-0.05"))
+    TEMPO_DAMAGE_RATIO = float(os.getenv("ORANGURU_TEMPO_DAMAGE_RATIO", "0.45"))
+    TEMPO_KO_BONUS = float(os.getenv("ORANGURU_TEMPO_KO_BONUS", "55.0"))
+    TEMPO_STRONG_HIT_BONUS = float(os.getenv("ORANGURU_TEMPO_STRONG_HIT_BONUS", "26.0"))
+    TEMPO_PASSIVE_PENALTY = float(os.getenv("ORANGURU_TEMPO_PASSIVE_PENALTY", "0.72"))
     SETUP_BOOST_CAPS = {
         "atk": 2,
         "spa": 2,
@@ -1638,6 +1644,98 @@ class RuleBotPlayer(Player):
 
         return total_reply
 
+    def _tempo_pressure_level(self, active: Pokemon, opponent: Pokemon, battle: Battle) -> int:
+        if active is None or opponent is None:
+            return 0
+        pressure = 0
+        if self._estimate_matchup(active, opponent) <= self.TEMPO_PRESSURE_MATCHUP:
+            pressure += 1
+        if self._estimate_best_reply_score(opponent, active, battle) >= self.TEMPO_PRESSURE_REPLY:
+            pressure += 1
+        if self._hazard_switch_penalty(battle, active) > 0:
+            pressure += 1
+        if self._opponent_is_set_up(opponent):
+            pressure += 1
+        return pressure
+
+    def _tempo_bonus_for_damage(
+        self,
+        move: Move,
+        damage_score: float,
+        active: Pokemon,
+        opponent: Pokemon,
+        battle: Battle,
+        action_dist: List[dict],
+        predicted_switch: Optional[Pokemon],
+    ) -> float:
+        if move is None or active is None or opponent is None:
+            return 0.0
+        if move.category == MoveCategory.STATUS:
+            return 0.0
+        opp_hp = opponent.current_hp_fraction if opponent.current_hp_fraction is not None else 1.0
+        hp_threshold = 220.0 * max(opp_hp, 0.05)
+        if hp_threshold <= 0:
+            return 0.0
+        ratio = damage_score / hp_threshold
+        pressure = self._tempo_pressure_level(active, opponent, battle)
+        switch_prob = sum(a["weight"] for a in action_dist if a.get("type") == "switch") if action_dist else 0.0
+        passive_prob = (
+            sum(
+                a["weight"]
+                for a in action_dist
+                if a.get("type") == "move" and a.get("kind") in {"setup", "recovery", "status", "hazard"}
+            )
+            if action_dist
+            else 0.0
+        )
+
+        bonus = 0.0
+        if ratio >= 1.0:
+            bonus += self.TEMPO_KO_BONUS
+        elif ratio >= 0.75:
+            bonus += self.TEMPO_STRONG_HIT_BONUS + 10.0
+        elif ratio >= self.TEMPO_DAMAGE_RATIO:
+            bonus += self.TEMPO_STRONG_HIT_BONUS
+
+        if pressure >= 2 and ratio >= self.TEMPO_DAMAGE_RATIO:
+            bonus += 18.0
+        elif pressure >= 1 and ratio >= 0.60:
+            bonus += 10.0
+
+        if passive_prob >= 0.35 and ratio >= 0.50:
+            bonus += 12.0
+        if predicted_switch is not None and switch_prob >= 0.25:
+            bonus += 10.0
+
+        return bonus
+
+    def _tempo_penalty_for_passive(
+        self,
+        kind: str,
+        active: Pokemon,
+        opponent: Pokemon,
+        battle: Battle,
+        best_damage_score: float,
+    ) -> float:
+        if active is None or opponent is None:
+            return 1.0
+        pressure = self._tempo_pressure_level(active, opponent, battle)
+        if pressure <= 0:
+            return 1.0
+
+        opp_hp = opponent.current_hp_fraction if opponent.current_hp_fraction is not None else 1.0
+        hp_threshold = 220.0 * max(opp_hp, 0.05)
+        damage_ratio = best_damage_score / hp_threshold if hp_threshold > 0 else 0.0
+
+        penalty = 1.0
+        if kind in {"recovery", "setup", "hazard"} and pressure >= 2:
+            penalty *= self.TEMPO_PASSIVE_PENALTY
+        if kind in {"recovery", "setup"} and damage_ratio >= self.TEMPO_DAMAGE_RATIO:
+            penalty *= 0.75
+        if kind == "status" and damage_ratio >= 0.70:
+            penalty *= 0.82
+        return max(0.35, penalty)
+
     def _expected_net_value(
         self,
         move: Move,
@@ -1707,7 +1805,9 @@ class RuleBotPlayer(Player):
             net = expected_my - expected_opp + (30.0 * my_ko)
             expected_value += action["weight"] * net
 
-        return expected_value
+        return expected_value + self._tempo_bonus_for_damage(
+            move, damage_score, active, opponent, battle, action_dist, predicted_switch
+        )
 
     def _estimate_best_damage_score_for_target(
         self, active: Pokemon, target: Pokemon, battle: Battle
@@ -1826,7 +1926,9 @@ class RuleBotPlayer(Player):
                 opp_ko_next = self._ko_likelihood_vs_hp(reply_score, self_hp_after)
                 followup -= weight * (25.0 * opp_ko_next)
 
-        return expected_net + followup
+        return expected_net + followup + self._tempo_bonus_for_damage(
+            move, damage_score, active, opponent, battle, action_dist, predicted_switch
+        )
 
     def _expected_move_value(
         self,
@@ -1845,7 +1947,10 @@ class RuleBotPlayer(Player):
             entry = self._get_move_entry(move)
             kind = self._classify_status_entry(entry)
             if kind in {"setup", "recovery", "hazard"}:
-                return base_score
+                best_damage = self._estimate_best_damage_score(active, opponent, battle)
+                return base_score * self._tempo_penalty_for_passive(
+                    kind, active, opponent, battle, best_damage
+                )
             return base_score * (1.0 - switch_prob)
 
         if predicted_switch is None:
@@ -1857,7 +1962,9 @@ class RuleBotPlayer(Player):
                 expected += action["weight"] * switch_score
             else:
                 expected += action["weight"] * base_score
-        return expected
+        return expected + self._tempo_bonus_for_damage(
+            move, base_score, active, opponent, battle, action_dist, predicted_switch
+        )
 
     def _get_known_moves(self, mon: Pokemon) -> List[Move]:
         """Return known moves for a Pokemon if available."""
@@ -2236,6 +2343,7 @@ class RuleBotPlayer(Player):
                                      battle: Battle, switch_weight: Optional[float] = None) -> float:
         """Score a move considering likely opponent response."""
         base_score = self._calculate_move_score(move, active, opponent, battle)
+        scored = base_score
 
         if predicted_switch is not None:
             # They might switch - how does this move do vs their switch-in?
@@ -2251,9 +2359,17 @@ class RuleBotPlayer(Player):
             if move.id in {'pursuit', 'uturn', 'voltswitch', 'flipturn'}:
                 blended_score *= 1.2
 
-            return blended_score
+            scored = blended_score
 
-        return base_score
+        return scored + self._tempo_bonus_for_damage(
+            move,
+            base_score,
+            active,
+            opponent,
+            battle,
+            [],
+            predicted_switch,
+        )
 
     def _get_effective_speed(self, mon: Pokemon) -> int:
         """Get Pokemon's effective speed including boosts."""
@@ -2720,6 +2836,12 @@ class RuleBotPlayer(Player):
         # Reduce value if we're low HP (should attack instead)
         if active.current_hp_fraction < 0.4:
             score *= 0.5
+
+        if battle is not None:
+            best_damage = self._estimate_best_damage_score(active, opponent, battle)
+            score *= self._tempo_penalty_for_passive(
+                "status", active, opponent, battle, best_damage
+            )
 
         return score
 
