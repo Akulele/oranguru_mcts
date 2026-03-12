@@ -241,6 +241,16 @@ def _extract_summary(log_path: Path) -> Optional[dict]:
     }
 
 
+def _tail_text(path: Path, max_lines: int = 20) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return ""
+    if not lines:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
 def _wilson_interval(wins: int, total: int, z: float = 1.96) -> tuple[float, float]:
     if total <= 0:
         return 0.0, 0.0
@@ -319,6 +329,11 @@ def main() -> int:
         forward_args = forward_args[1:]
     if not forward_args:
         raise SystemExit("Missing forwarded eval args. Pass them after `--`.")
+    if _extract_arg(forward_args, "--player") is None:
+        raise SystemExit(
+            "Missing forwarded `--player` arg. "
+            "Pass eval_vs_foulplay.py args after `--`, for example `-- --player oranguru_engine ...`."
+        )
 
     python_path = _resolve_path(args.python, Path(args.python))
     script_path = _resolve_path(args.script, DEFAULT_SCRIPT)
@@ -388,6 +403,9 @@ def main() -> int:
                 _event(f"Completed {job.run_id} (ok)")
             else:
                 _event(f"Completed {job.run_id} (exit {ret})")
+                tail = _tail_text(job.stdout_log, max_lines=12)
+                if tail:
+                    _event(f"Last log lines for {job.run_id}:\n{tail}")
 
         if running:
             parts = [f"running={len(running)} queued={len(pending)} finished={len(finished)}"]
