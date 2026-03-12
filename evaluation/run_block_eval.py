@@ -70,13 +70,15 @@ def _safe_name(value: str) -> str:
     return "".join(ch for ch in value.lower() if ch.isalnum()) or "run"
 
 
-def _resolve_path(value: str | None, default: Path) -> Path:
+def _resolve_path(value: str | None, default: Path, *, dereference: bool = True) -> Path:
     if not value:
         return default
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = PROJECT_ROOT / path
-    return path.resolve()
+    if dereference:
+        return path.resolve()
+    return path.absolute()
 
 
 def _parse_env(items: List[str]) -> Dict[str, str]:
@@ -335,7 +337,10 @@ def main() -> int:
             "Pass eval_vs_foulplay.py args after `--`, for example `-- --player oranguru_engine ...`."
         )
 
-    python_path = _resolve_path(args.python, Path(args.python))
+    # Do not dereference the interpreter path. For virtualenvs, resolving
+    # `venv/bin/python` often collapses back to the system interpreter and
+    # drops the venv site-packages.
+    python_path = _resolve_path(args.python, Path(args.python), dereference=False)
     script_path = _resolve_path(args.script, DEFAULT_SCRIPT)
     stdout_dir = _resolve_path(args.stdout_dir, DEFAULT_STDOUT_DIR)
     foulplay_dir = _resolve_path(args.foulplay_log_dir, DEFAULT_FP_DIR)
