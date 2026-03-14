@@ -51,12 +51,14 @@ SUMMARY_RE = re.compile(
 class Job:
     name: str
     run_id: str
+    run_base_id: str
     block_index: int
     stdout_log: Path
     foulplay_log: Path
     foulplay_user_id_file: Path
     args: List[str]
     env: Dict[str, str]
+    attempt: int = 0
     process: Optional[subprocess.Popen] = None
     handle: Optional[object] = None
     start_time: Optional[float] = None
@@ -148,6 +150,7 @@ def _build_jobs(
             Job(
                 name=name,
                 run_id=run_id,
+                run_base_id=run_id,
                 block_index=block_idx,
                 stdout_log=stdout_log,
                 foulplay_log=foulplay_log,
@@ -157,6 +160,34 @@ def _build_jobs(
             )
         )
     return jobs
+
+
+def _make_retry_job(job: Job) -> Job:
+    next_attempt = job.attempt + 1
+    run_id = f"{job.run_base_id}_retry{next_attempt}"
+    stdout_log = job.stdout_log.parent / f"{run_id}.stdout.log"
+    foulplay_log = job.foulplay_log.parent / f"eval_{run_id}.log"
+    foulplay_user_id = job.foulplay_user_id_file.parent / f"user_{run_id}.txt"
+
+    args = list(job.args)
+    username = _extract_arg(args, "--foulplay-username")
+    if username:
+        args = _upsert_arg(args, "--foulplay-username", f"{username}r{next_attempt}")
+    args = _upsert_arg(args, "--foulplay-log", str(foulplay_log))
+    args = _upsert_arg(args, "--foulplay-user-id-file", str(foulplay_user_id))
+
+    return Job(
+        name=job.name,
+        run_id=run_id,
+        run_base_id=job.run_base_id,
+        block_index=job.block_index,
+        stdout_log=stdout_log,
+        foulplay_log=foulplay_log,
+        foulplay_user_id_file=foulplay_user_id,
+        args=args,
+        env=dict(job.env),
+        attempt=next_attempt,
+    )
 
 
 def _start_job(job: Job, python_path: Path, script_path: Path) -> None:
@@ -318,6 +349,12 @@ def main() -> int:
     parser.add_argument("--stdout-dir", default=str(DEFAULT_STDOUT_DIR))
     parser.add_argument("--foulplay-log-dir", default=str(DEFAULT_FP_DIR))
     parser.add_argument("--summary-out", default=None, help="Optional JSON summary output path.")
+    parser.add_argument(
+        "--retry-partial",
+        type=int,
+        default=0,
+        help="Retry successful-but-incomplete blocks this many times.",
+    )
     parser.add_argument("--env", action="append", default=[], help="Extra env as KEY=VALUE.")
     parser.add_argument(
         "eval_args",
@@ -403,9 +440,28 @@ def main() -> int:
             if job.handle is not None:
                 job.handle.close()
             running.remove(job)
+            summary = _extract_summary(job.stdout_log) if ret == 0 else None
+            invalid_reason = None
+            if ret == 0 and summary is None:
+                invalid_reason = "missing_summary"
+            elif ret == 0 and summary["battles"] != args.battles_per_block:
+                invalid_reason = f"partial:{summary['battles']}/{args.battles_per_block}"
+
+            if ret == 0 and invalid_reason is not None and job.attempt < args.retry_partial:
+                retry_job = _make_retry_job(job)
+                pending.append(retry_job)
+                _event(
+                    f"Completed {job.run_id} ({invalid_reason}); retrying as {retry_job.run_id} "
+                    f"[attempt {retry_job.attempt}/{args.retry_partial}]"
+                )
+                continue
+
             finished.append(job)
             if ret == 0:
-                _event(f"Completed {job.run_id} (ok)")
+                if invalid_reason is None:
+                    _event(f"Completed {job.run_id} (ok)")
+                else:
+                    _event(f"Completed {job.run_id} ({invalid_reason})")
             else:
                 _event(f"Completed {job.run_id} (exit {ret})")
                 tail = _tail_text(job.stdout_log, max_lines=12)
@@ -441,6 +497,7 @@ def main() -> int:
             {
                 "block_index": job.block_index + 1,
                 "run_id": job.run_id,
+                "attempt": job.attempt,
                 "exit_code": job.exit_code,
                 "stdout_log": str(job.stdout_log),
                 "foulplay_log": str(job.foulplay_log),
