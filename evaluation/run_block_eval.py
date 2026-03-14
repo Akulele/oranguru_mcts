@@ -266,7 +266,7 @@ def _wilson_interval(wins: int, total: int, z: float = 1.96) -> tuple[float, flo
 
 
 def _summarize_blocks(name: str, results: List[dict]) -> dict:
-    completed = [r for r in results if r.get("summary") is not None]
+    completed = [r for r in results if r.get("valid_summary") is not None]
     battles = sum(r["summary"]["battles"] for r in completed)
     wins = sum(r["summary"]["wins"] for r in completed)
     losses = sum(r["summary"]["losses"] for r in completed)
@@ -425,8 +425,18 @@ def main() -> int:
     failed = 0
     for job in sorted(finished, key=lambda item: item.block_index):
         summary = _extract_summary(job.stdout_log)
+        valid_summary = summary
+        invalid_reason = None
         if job.exit_code != 0:
             failed += 1
+        elif summary is None:
+            failed += 1
+            invalid_reason = "missing_summary"
+            valid_summary = None
+        elif summary["battles"] != args.battles_per_block:
+            failed += 1
+            invalid_reason = f"partial:{summary['battles']}/{args.battles_per_block}"
+            valid_summary = None
         results.append(
             {
                 "block_index": job.block_index + 1,
@@ -435,6 +445,8 @@ def main() -> int:
                 "stdout_log": str(job.stdout_log),
                 "foulplay_log": str(job.foulplay_log),
                 "summary": summary,
+                "valid_summary": valid_summary,
+                "invalid_reason": invalid_reason,
             }
         )
 
@@ -468,6 +480,21 @@ def main() -> int:
     print("Blocks:")
     for block in report["blocks"]:
         summary = block.get("summary")
+        valid_summary = block.get("valid_summary")
+        if valid_summary is None:
+            reason = block.get("invalid_reason") or "invalid"
+            if summary is not None:
+                print(
+                    f"- block {block['block_index']}: exit={block['exit_code']} "
+                    f"summary={reason} wins={summary['wins']}/{summary['battles']} "
+                    f"log={block['stdout_log']}"
+                )
+            else:
+                print(
+                    f"- block {block['block_index']}: exit={block['exit_code']} "
+                    f"summary={reason} log={block['stdout_log']}"
+                )
+            continue
         if summary is None:
             print(
                 f"- block {block['block_index']}: exit={block['exit_code']} summary=missing "
