@@ -11,6 +11,8 @@ from __future__ import annotations
 import math
 import os
 import random
+import json
+import hashlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -103,6 +105,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
     RL_PRIOR_BLEND = float(os.getenv("ORANGURU_RL_PRIOR_BLEND", "0.2"))
     RL_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_RL_PRIOR_LOWCONF_ONLY", "1")))
     RL_PRIOR_DEVICE = os.getenv("ORANGURU_RL_PRIOR_DEVICE", "cpu").strip().lower()
+    SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
+    SEARCH_TRACE_OUT = os.getenv(
+        "ORANGURU_SEARCH_TRACE_OUT",
+        "logs/search_traces/current/search_trace.jsonl",
+    )
+    SEARCH_TRACE_SOURCE = os.getenv("ORANGURU_SEARCH_TRACE_SOURCE", "oranguru_mcts")
+    SEARCH_TRACE_TAG = os.getenv("ORANGURU_SEARCH_TRACE_TAG", "live_search")
+    SEARCH_TRACE_MIN_TOTAL = float(os.getenv("ORANGURU_SEARCH_TRACE_MIN_TOTAL", "0.0"))
+    SEARCH_TRACE_SKIP_FALLBACK = bool(int(os.getenv("ORANGURU_SEARCH_TRACE_SKIP_FALLBACK", "1")))
     ADAPTIVE_FALLBACK_ENABLED = bool(int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK", "0")))
     ADAPTIVE_FALLBACK_CONFIDENCE = float(
         os.getenv("ORANGURU_ADAPTIVE_FALLBACK_CONFIDENCE", "0.30")
@@ -322,6 +333,30 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._rl_prior_torch = None
         self._rl_prior_checkpoint = ""
         self._diag_finished_battle_tags = set()
+        self._search_trace_finished_battle_tags = set()
+        self._search_trace_builder = None
+        self._search_trace_builder_failed = False
+
+    @staticmethod
+    def _search_trace_species_hash(species: str) -> float:
+        if not species:
+            return 0.0
+        digest = hashlib.sha1(species.encode("utf-8")).hexdigest()
+        value = int(digest[:8], 16) % 997
+        return value / 996.0
+
+    def _init_search_trace_builder(self):
+        if self._search_trace_builder_failed:
+            return None
+        if self._search_trace_builder is not None:
+            return self._search_trace_builder
+        try:
+            from src.utils.features import EnhancedFeatureBuilder
+        except Exception:
+            self._search_trace_builder_failed = True
+            return None
+        self._search_trace_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
+        return self._search_trace_builder
 
     def _init_rl_prior(self) -> bool:
         if self._rl_prior_failed:
@@ -618,6 +653,153 @@ class OranguruEnginePlayer(RuleBotPlayer):
         stats["diag_choice_delta_avg"] = float(stats.get("diag_choice_delta_sum", 0.0)) / diag_turns
         return stats
 
+    def _build_search_trace_action_features(
+        self,
+        battle: Battle,
+        mask: List[bool],
+    ) -> List[List[float]]:
+        rows: List[List[float]] = []
+        side = "p1"
+        my_hazard_load = 0.0
+        try:
+            my_hazard_load = sum(
+                float(v)
+                for v in getattr(battle, "side_conditions", {}).values()
+                if isinstance(v, (int, float))
+            )
+        except Exception:
+            my_hazard_load = 0.0
+        my_hazard_load = min(my_hazard_load / 7.0, 1.0)
+
+        opp = battle.opponent_active_pokemon
+        opp_hp_frac = float(getattr(opp, "current_hp_fraction", 1.0) or 1.0)
+        active = battle.active_pokemon
+        active_slots = list(battle.available_moves or [])
+        bench = list(battle.available_switches or [])
+
+        for idx in range(13):
+            row = [0.0] * 16
+            row[0] = 1.0 if idx < 4 else 0.0
+            row[1] = 1.0 if 4 <= idx < 9 else 0.0
+            row[2] = 1.0 if 9 <= idx < 13 else 0.0
+            row[3] = float(idx) / 12.0
+            row[4] = 1.0 if mask[idx] else 0.0
+            row[5] = opp_hp_frac
+            row[6] = my_hazard_load
+
+            if idx < 4:
+                row[7] = 1.0 if idx < len(active_slots) else 0.0
+                row[8] = 1.0 if idx >= len(active_slots) else 0.0
+            elif 4 <= idx < 9:
+                bench_idx = idx - 4
+                if bench_idx < len(bench):
+                    sw = bench[bench_idx]
+                    row[9] = float(getattr(sw, "current_hp_fraction", 1.0) or 1.0)
+                    row[10] = self._search_trace_species_hash(normalize_name(sw.species))
+                    row[11] = 1.0
+                else:
+                    row[11] = 0.0
+            else:
+                move_idx = idx - 9
+                row[12] = 1.0 if move_idx < len(active_slots) else 0.0
+                row[13] = 1.0 if bool(getattr(battle, "can_tera", False)) else 0.0
+
+            row[14] = 1.0 if (idx < 4 or idx >= 9) else 0.0
+            row[15] = 1.0 if (4 <= idx < 9) else 0.0
+            rows.append(row)
+        return rows
+
+    def _append_search_trace_example(
+        self,
+        battle: Battle,
+        ordered: List[Tuple[str, float]],
+        chosen_choice: str,
+        confidence: float,
+        threshold: float,
+        path: str,
+    ) -> None:
+        if not self.SEARCH_TRACE_ENABLED:
+            return
+        if self.SEARCH_TRACE_SKIP_FALLBACK and path.startswith("fallback"):
+            return
+        builder = self._init_search_trace_builder()
+        if builder is None:
+            return
+        mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+        if not any(mask):
+            return
+        board_features = builder.build(battle)
+        action_features = self._build_search_trace_action_features(battle, mask)
+        visit_counts = [0.0] * len(mask)
+        total_policy = 0.0
+        for choice, weight in ordered:
+            idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+            if idx is None or idx >= len(visit_counts):
+                continue
+            w = max(0.0, float(weight))
+            visit_counts[idx] += w
+            total_policy += w
+        if total_policy < max(0.0, self.SEARCH_TRACE_MIN_TOTAL):
+            return
+        chosen_idx = self._choice_to_rl_action_idx(chosen_choice, mask, move_map, switch_map)
+        if chosen_idx is None:
+            return
+        mem = self._get_battle_memory(battle)
+        examples = mem.setdefault("search_trace_examples", [])
+        examples.append(
+            {
+                "battle_id": str(getattr(battle, "battle_tag", "")),
+                "turn": int(getattr(battle, "turn", 0) or 0),
+                "rating": None,
+                "board_features": [float(v) for v in board_features],
+                "action_features": action_features,
+                "action_mask": [bool(v) for v in mask],
+                "visit_counts": [float(v) for v in visit_counts],
+                "value_target": 0.0,
+                "weight": 1.0,
+                "source": self.SEARCH_TRACE_SOURCE,
+                "tag": self.SEARCH_TRACE_TAG,
+                "player": "self",
+                "chosen_action": int(chosen_idx),
+                "chosen_choice": chosen_choice,
+                "policy_confidence": float(confidence),
+                "policy_threshold": float(threshold),
+                "selection_path": path,
+                "can_tera": bool(getattr(battle, "can_tera", False)),
+            }
+        )
+
+    def _flush_finished_search_traces(self) -> None:
+        if not self.SEARCH_TRACE_ENABLED:
+            return
+        battles = getattr(self, "battles", {}) or {}
+        if not battles:
+            return
+        battle_memory = getattr(self, "_battle_memory", {}) or {}
+        out_path = Path(self.SEARCH_TRACE_OUT)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        for tag, battle in battles.items():
+            if tag in self._search_trace_finished_battle_tags:
+                continue
+            if not getattr(battle, "finished", False):
+                continue
+            self._search_trace_finished_battle_tags.add(tag)
+            mem = battle_memory.get(tag, {}) if isinstance(battle_memory, dict) else {}
+            if not isinstance(mem, dict):
+                continue
+            examples = list(mem.get("search_trace_examples", []) or [])
+            if not examples:
+                continue
+            value = 0.0
+            if bool(getattr(battle, "won", False)):
+                value = 1.0
+            elif bool(getattr(battle, "lost", False)):
+                value = -1.0
+            with out_path.open("a", encoding="utf-8") as handle:
+                for ex in examples:
+                    ex["value_target"] = value
+                    handle.write(json.dumps(ex, separators=(",", ":")) + "\n")
+
     def _diag_record_adaptive_reason(self, reason: str) -> None:
         if not self.DECISION_DIAG_ENABLED:
             return
@@ -815,6 +997,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         return self._mcts_pool
 
     def close(self):
+        self._flush_finished_search_traces()
         if self._mcts_pool is not None:
             try:
                 self._mcts_pool.shutdown(wait=False, cancel_futures=True)
@@ -2753,6 +2936,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     threshold,
                     path,
                 )
+                self._append_search_trace_example(
+                    battle,
+                    ordered,
+                    chosen_choice,
+                    confidence,
+                    threshold,
+                    path,
+                )
             return chosen_choice
         if total_policy <= 0:
             return _return_choice(ordered[0][0], "mcts")
@@ -2997,6 +3188,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         if not isinstance(battle, Battle):
             return self.choose_random_move(battle)
         self._flush_finished_battle_diags()
+        self._flush_finished_search_traces()
         noop_order = self._empty_order_if_no_choices(battle)
         if noop_order is not None:
             return noop_order
