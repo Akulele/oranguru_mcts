@@ -511,6 +511,13 @@ def main() -> int:
 
     print("")
     print(f"Block summary for {args.name}")
+    if report["blocks_completed"] != report["blocks_requested"]:
+        print(
+            "RUN INVALID: only {}/{} blocks completed at full length".format(
+                report["blocks_completed"],
+                report["blocks_requested"],
+            )
+        )
     print(
         "Pooled win rate: {:.2f}% ({}/{}) 95% CI [{:.2f}%, {:.2f}%]".format(
             100.0 * report["pooled_win_rate"],

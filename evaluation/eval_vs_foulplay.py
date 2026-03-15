@@ -1608,6 +1608,8 @@ async def main():
         except subprocess.TimeoutExpired:
             proc.kill()
 
+    return 0 if finished == args.battles else 2
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))
