@@ -113,6 +113,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SEARCH_PRIOR_BLEND = float(os.getenv("ORANGURU_SEARCH_PRIOR_BLEND", "0.15"))
     SEARCH_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_SEARCH_PRIOR_LOWCONF_ONLY", "1")))
     SEARCH_PRIOR_DEVICE = os.getenv("ORANGURU_SEARCH_PRIOR_DEVICE", "cpu").strip().lower()
+    SWITCH_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_SWITCH_PRIOR", "0")))
+    SWITCH_PRIOR_CHECKPOINT = os.getenv(
+        "ORANGURU_SWITCH_PRIOR_CHECKPOINT",
+        "checkpoints/rl/switch_prior_g6_all_v1.pt",
+    )
+    SWITCH_PRIOR_DEVICE = os.getenv("ORANGURU_SWITCH_PRIOR_DEVICE", "cpu").strip().lower()
+    SWITCH_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_SWITCH_PRIOR_LOWCONF_ONLY", "1")))
+    SWITCH_PRIOR_KEEP_TOPK = int(os.getenv("ORANGURU_SWITCH_PRIOR_KEEP_TOPK", "2"))
+    SWITCH_PRIOR_MIN_CANDIDATES = int(os.getenv("ORANGURU_SWITCH_PRIOR_MIN_CANDIDATES", "2"))
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
     SEARCH_TRACE_OUT = os.getenv(
         "ORANGURU_SEARCH_TRACE_OUT",
@@ -282,6 +291,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "fallback_super": 0,
             "fallback_random": 0,
             "search_prior_used": 0,
+            "switch_prior_used": 0,
+            "switch_prior_pruned": 0,
             "adaptive_triggered": 0,
             "adaptive_heuristic_used": 0,
             "adaptive_heuristic_failed": 0,
@@ -348,6 +359,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._search_prior_device = "cpu"
         self._search_prior_torch = None
         self._search_prior_checkpoint = ""
+        self._switch_prior_ready = False
+        self._switch_prior_failed = False
+        self._switch_prior_model = None
+        self._switch_prior_feature_builder = None
+        self._switch_prior_device = "cpu"
+        self._switch_prior_torch = None
+        self._switch_prior_checkpoint = ""
         self._diag_finished_battle_tags = set()
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
@@ -403,6 +421,63 @@ class OranguruEnginePlayer(RuleBotPlayer):
             from src.utils.features import EnhancedFeatureBuilder
         except Exception:
             self._search_prior_failed = True
+            return False
+
+    def _init_switch_prior(self) -> bool:
+        if self._switch_prior_failed:
+            return False
+        if self._switch_prior_ready and self._switch_prior_model is not None:
+            return True
+        if not self.SWITCH_PRIOR_ENABLED:
+            return False
+        try:
+            import torch
+            from src.models.search_prior_value import SearchPriorValueNet
+            from src.utils.features import EnhancedFeatureBuilder
+        except Exception:
+            self._switch_prior_failed = True
+            return False
+
+        ckpt_path = Path(self.SWITCH_PRIOR_CHECKPOINT)
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
+        if not ckpt_path.exists():
+            self._switch_prior_failed = True
+            return False
+
+        device = self.SWITCH_PRIOR_DEVICE
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
+        try:
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+            board_dim = int(config.get("board_dim", 272))
+            action_dim = int(config.get("action_dim", 16))
+            n_actions = int(config.get("n_actions", 13))
+            hidden_dim = int(config.get("hidden_dim", 256))
+            dropout = float(config.get("dropout", 0.1))
+
+            model = SearchPriorValueNet(
+                board_dim=board_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                n_actions=n_actions,
+                dropout=dropout,
+            ).to(device)
+            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            self._switch_prior_model = model
+            self._switch_prior_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
+            self._switch_prior_device = device
+            self._switch_prior_torch = torch
+            self._switch_prior_checkpoint = str(ckpt_path)
+            self._switch_prior_ready = True
+            return True
+        except Exception:
+            self._switch_prior_failed = True
             return False
 
         ckpt_path = Path(self.SEARCH_PRIOR_CHECKPOINT)
@@ -662,6 +737,99 @@ class OranguruEnginePlayer(RuleBotPlayer):
         except Exception:
             self._search_prior_failed = True
             return None
+
+    def _switch_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
+        if not choices or not self.SWITCH_PRIOR_ENABLED:
+            return None
+        if not self._init_switch_prior():
+            return None
+        torch = self._switch_prior_torch
+        model = self._switch_prior_model
+        feature_builder = self._switch_prior_feature_builder
+        if torch is None or model is None or feature_builder is None:
+            return None
+        try:
+            board_features = feature_builder.build(battle)
+            board_features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in board_features
+            ]
+            mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+            if not any(mask):
+                return None
+            action_features = self._build_search_trace_action_features(battle, mask)
+            board_t = torch.tensor([board_features], dtype=torch.float32, device=self._switch_prior_device)
+            action_t = torch.tensor([action_features], dtype=torch.float32, device=self._switch_prior_device)
+            mask_t = torch.tensor([mask], dtype=torch.bool, device=self._switch_prior_device)
+
+            with torch.no_grad():
+                logits, _ = model(board_t, action_t, mask_t)
+                logits = torch.clamp(logits, min=-1e8, max=1e8)
+                probs = torch.softmax(logits, dim=-1)
+                probs = torch.clamp(probs, min=1e-8)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
+            probs_arr = probs[0].detach().cpu().tolist()
+
+            priors: List[float] = []
+            for choice in choices:
+                idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+                if idx is None or idx >= len(probs_arr):
+                    priors.append(0.0)
+                else:
+                    priors.append(max(0.0, float(probs_arr[idx])))
+            if sum(priors) <= 0:
+                return None
+            return priors
+        except Exception:
+            self._switch_prior_failed = True
+            return None
+
+    def _apply_switch_prior_prune(
+        self,
+        battle: Battle,
+        ordered: List[Tuple[str, float]],
+        confidence: float,
+        threshold: float,
+    ) -> List[Tuple[str, float]]:
+        if not ordered or not self.SWITCH_PRIOR_ENABLED:
+            return ordered
+        if self.SWITCH_PRIOR_LOWCONF_ONLY and confidence >= threshold:
+            return ordered
+
+        switch_positions = [i for i, (choice, _) in enumerate(ordered) if choice.startswith("switch ")]
+        min_candidates = max(2, self.SWITCH_PRIOR_MIN_CANDIDATES)
+        if len(switch_positions) < min_candidates:
+            return ordered
+
+        switch_choices = [ordered[i][0] for i in switch_positions]
+        priors = self._switch_choice_priors(battle, switch_choices)
+        if not priors:
+            return ordered
+
+        keep_topk = max(1, self.SWITCH_PRIOR_KEEP_TOPK)
+        top_mcts_switch_pos = switch_positions[0]
+        ranked = sorted(
+            zip(switch_positions, switch_choices, priors),
+            key=lambda item: item[2],
+            reverse=True,
+        )
+        keep_positions = {top_mcts_switch_pos}
+        for pos, _, _ in ranked:
+            keep_positions.add(pos)
+            if len(keep_positions) >= keep_topk:
+                break
+
+        pruned = []
+        pruned_count = 0
+        for idx, item in enumerate(ordered):
+            if idx in switch_positions and idx not in keep_positions:
+                pruned_count += 1
+                continue
+            pruned.append(item)
+        if pruned_count > 0:
+            self._mcts_stats["switch_prior_used"] = int(self._mcts_stats.get("switch_prior_used", 0) or 0) + 1
+            self._mcts_stats["switch_prior_pruned"] = int(self._mcts_stats.get("switch_prior_pruned", 0) or 0) + pruned_count
+        return pruned
 
     def _should_trigger_adaptive_fallback(
         self,
@@ -3172,6 +3340,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         cutoff = best * 0.75
         filtered = [o for o in ordered if o[1] >= cutoff]
+        filtered = self._apply_switch_prior_prune(battle, filtered, confidence, threshold)
+        if not filtered:
+            filtered = [ordered[0]]
 
         if self._should_trigger_adaptive_fallback(battle, ordered, confidence, threshold):
             mem = self._get_battle_memory(battle)
