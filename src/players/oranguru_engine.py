@@ -105,6 +105,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     RL_PRIOR_BLEND = float(os.getenv("ORANGURU_RL_PRIOR_BLEND", "0.2"))
     RL_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_RL_PRIOR_LOWCONF_ONLY", "1")))
     RL_PRIOR_DEVICE = os.getenv("ORANGURU_RL_PRIOR_DEVICE", "cpu").strip().lower()
+    SEARCH_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_PRIOR", "0")))
+    SEARCH_PRIOR_CHECKPOINT = os.getenv(
+        "ORANGURU_SEARCH_PRIOR_CHECKPOINT",
+        "checkpoints/rl/search_prior_value_mixed_g6_all_v1.pt",
+    )
+    SEARCH_PRIOR_BLEND = float(os.getenv("ORANGURU_SEARCH_PRIOR_BLEND", "0.15"))
+    SEARCH_PRIOR_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_SEARCH_PRIOR_LOWCONF_ONLY", "1")))
+    SEARCH_PRIOR_DEVICE = os.getenv("ORANGURU_SEARCH_PRIOR_DEVICE", "cpu").strip().lower()
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
     SEARCH_TRACE_OUT = os.getenv(
         "ORANGURU_SEARCH_TRACE_OUT",
@@ -273,6 +281,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "stochastic_decisions": 0,
             "fallback_super": 0,
             "fallback_random": 0,
+            "search_prior_used": 0,
             "adaptive_triggered": 0,
             "adaptive_heuristic_used": 0,
             "adaptive_heuristic_failed": 0,
@@ -332,6 +341,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._rl_prior_device = "cpu"
         self._rl_prior_torch = None
         self._rl_prior_checkpoint = ""
+        self._search_prior_ready = False
+        self._search_prior_failed = False
+        self._search_prior_model = None
+        self._search_prior_feature_builder = None
+        self._search_prior_device = "cpu"
+        self._search_prior_torch = None
+        self._search_prior_checkpoint = ""
         self._diag_finished_battle_tags = set()
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
@@ -372,6 +388,63 @@ class OranguruEnginePlayer(RuleBotPlayer):
             from training.config import RLConfig
         except Exception:
             self._rl_prior_failed = True
+            return False
+
+    def _init_search_prior(self) -> bool:
+        if self._search_prior_failed:
+            return False
+        if self._search_prior_ready and self._search_prior_model is not None:
+            return True
+        if not self.SEARCH_PRIOR_ENABLED:
+            return False
+        try:
+            import torch
+            from src.models.search_prior_value import SearchPriorValueNet
+            from src.utils.features import EnhancedFeatureBuilder
+        except Exception:
+            self._search_prior_failed = True
+            return False
+
+        ckpt_path = Path(self.SEARCH_PRIOR_CHECKPOINT)
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
+        if not ckpt_path.exists():
+            self._search_prior_failed = True
+            return False
+
+        device = self.SEARCH_PRIOR_DEVICE
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
+        try:
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+            board_dim = int(config.get("board_dim", 272))
+            action_dim = int(config.get("action_dim", 16))
+            n_actions = int(config.get("n_actions", 13))
+            hidden_dim = int(config.get("hidden_dim", 256))
+            dropout = float(config.get("dropout", 0.1))
+
+            model = SearchPriorValueNet(
+                board_dim=board_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                n_actions=n_actions,
+                dropout=dropout,
+            ).to(device)
+            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            self._search_prior_model = model
+            self._search_prior_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
+            self._search_prior_device = device
+            self._search_prior_torch = torch
+            self._search_prior_checkpoint = str(ckpt_path)
+            self._search_prior_ready = True
+            return True
+        except Exception:
+            self._search_prior_failed = True
             return False
 
         ckpt_path = Path(self.RL_PRIOR_CHECKPOINT)
@@ -543,6 +616,53 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self._rl_prior_failed = True
             return None
 
+    def _search_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
+        if not choices or not self.SEARCH_PRIOR_ENABLED:
+            return None
+        if not self._init_search_prior():
+            return None
+        torch = self._search_prior_torch
+        model = self._search_prior_model
+        feature_builder = self._search_prior_feature_builder
+        if torch is None or model is None or feature_builder is None:
+            return None
+        try:
+            board_features = feature_builder.build(battle)
+            board_features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in board_features
+            ]
+            mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+            if not any(mask):
+                return None
+            action_features = self._build_search_trace_action_features(battle, mask)
+            board_t = torch.tensor([board_features], dtype=torch.float32, device=self._search_prior_device)
+            action_t = torch.tensor([action_features], dtype=torch.float32, device=self._search_prior_device)
+            mask_t = torch.tensor([mask], dtype=torch.bool, device=self._search_prior_device)
+
+            with torch.no_grad():
+                logits, _ = model(board_t, action_t, mask_t)
+                logits = torch.clamp(logits, min=-1e8, max=1e8)
+                probs = torch.softmax(logits, dim=-1)
+                probs = torch.clamp(probs, min=1e-8)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
+            probs_arr = probs[0].detach().cpu().tolist()
+
+            priors: List[float] = []
+            for choice in choices:
+                idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+                if idx is None or idx >= len(probs_arr):
+                    priors.append(0.0)
+                else:
+                    priors.append(max(0.0, float(probs_arr[idx])))
+            if sum(priors) <= 0:
+                return None
+            self._mcts_stats["search_prior_used"] = int(self._mcts_stats.get("search_prior_used", 0) or 0) + 1
+            return priors
+        except Exception:
+            self._search_prior_failed = True
+            return None
+
     def _should_trigger_adaptive_fallback(
         self,
         battle: Battle,
@@ -709,6 +829,54 @@ class OranguruEnginePlayer(RuleBotPlayer):
             rows.append(row)
         return rows
 
+    def _search_trace_phase(self, battle: Battle) -> str:
+        try:
+            my_remaining = sum(
+                1 for mon in (battle.team or {}).values() if not getattr(mon, "fainted", False)
+            )
+        except Exception:
+            my_remaining = 6
+        try:
+            opp_remaining = sum(
+                1
+                for mon in (battle.opponent_team or {}).values()
+                if not getattr(mon, "fainted", False)
+            )
+        except Exception:
+            opp_remaining = 6
+        turn = int(getattr(battle, "turn", 0) or 0)
+        if my_remaining <= 2 or opp_remaining <= 2:
+            return "end"
+        if turn <= 6:
+            return "opening"
+        return "mid"
+
+    def _search_trace_choice_kind(self, battle: Battle, choice: str) -> str:
+        if not choice:
+            return "unknown"
+        if choice.startswith("switch "):
+            return "switch"
+        move_id = normalize_name(choice.replace("-tera", ""))
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) != move_id:
+                continue
+            if move.id in self.PROTECT_MOVES:
+                return "protect"
+            if self._is_recovery_move(move):
+                return "recovery"
+            try:
+                if move.category == MoveCategory.STATUS:
+                    boosts = getattr(move, "boosts", None) or {}
+                    if boosts and move.target and "self" in str(move.target).lower():
+                        return "setup"
+                    return "status"
+            except Exception:
+                return "unknown"
+            if choice.endswith("-tera"):
+                return "tera_attack"
+            return "attack"
+        return "unknown"
+
     def _append_search_trace_example(
         self,
         battle: Battle,
@@ -744,6 +912,36 @@ class OranguruEnginePlayer(RuleBotPlayer):
         chosen_idx = self._choice_to_rl_action_idx(chosen_choice, mask, move_map, switch_map)
         if chosen_idx is None:
             return
+        active = battle.active_pokemon
+        opponent = battle.opponent_active_pokemon
+        phase = self._search_trace_phase(battle)
+        matchup_score = 0.0
+        best_reply_score = 0.0
+        hazard_load = 0.0
+        if active is not None and opponent is not None:
+            try:
+                matchup_score = float(self._estimate_matchup(active, opponent))
+            except Exception:
+                matchup_score = 0.0
+            try:
+                best_reply_score = float(self._estimate_best_reply_score(opponent, active, battle))
+            except Exception:
+                best_reply_score = 0.0
+        try:
+            hazard_load = float(self._side_hazard_pressure(battle))
+        except Exception:
+            hazard_load = 0.0
+        top_actions = [
+            {
+                "choice": choice,
+                "weight": float(weight),
+                "kind": self._search_trace_choice_kind(battle, choice),
+            }
+            for choice, weight in ordered[:5]
+        ]
+        top1_kind = top_actions[0]["kind"] if top_actions else "unknown"
+        switch_candidate_count = sum(1 for idx in range(4, 9) if idx < len(mask) and mask[idx])
+        tera_candidate_count = sum(1 for idx in range(9, 13) if idx < len(mask) and mask[idx])
         mem = self._get_battle_memory(battle)
         examples = mem.setdefault("search_trace_examples", [])
         examples.append(
@@ -766,6 +964,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 "policy_threshold": float(threshold),
                 "selection_path": path,
                 "can_tera": bool(getattr(battle, "can_tera", False)),
+                "top_actions": top_actions,
+                "top1_kind": top1_kind,
+                "passive_top1": top1_kind in {"protect", "recovery", "status", "setup"},
+                "switch_candidate_count": int(switch_candidate_count),
+                "tera_candidate_count": int(tera_candidate_count),
+                "hazard_load": float(hazard_load),
+                "matchup_score": float(matchup_score),
+                "best_reply_score": float(best_reply_score),
+                "phase": phase,
             }
         )
 
@@ -3093,6 +3300,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     combined = [
                         (1.0 - rl_blend) * base + rl_blend * rl
                         for base, rl in zip(combined, rl_norm)
+                    ]
+
+        search_prior_blend = max(0.0, min(1.0, self.SEARCH_PRIOR_BLEND))
+        if search_prior_blend > 0.0 and (not self.SEARCH_PRIOR_LOWCONF_ONLY or confidence < threshold):
+            search_priors = self._search_choice_priors(battle, choices)
+            if search_priors:
+                prior_total = sum(search_priors)
+                if prior_total > 0:
+                    prior_norm = [w / prior_total for w in search_priors]
+                    combined = [
+                        (1.0 - search_prior_blend) * base + search_prior_blend * prior
+                        for base, prior in zip(combined, prior_norm)
                     ]
 
         return _return_choice(_pick_choice(choices, combined), selection_path)

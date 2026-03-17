@@ -1499,6 +1499,7 @@ async def main():
         adaptive_triggered = int(mcts_stats.get("adaptive_triggered", 0))
         adaptive_rerank = int(mcts_stats.get("adaptive_rerank_used", 0))
         adaptive_second_pass = int(mcts_stats.get("adaptive_second_pass_used", 0))
+        search_prior_used = int(mcts_stats.get("search_prior_used", 0))
         if adaptive_triggered or adaptive_rerank or adaptive_second_pass:
             print(
                 "   Adaptive(trigger/rerank/2nd): {}/{}/{}".format(
@@ -1507,6 +1508,8 @@ async def main():
                     adaptive_second_pass,
                 )
             )
+        if search_prior_used:
+            print(f"   Search prior uses: {search_prior_used}")
         diag_turns = int(mcts_stats.get("diag_turns", 0))
         if diag_turns > 0:
             print("\n📌 Decision Diagnostics")
