@@ -117,14 +117,16 @@ def main() -> int:
             for idx in range(4, 9):
                 if idx < len(mask) and switch_mask[idx]:
                     switch_target[idx] = max(0.0, visit_counts[idx])
-            if sum(switch_target) <= 0:
+            switch_total = sum(switch_target)
+            if switch_total <= 0:
                 counters["drop_zero_switch_target"] += 1
                 continue
+            switch_policy = [v / switch_total if switch_total > 0 else 0.0 for v in switch_target]
 
             row = dict(ex)
             row["action_mask"] = switch_mask
-            row["visit_counts"] = switch_target
-            row["policy_target"] = None
+            row["visit_counts"] = None
+            row["policy_target"] = switch_policy
             row["switch_mass"] = float(switch_mass / total_mass)
             row["weight"] = float(row.get("weight", 1.0))
             examples.append(row)
