@@ -1099,14 +1099,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
             hazard_load = float(self._side_hazard_pressure(battle))
         except Exception:
             hazard_load = 0.0
-        top_actions = [
-            {
-                "choice": choice,
-                "weight": float(weight),
-                "kind": self._search_trace_choice_kind(battle, choice),
-            }
-            for choice, weight in ordered[:5]
-        ]
+        top_actions = []
+        for choice, weight in ordered[:5]:
+            choice_idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+            top_actions.append(
+                {
+                    "choice": choice,
+                    "choice_idx": int(choice_idx) if choice_idx is not None else None,
+                    "weight": float(weight),
+                    "kind": self._search_trace_choice_kind(battle, choice),
+                }
+            )
         top1_kind = top_actions[0]["kind"] if top_actions else "unknown"
         switch_candidate_count = sum(1 for idx in range(4, 9) if idx < len(mask) and mask[idx])
         tera_candidate_count = sum(1 for idx in range(9, 13) if idx < len(mask) and mask[idx])
