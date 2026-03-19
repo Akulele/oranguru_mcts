@@ -132,6 +132,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PASSIVE_BREAKER_TOPK = int(os.getenv("ORANGURU_PASSIVE_BREAKER_TOPK", "3"))
     PASSIVE_BREAKER_MIN_PROB = float(os.getenv("ORANGURU_PASSIVE_BREAKER_MIN_PROB", "0.40"))
     PASSIVE_BREAKER_MIN_MARGIN = float(os.getenv("ORANGURU_PASSIVE_BREAKER_MIN_MARGIN", "0.05"))
+    TERA_PRUNER_ENABLED = bool(int(os.getenv("ORANGURU_TERA_PRUNER", "0")))
+    TERA_PRUNER_CHECKPOINT = os.getenv(
+        "ORANGURU_TERA_PRUNER_CHECKPOINT",
+        "checkpoints/rl/tera_pruner_g6_all_v1.pt",
+    )
+    TERA_PRUNER_DEVICE = os.getenv("ORANGURU_TERA_PRUNER_DEVICE", "cpu").strip().lower()
+    TERA_PRUNER_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_TERA_PRUNER_LOWCONF_ONLY", "1")))
+    TERA_PRUNER_KEEP_TOPK = int(os.getenv("ORANGURU_TERA_PRUNER_KEEP_TOPK", "1"))
+    TERA_PRUNER_MIN_CANDIDATES = int(os.getenv("ORANGURU_TERA_PRUNER_MIN_CANDIDATES", "2"))
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
     SEARCH_TRACE_OUT = os.getenv(
         "ORANGURU_SEARCH_TRACE_OUT",
@@ -304,6 +313,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "switch_prior_used": 0,
             "switch_prior_pruned": 0,
             "passive_breaker_used": 0,
+            "tera_pruner_used": 0,
+            "tera_pruner_pruned": 0,
             "adaptive_triggered": 0,
             "adaptive_heuristic_used": 0,
             "adaptive_heuristic_failed": 0,
@@ -384,6 +395,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._passive_breaker_device = "cpu"
         self._passive_breaker_torch = None
         self._passive_breaker_checkpoint = ""
+        self._tera_pruner_ready = False
+        self._tera_pruner_failed = False
+        self._tera_pruner_model = None
+        self._tera_pruner_feature_builder = None
+        self._tera_pruner_device = "cpu"
+        self._tera_pruner_torch = None
+        self._tera_pruner_checkpoint = ""
         self._diag_finished_battle_tags = set()
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
@@ -469,6 +487,63 @@ class OranguruEnginePlayer(RuleBotPlayer):
             from src.utils.features import EnhancedFeatureBuilder
         except Exception:
             self._passive_breaker_failed = True
+            return False
+
+    def _init_tera_pruner(self) -> bool:
+        if self._tera_pruner_failed:
+            return False
+        if self._tera_pruner_ready and self._tera_pruner_model is not None:
+            return True
+        if not self.TERA_PRUNER_ENABLED:
+            return False
+        try:
+            import torch
+            from src.models.search_prior_value import SearchPriorValueNet
+            from src.utils.features import EnhancedFeatureBuilder
+        except Exception:
+            self._tera_pruner_failed = True
+            return False
+
+        ckpt_path = Path(self.TERA_PRUNER_CHECKPOINT)
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
+        if not ckpt_path.exists():
+            self._tera_pruner_failed = True
+            return False
+
+        device = self.TERA_PRUNER_DEVICE
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
+        try:
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+            board_dim = int(config.get("board_dim", 272))
+            action_dim = int(config.get("action_dim", 16))
+            n_actions = int(config.get("n_actions", 13))
+            hidden_dim = int(config.get("hidden_dim", 256))
+            dropout = float(config.get("dropout", 0.1))
+
+            model = SearchPriorValueNet(
+                board_dim=board_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                n_actions=n_actions,
+                dropout=dropout,
+            ).to(device)
+            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            self._tera_pruner_model = model
+            self._tera_pruner_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
+            self._tera_pruner_device = device
+            self._tera_pruner_torch = torch
+            self._tera_pruner_checkpoint = str(ckpt_path)
+            self._tera_pruner_ready = True
+            return True
+        except Exception:
+            self._tera_pruner_failed = True
             return False
 
         ckpt_path = Path(self.PASSIVE_BREAKER_CHECKPOINT)
@@ -905,6 +980,52 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self._passive_breaker_failed = True
             return None
 
+    def _tera_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
+        if not choices or not self.TERA_PRUNER_ENABLED:
+            return None
+        if not self._init_tera_pruner():
+            return None
+        torch = self._tera_pruner_torch
+        model = self._tera_pruner_model
+        feature_builder = self._tera_pruner_feature_builder
+        if torch is None or model is None or feature_builder is None:
+            return None
+        try:
+            board_features = feature_builder.build(battle)
+            board_features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in board_features
+            ]
+            mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+            if not any(mask):
+                return None
+            action_features = self._build_search_trace_action_features(battle, mask)
+            board_t = torch.tensor([board_features], dtype=torch.float32, device=self._tera_pruner_device)
+            action_t = torch.tensor([action_features], dtype=torch.float32, device=self._tera_pruner_device)
+            mask_t = torch.tensor([mask], dtype=torch.bool, device=self._tera_pruner_device)
+
+            with torch.no_grad():
+                logits, _ = model(board_t, action_t, mask_t)
+                logits = torch.clamp(logits, min=-1e8, max=1e8)
+                probs = torch.softmax(logits, dim=-1)
+                probs = torch.clamp(probs, min=1e-8)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
+            probs_arr = probs[0].detach().cpu().tolist()
+
+            priors: List[float] = []
+            for choice in choices:
+                idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+                if idx is None or idx >= len(probs_arr):
+                    priors.append(0.0)
+                else:
+                    priors.append(max(0.0, float(probs_arr[idx])))
+            if sum(priors) <= 0:
+                return None
+            return priors
+        except Exception:
+            self._tera_pruner_failed = True
+            return None
+
     def _apply_switch_prior_prune(
         self,
         battle: Battle,
@@ -994,6 +1115,51 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return None
         self._mcts_stats["passive_breaker_used"] = int(self._mcts_stats.get("passive_breaker_used", 0) or 0) + 1
         return best_choice
+
+    def _apply_tera_prune(
+        self,
+        battle: Battle,
+        ordered: List[Tuple[str, float]],
+        confidence: float,
+        threshold: float,
+    ) -> List[Tuple[str, float]]:
+        if not ordered or not self.TERA_PRUNER_ENABLED:
+            return ordered
+        if self.TERA_PRUNER_LOWCONF_ONLY and confidence >= threshold:
+            return ordered
+        if not bool(getattr(battle, "can_tera", False)):
+            return ordered
+
+        tera_positions = [i for i, (choice, _) in enumerate(ordered) if choice.endswith("-tera")]
+        min_candidates = max(2, self.TERA_PRUNER_MIN_CANDIDATES)
+        if len(tera_positions) < min_candidates:
+            return ordered
+
+        tera_choices = [ordered[i][0] for i in tera_positions]
+        priors = self._tera_choice_priors(battle, tera_choices)
+        if not priors:
+            return ordered
+
+        keep_topk = max(1, self.TERA_PRUNER_KEEP_TOPK)
+        top_mcts_tera_pos = tera_positions[0]
+        ranked = sorted(zip(tera_positions, tera_choices, priors), key=lambda item: item[2], reverse=True)
+        keep_positions = {top_mcts_tera_pos}
+        for pos, _, _ in ranked:
+            keep_positions.add(pos)
+            if len(keep_positions) >= keep_topk:
+                break
+
+        pruned = []
+        pruned_count = 0
+        for idx, item in enumerate(ordered):
+            if idx in tera_positions and idx not in keep_positions:
+                pruned_count += 1
+                continue
+            pruned.append(item)
+        if pruned_count > 0:
+            self._mcts_stats["tera_pruner_used"] = int(self._mcts_stats.get("tera_pruner_used", 0) or 0) + 1
+            self._mcts_stats["tera_pruner_pruned"] = int(self._mcts_stats.get("tera_pruner_pruned", 0) or 0) + pruned_count
+        return pruned
 
     def _should_trigger_adaptive_fallback(
         self,
@@ -3508,6 +3674,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         cutoff = best * 0.75
         filtered = [o for o in ordered if o[1] >= cutoff]
         filtered = self._apply_switch_prior_prune(battle, filtered, confidence, threshold)
+        filtered = self._apply_tera_prune(battle, filtered, confidence, threshold)
         if not filtered:
             filtered = [ordered[0]]
         passive_break_choice = self._maybe_passive_break_choice(battle, filtered, confidence, threshold)
