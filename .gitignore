@@ -55,3 +55,6 @@ backups/*.tgz
 
 # OS files
 .DS_Store
+# Private local notes
+CONTEXT_PASSOFF*.md
+**/CONTEXT_PASSOFF*.md
