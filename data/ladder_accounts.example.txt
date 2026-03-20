@@ -1,0 +1,9 @@
+# Copy this file to data/ladder_accounts.txt and fill in real credentials.
+# One account per line. Accepted formats:
+#   username:password
+#   username,password
+#   username password
+
+orangurutestacc1:replace_me
+orangurutestacc2:replace_me
+your_account_name:replace_me

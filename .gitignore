@@ -4,6 +4,12 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .dist/
 build/
 dist/
@@ -13,6 +19,12 @@ venv/
 .venv/
 env/
 ENV/
+third_party/foul-play/.venv/
+
+# Local tooling
+.claude/
+.vscode/
+.idea/
 
 # Training artifacts / checkpoints
 checkpoints/
@@ -22,9 +34,24 @@ checkpoints/
 *.onnx
 *.safetensors
 
-# Logs & misc
-*.log
-*.tmp
-.DS_Store
+# Logs and runtime output
 logs/
 nohup.out
+*.log
+*.pid
+*.tmp
+
+# Generated datasets and local-only data
+# Keep the static dex JSON files in data/ tracked.
+data/*.pkl
+data/*.pkl.meta.json
+data/gen9random/
+data/ladder_raw/
+data/ladder_accounts.txt
+
+# Backups and local research files
+backups/*.tgz
+*.pdf
+
+# OS files
+.DS_Store
