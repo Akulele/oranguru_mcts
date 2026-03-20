@@ -408,12 +408,16 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._search_trace_builder_failed = False
 
     @staticmethod
-    def _search_trace_species_hash(species: str) -> float:
-        if not species:
+    def _search_trace_token_hash(token: str) -> float:
+        if not token:
             return 0.0
-        digest = hashlib.sha1(species.encode("utf-8")).hexdigest()
+        digest = hashlib.sha1(token.encode("utf-8")).hexdigest()
         value = int(digest[:8], 16) % 997
         return value / 996.0
+
+    @classmethod
+    def _search_trace_species_hash(cls, species: str) -> float:
+        return cls._search_trace_token_hash(species)
 
     def _init_search_trace_builder(self):
         if self._search_trace_builder_failed:
@@ -1349,6 +1353,125 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return "opening"
         return "mid"
 
+    @staticmethod
+    def _search_trace_status_code(status: object) -> float:
+        status_name = normalize_name(str(status or ""))
+        if not status_name:
+            return 0.0
+        mapping = {
+            "brn": 1.0 / 6.0,
+            "burn": 1.0 / 6.0,
+            "par": 2.0 / 6.0,
+            "paralysis": 2.0 / 6.0,
+            "psn": 3.0 / 6.0,
+            "poison": 3.0 / 6.0,
+            "tox": 4.0 / 6.0,
+            "toxic": 4.0 / 6.0,
+            "slp": 5.0 / 6.0,
+            "sleep": 5.0 / 6.0,
+            "frz": 1.0,
+            "freeze": 1.0,
+        }
+        return mapping.get(status_name, 0.0)
+
+    def _build_world_rank_features(self, fp_battle: FPBattle) -> List[float]:
+        opponent = getattr(fp_battle, "opponent", None)
+        slots: List[Optional[FPPokemon]] = []
+        if opponent is not None:
+            slots.append(getattr(opponent, "active", None))
+            slots.extend(list(getattr(opponent, "reserve", []) or [])[:5])
+        while len(slots) < 6:
+            slots.append(None)
+
+        try:
+            opp_alive = sum(1 for mon in slots if mon is not None and getattr(mon, "hp", 0) > 0)
+        except Exception:
+            opp_alive = 0
+        try:
+            opp_revealed = sum(1 for mon in slots if mon is not None)
+        except Exception:
+            opp_revealed = 0
+
+        features: List[float] = [
+            float(int(bool(getattr(opponent, "active", None)))),
+            min(1.0, opp_alive / 6.0),
+            min(1.0, opp_revealed / 6.0),
+            float(int(bool(getattr(getattr(opponent, "active", None), "terastallized", False)))),
+        ]
+
+        for mon in slots:
+            if mon is None:
+                features.extend([0.0] * 13)
+                continue
+
+            stats = getattr(mon, "stats", {}) or {}
+            hp = float(getattr(mon, "hp", 0) or 0.0)
+            max_hp = float(getattr(mon, "max_hp", 0) or 0.0)
+            hp_frac = 0.0 if max_hp <= 0 else max(0.0, min(1.0, hp / max_hp))
+            spe = max(0.0, min(1.0, float(stats.get(constants.SPEED, 0) or 0.0) / 500.0))
+            atk = max(0.0, min(1.0, float(stats.get(constants.ATTACK, 0) or 0.0) / 500.0))
+            spa = max(0.0, min(1.0, float(stats.get(constants.SPECIAL_ATTACK, 0) or 0.0) / 500.0))
+            move_count = max(0.0, min(1.0, len(getattr(mon, "moves", []) or []) / 4.0))
+            features.extend(
+                [
+                    1.0,
+                    float(int(hp > 0)),
+                    hp_frac,
+                    max(0.0, min(1.0, float(getattr(mon, "level", 100) or 100.0) / 100.0)),
+                    spe,
+                    atk,
+                    spa,
+                    move_count,
+                    self._search_trace_status_code(getattr(mon, "status", None)),
+                    self._search_trace_token_hash(getattr(mon, "name", "")),
+                    self._search_trace_token_hash(getattr(mon, "item", "")),
+                    self._search_trace_token_hash(getattr(mon, "ability", "")),
+                    self._search_trace_token_hash(getattr(mon, "tera_type", "")),
+                ]
+            )
+        return features
+
+    def _build_world_candidate_summary(
+        self,
+        battle: Battle,
+        fp_battle: FPBattle,
+        sample_weight: float,
+        result,
+    ) -> dict:
+        mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
+        world_visits = [0.0] * len(mask)
+        total_visits = 0.0
+        top_choice = ""
+        top_choice_visits = 0.0
+
+        for opt in getattr(result, "side_one", []) or []:
+            choice = getattr(opt, "move_choice", "") or ""
+            visits = max(0.0, float(getattr(opt, "visits", 0) or 0.0))
+            if visits <= 0:
+                continue
+            idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+            if idx is None or idx >= len(world_visits):
+                continue
+            world_visits[idx] += visits
+            total_visits += visits
+            if visits > top_choice_visits:
+                top_choice_visits = visits
+                top_choice = choice
+
+        top_choice_idx = self._choice_to_rl_action_idx(top_choice, mask, move_map, switch_map)
+        top_choice_prob = 0.0 if total_visits <= 0 else top_choice_visits / total_visits
+        return {
+            "index": 0,
+            "sample_weight": float(sample_weight),
+            "world_features": [float(v) for v in self._build_world_rank_features(fp_battle)],
+            "visit_counts": [float(v) for v in world_visits],
+            "total_visits": float(total_visits),
+            "top_choice": top_choice,
+            "top_choice_idx": int(top_choice_idx) if top_choice_idx is not None else None,
+            "top_choice_kind": self._search_trace_choice_kind(battle, top_choice),
+            "top_choice_prob": float(top_choice_prob),
+        }
+
     def _search_trace_choice_kind(self, battle: Battle, choice: str) -> str:
         if not choice:
             return "unknown"
@@ -1383,6 +1506,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         confidence: float,
         threshold: float,
         path: str,
+        world_candidates: Optional[List[dict]] = None,
     ) -> None:
         if not self.SEARCH_TRACE_ENABLED:
             return
@@ -1474,6 +1598,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 "matchup_score": float(matchup_score),
                 "best_reply_score": float(best_reply_score),
                 "phase": phase,
+                "world_candidates": list(world_candidates or []),
             }
         )
 
@@ -3547,7 +3672,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         sample_states: int,
         search_time_ms: int,
         base_fp_battle: Optional[FPBattle] = None,
-    ) -> List[Tuple[object, float]]:
+    ) -> Tuple[List[Tuple[object, float]], List[dict]]:
         fp_battle = base_fp_battle or self._build_fp_battle(
             battle, seed=0, fill_opponent_sets=False
         )
@@ -3575,6 +3700,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._mcts_stats["states_sampled"] += len(states)
 
         results: List[Tuple[object, float]] = []
+        world_candidates: List[dict] = []
         workers = min(self.PARALLELISM, len(states))
         if workers > 1:
             executor = self._get_mcts_pool(workers)
@@ -3585,7 +3711,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 executor.submit(_run_mcts, state, search_time_ms)  # type: ignore[union-attr]
                 for state in states
             ]
-            for fut, weight in zip(futures, weights):
+            for index, (fut, weight, fp_state) in enumerate(zip(futures, weights, fp_battles)):
                 try:
                     timeout_sec = max(1.0, (search_time_ms / 1000.0) * 2.0 + 2.0)
                     res = fut.result(timeout=timeout_sec)
@@ -3596,22 +3722,29 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
+                summary = self._build_world_candidate_summary(battle, fp_state, weight, res)
+                summary["index"] = int(index)
+                world_candidates.append(summary)
                 self._mcts_stats["results_kept"] += 1
         else:
-            for state, weight in zip(states, weights):
+            for index, (state, weight, fp_state) in enumerate(zip(states, weights, fp_battles)):
                 res = _run_mcts(state, search_time_ms)
                 if res is None:
                     self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
+                summary = self._build_world_candidate_summary(battle, fp_state, weight, res)
+                summary["index"] = int(index)
+                world_candidates.append(summary)
                 self._mcts_stats["results_kept"] += 1
-        return results
+        return results, world_candidates
 
     def _select_move_from_results(
         self,
         results: List[Tuple[object, float]],
         battle: Battle,
         banned_choices: Optional[set] = None,
+        world_candidates: Optional[List[dict]] = None,
     ) -> str:
         battle_tag = str(getattr(battle, "battle_tag", "")).lower()
         is_eval_tag = any(key in battle_tag for key in ("eval", "evaluation", "heuristic", "oranguru"))
@@ -3651,6 +3784,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     confidence,
                     threshold,
                     path,
+                    world_candidates=world_candidates,
                 )
             return chosen_choice
         if total_policy <= 0:
@@ -3995,7 +4129,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
             sample_states = min(self.MAX_SAMPLE_STATES, sample_states)
 
-        results = self._collect_mcts_results(
+        results, world_candidates = self._collect_mcts_results(
             battle,
             sample_states=sample_states,
             search_time_ms=search_time_ms,
@@ -4034,18 +4168,24 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     max(sample_states, self.ADAPTIVE_ESCALATE_MAX_STATES),
                 )
                 if boosted_ms > search_time_ms or boosted_states > sample_states:
-                    second_results = self._collect_mcts_results(
+                    second_results, second_world_candidates = self._collect_mcts_results(
                         battle,
                         sample_states=boosted_states,
                         search_time_ms=boosted_ms,
                     )
                     if second_results:
                         results = second_results
+                        world_candidates = second_world_candidates
                         self._mcts_stats["adaptive_second_pass_used"] += 1
                     else:
                         self._mcts_stats["adaptive_second_pass_failed"] += 1
 
-        choice = self._select_move_from_results(results, battle, banned_choices=banned_choices)
+        choice = self._select_move_from_results(
+            results,
+            battle,
+            banned_choices=banned_choices,
+            world_candidates=world_candidates,
+        )
         if not choice:
             mem = self._get_battle_memory(battle)
             adaptive_pending = int(mem.get("adaptive_fallback_pending", 0) or 0) == 1
