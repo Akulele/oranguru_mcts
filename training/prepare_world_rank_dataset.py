@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import math
 import pickle
 from collections import Counter
 from pathlib import Path
@@ -27,6 +28,21 @@ from training.search_assist_utils import (  # noqa: E402
     safe_float,
     validate_search_assist_example,
 )
+
+
+def _policy_dot(a: list[float], b: list[float]) -> float:
+    n = min(len(a), len(b))
+    return float(sum(float(a[i]) * float(b[i]) for i in range(n)))
+
+
+def _policy_cosine(a: list[float], b: list[float]) -> float:
+    n = min(len(a), len(b))
+    dot = float(sum(float(a[i]) * float(b[i]) for i in range(n)))
+    norm_a = math.sqrt(sum(float(a[i]) * float(a[i]) for i in range(n)))
+    norm_b = math.sqrt(sum(float(b[i]) * float(b[i]) for i in range(n)))
+    if norm_a <= 0 or norm_b <= 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 def _iter_examples(path: str) -> Iterable[dict]:
@@ -100,6 +116,7 @@ def main() -> int:
             if final_policy is None:
                 counters["drop_missing_final_policy"] += 1
                 continue
+            final_top_action = max(range(len(final_policy)), key=lambda i: final_policy[i]) if final_policy else -1
 
             chosen_action = int(ex.get("chosen_action", -1) or -1)
             if chosen_action < 0 or chosen_action >= len(mask) or not mask[chosen_action]:
@@ -141,29 +158,51 @@ def main() -> int:
                 else:
                     top_choice_idx = int(top_choice_idx)
 
+                valid_actions = max(1, sum(1 for v in mask if v))
+                phase = str(ex.get("phase", "mid"))
+                phase_opening = 1.0 if phase == "opening" else 0.0
+                phase_mid = 1.0 if phase == "mid" else 0.0
+                phase_end = 1.0 if phase == "end" else 0.0
+                turn_norm = min(1.0, turn / 30.0)
+                sample_weight = safe_float(world.get("sample_weight", 1.0), 1.0)
+                enriched_world_features = [safe_float(v, 0.0) for v in world_features] + [
+                    sample_weight,
+                    min(1.0, valid_actions / max(1, len(mask))),
+                    turn_norm,
+                    phase_opening,
+                    phase_mid,
+                    phase_end,
+                ]
+                target_overlap = _policy_dot(world_policy, final_policy)
+                target_cosine = _policy_cosine(world_policy, final_policy)
+
                 row = {
                     "battle_id": str(ex.get("battle_id", "unknown")),
                     "turn": turn,
                     "world_index": int(world.get("index", 0) or 0),
                     "board_features": [safe_float(v, 0.0) for v in ex.get("board_features", [])],
-                    "world_features": [safe_float(v, 0.0) for v in world_features],
+                    "world_features": enriched_world_features,
                     "action_mask": mask,
                     "final_policy": [float(v) for v in final_policy],
                     "world_policy": [float(v) for v in world_policy],
                     "chosen_action": chosen_action,
+                    "final_top_action": int(final_top_action),
                     "chosen_choice": str(ex.get("chosen_choice", "")),
                     "world_top_choice": str(world.get("top_choice", "")),
                     "world_top_choice_idx": top_choice_idx,
                     "world_top_choice_kind": str(world.get("top_choice_kind", "unknown")),
                     "world_top_choice_prob": safe_float(world.get("top_choice_prob", 0.0), 0.0),
-                    "target_score": float(world_policy[chosen_action]),
-                    "agreement_label": int(top_choice_idx == chosen_action),
-                    "sample_weight": safe_float(world.get("sample_weight", 1.0), 1.0),
+                    "target_score": float(target_overlap),
+                    "target_overlap": float(target_overlap),
+                    "target_cosine": float(target_cosine),
+                    "target_chosen_mass": float(world_policy[chosen_action]),
+                    "agreement_label": int(top_choice_idx == final_top_action),
+                    "sample_weight": sample_weight,
                     "world_total_visits": safe_float(world.get("total_visits", world_total), 0.0),
                     "policy_confidence": confidence,
                     "policy_threshold": threshold,
                     "selection_path": str(ex.get("selection_path", "")),
-                    "phase": str(ex.get("phase", "mid")),
+                    "phase": phase,
                     "source": str(ex.get("source", "")),
                     "tag": str(ex.get("tag", "")),
                     "value_target": safe_float(ex.get("value_target", 0.0), 0.0),
