@@ -165,7 +165,11 @@ def main() -> int:
                 phase_end = 1.0 if phase == "end" else 0.0
                 turn_norm = min(1.0, turn / 30.0)
                 sample_weight = safe_float(world.get("sample_weight", 1.0), 1.0)
+                plausibility_features = [
+                    safe_float(v, 0.0) for v in (world.get("plausibility_features") or [])
+                ]
                 enriched_world_features = [safe_float(v, 0.0) for v in world_features] + [
+                    *plausibility_features,
                     sample_weight,
                     min(1.0, valid_actions / max(1, len(mask))),
                     turn_norm,

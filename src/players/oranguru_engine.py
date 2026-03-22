@@ -61,6 +61,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
         os.getenv("ORANGURU_SAMPLE_STATES_MAX", str(max(6, PARALLELISM * 4)))
     )
     DYNAMIC_SAMPLING = bool(int(os.getenv("ORANGURU_DYNAMIC_SAMPLING", "1")))
+    LOW_UNCERTAINTY_WORLD_REDUCTION = bool(
+        int(os.getenv("ORANGURU_LOW_UNCERTAINTY_WORLD_REDUCTION", "1"))
+    )
+    LOW_UNCERTAINTY_MIN_REVEALED = int(
+        os.getenv("ORANGURU_LOW_UNCERTAINTY_MIN_REVEALED", "5")
+    )
+    LOW_UNCERTAINTY_MIN_KNOWN_MOVES = int(
+        os.getenv("ORANGURU_LOW_UNCERTAINTY_MIN_KNOWN_MOVES", "2")
+    )
+    LOW_UNCERTAINTY_MAX_STATES = int(
+        os.getenv("ORANGURU_LOW_UNCERTAINTY_MAX_STATES", str(max(2, SAMPLE_STATES)))
+    )
+    ENDGAME_WORLD_REDUCTION = bool(int(os.getenv("ORANGURU_ENDGAME_WORLD_REDUCTION", "1")))
+    ENDGAME_MAX_STATES = int(
+        os.getenv("ORANGURU_ENDGAME_MAX_STATES", str(max(2, SAMPLE_STATES)))
+    )
     HEURISTIC_BLEND = float(os.getenv("ORANGURU_HEURISTIC_BLEND", "0.35"))
     MIN_HEURISTIC_BLEND = float(os.getenv("ORANGURU_MIN_HEURISTIC_BLEND", "0.0"))
     POLICY_CUTOFF = float(os.getenv("ORANGURU_POLICY_CUTOFF", "0.75"))
@@ -300,11 +316,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._randbats_sanitized = False
         self._mcts_stats = {
             "calls": 0,
+            "sample_states_requested_total": 0,
+            "sample_states_budgeted_total": 0,
             "states_sampled": 0,
             "results_kept": 0,
             "result_none": 0,
             "result_errors": 0,
             "empty_results": 0,
+            "world_keep_rate_sum": 0.0,
+            "low_uncertainty_turns": 0,
+            "low_uncertainty_worlds_saved": 0,
+            "endgame_reduction_turns": 0,
+            "endgame_worlds_saved": 0,
             "deterministic_decisions": 0,
             "stochastic_decisions": 0,
             "fallback_super": 0,
@@ -1267,6 +1290,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         stats["state_failure_rate"] = float(
             stats.get("result_none", 0) + stats.get("result_errors", 0)
         ) / sampled
+        stats["world_keep_rate"] = float(stats.get("results_kept", 0)) / sampled
+        stats["avg_requested_worlds_per_call"] = float(
+            stats.get("sample_states_requested_total", 0)
+        ) / calls
+        stats["avg_budgeted_worlds_per_call"] = float(
+            stats.get("sample_states_budgeted_total", 0)
+        ) / calls
+        stats["avg_kept_worlds_per_call"] = float(stats.get("results_kept", 0)) / calls
         diag_turns = max(1, int(stats.get("diag_turns", 0)))
         stats["diag_low_conf_rate"] = float(stats.get("diag_low_conf_turns", 0)) / diag_turns
         stats["diag_low_margin_rate"] = float(stats.get("diag_low_margin_turns", 0)) / diag_turns
@@ -1431,6 +1462,43 @@ class OranguruEnginePlayer(RuleBotPlayer):
             )
         return features
 
+    def _build_world_plausibility_features(self, fp_battle: FPBattle) -> List[float]:
+        opponent = getattr(fp_battle, "opponent", None)
+        active = getattr(opponent, "active", None)
+        reserve = list(getattr(opponent, "reserve", []) or [])[:5]
+        slots: List[Optional[FPPokemon]] = [active, *reserve]
+        while len(slots) < 6:
+            slots.append(None)
+
+        present = [mon for mon in slots if mon is not None]
+        known_species = sum(1 for mon in present if getattr(mon, "name", ""))
+        known_items = sum(1 for mon in present if getattr(mon, "item", ""))
+        known_abilities = sum(1 for mon in present if getattr(mon, "ability", ""))
+        known_tera = sum(1 for mon in present if getattr(mon, "tera_type", ""))
+        known_moves = sum(len(getattr(mon, "moves", []) or []) for mon in present)
+        reserve_present = [mon for mon in reserve if mon is not None]
+        reserve_alive = sum(1 for mon in reserve_present if getattr(mon, "hp", 0) > 0)
+        active_hp = float(getattr(active, "hp", 0) or 0.0)
+        active_max_hp = float(getattr(active, "max_hp", 0) or 0.0)
+        active_hp_frac = 0.0 if active_max_hp <= 0 else max(0.0, min(1.0, active_hp / active_max_hp))
+        active_move_count = len(getattr(active, "moves", []) or []) if active is not None else 0
+
+        return [
+            min(1.0, known_species / 6.0),
+            min(1.0, known_items / 6.0),
+            min(1.0, known_abilities / 6.0),
+            min(1.0, known_tera / 6.0),
+            min(1.0, known_moves / 24.0),
+            min(1.0, max(0, 24 - known_moves) / 24.0),
+            min(1.0, len(reserve_present) / 5.0),
+            min(1.0, reserve_alive / 5.0),
+            active_hp_frac,
+            min(1.0, active_move_count / 4.0),
+            float(int(bool(getattr(active, "item", "")))),
+            float(int(bool(getattr(active, "ability", "")))),
+            float(int(bool(getattr(active, "tera_type", "")))),
+        ]
+
     def _build_world_candidate_summary(
         self,
         battle: Battle,
@@ -1464,6 +1532,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "index": 0,
             "sample_weight": float(sample_weight),
             "world_features": [float(v) for v in self._build_world_rank_features(fp_battle)],
+            "plausibility_features": [
+                float(v) for v in self._build_world_plausibility_features(fp_battle)
+            ],
             "visit_counts": [float(v) for v in world_visits],
             "total_visits": float(total_visits),
             "top_choice": top_choice,
@@ -1471,6 +1542,42 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "top_choice_kind": self._search_trace_choice_kind(battle, top_choice),
             "top_choice_prob": float(top_choice_prob),
         }
+
+    def _apply_world_budget_controls(self, battle: Battle, sample_states: int) -> int:
+        requested = max(1, int(sample_states))
+        budgeted = requested
+
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        opp_known_moves = len(self._get_known_moves(opponent)) if opponent is not None else 0
+        opponent_team = list(getattr(battle, "opponent_team", {}).values())
+        my_team = list(getattr(battle, "team", {}).values())
+        opp_revealed = len([mon for mon in opponent_team if mon is not None])
+        opp_alive = len([mon for mon in opponent_team if mon is not None and not getattr(mon, "fainted", False)])
+        my_alive = len([mon for mon in my_team if mon is not None and not getattr(mon, "fainted", False)])
+
+        low_uncertainty = (
+            self.LOW_UNCERTAINTY_WORLD_REDUCTION
+            and opp_revealed >= max(1, self.LOW_UNCERTAINTY_MIN_REVEALED)
+            and opp_known_moves >= max(0, self.LOW_UNCERTAINTY_MIN_KNOWN_MOVES)
+        )
+        endgame = self.ENDGAME_WORLD_REDUCTION and (my_alive <= 2 or opp_alive <= 2)
+
+        if low_uncertainty:
+            budgeted = min(budgeted, max(1, self.LOW_UNCERTAINTY_MAX_STATES))
+            self._mcts_stats["low_uncertainty_turns"] += 1
+        if endgame:
+            budgeted = min(budgeted, max(1, self.ENDGAME_MAX_STATES))
+            if budgeted < requested:
+                self._mcts_stats["endgame_reduction_turns"] += 1
+
+        saved = max(0, requested - budgeted)
+        if low_uncertainty and saved > 0:
+            self._mcts_stats["low_uncertainty_worlds_saved"] += saved
+        if endgame and saved > 0:
+            self._mcts_stats["endgame_worlds_saved"] += saved
+        self._mcts_stats["sample_states_requested_total"] += requested
+        self._mcts_stats["sample_states_budgeted_total"] += budgeted
+        return budgeted
 
     def _search_trace_choice_kind(self, battle: Battle, choice: str) -> str:
         if not choice:
@@ -4128,6 +4235,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 sample_states = max(sample_states, self.PARALLELISM * multiplier)
 
             sample_states = min(self.MAX_SAMPLE_STATES, sample_states)
+        sample_states = self._apply_world_budget_controls(battle, sample_states)
 
         results, world_candidates = self._collect_mcts_results(
             battle,

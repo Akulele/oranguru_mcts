@@ -1496,6 +1496,22 @@ async def main():
                 float(mcts_stats.get("fallback_random_rate", 0.0)),
             )
         )
+        print(
+            "   Avg worlds req/budget/kept: {:.2f}/{:.2f}/{:.2f}".format(
+                float(mcts_stats.get("avg_requested_worlds_per_call", 0.0)),
+                float(mcts_stats.get("avg_budgeted_worlds_per_call", 0.0)),
+                float(mcts_stats.get("avg_kept_worlds_per_call", 0.0)),
+            )
+        )
+        print(
+            "   World keep rate: {:.1%} | Low-unc turns/saved: {}/{} | Endgame turns/saved: {}/{}".format(
+                float(mcts_stats.get("world_keep_rate", 0.0)),
+                int(mcts_stats.get("low_uncertainty_turns", 0)),
+                int(mcts_stats.get("low_uncertainty_worlds_saved", 0)),
+                int(mcts_stats.get("endgame_reduction_turns", 0)),
+                int(mcts_stats.get("endgame_worlds_saved", 0)),
+            )
+        )
         adaptive_triggered = int(mcts_stats.get("adaptive_triggered", 0))
         adaptive_rerank = int(mcts_stats.get("adaptive_rerank_used", 0))
         adaptive_second_pass = int(mcts_stats.get("adaptive_second_pass_used", 0))
