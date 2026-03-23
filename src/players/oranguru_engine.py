@@ -157,6 +157,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
     TERA_PRUNER_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_TERA_PRUNER_LOWCONF_ONLY", "1")))
     TERA_PRUNER_KEEP_TOPK = int(os.getenv("ORANGURU_TERA_PRUNER_KEEP_TOPK", "1"))
     TERA_PRUNER_MIN_CANDIDATES = int(os.getenv("ORANGURU_TERA_PRUNER_MIN_CANDIDATES", "2"))
+    WORLD_RANKER_ENABLED = bool(int(os.getenv("ORANGURU_WORLD_RANKER", "0")))
+    WORLD_RANKER_CHECKPOINT = os.getenv(
+        "ORANGURU_WORLD_RANKER_CHECKPOINT",
+        "checkpoints/rl/world_ranker_g6_server_v3.pt",
+    )
+    WORLD_RANKER_DEVICE = os.getenv("ORANGURU_WORLD_RANKER_DEVICE", "cpu").strip().lower()
+    WORLD_RANKER_KEEP_TOPK = int(os.getenv("ORANGURU_WORLD_RANKER_KEEP_TOPK", "6"))
+    WORLD_RANKER_MIN_CANDIDATES = int(os.getenv("ORANGURU_WORLD_RANKER_MIN_CANDIDATES", "7"))
+    WORLD_RANKER_LOW_UNCERTAINTY_ONLY = bool(
+        int(os.getenv("ORANGURU_WORLD_RANKER_LOW_UNCERTAINTY_ONLY", "1"))
+    )
+    WORLD_RANKER_ENDGAME_ONLY = bool(int(os.getenv("ORANGURU_WORLD_RANKER_ENDGAME_ONLY", "1")))
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
     SEARCH_TRACE_OUT = os.getenv(
         "ORANGURU_SEARCH_TRACE_OUT",
@@ -338,6 +350,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "passive_breaker_used": 0,
             "tera_pruner_used": 0,
             "tera_pruner_pruned": 0,
+            "world_ranker_used": 0,
+            "world_ranker_pruned": 0,
             "adaptive_triggered": 0,
             "adaptive_heuristic_used": 0,
             "adaptive_heuristic_failed": 0,
@@ -425,6 +439,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._tera_pruner_device = "cpu"
         self._tera_pruner_torch = None
         self._tera_pruner_checkpoint = ""
+        self._world_ranker_ready = False
+        self._world_ranker_failed = False
+        self._world_ranker_model = None
+        self._world_ranker_device = "cpu"
+        self._world_ranker_torch = None
+        self._world_ranker_checkpoint = ""
         self._diag_finished_battle_tags = set()
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
@@ -455,6 +475,51 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._search_trace_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
         return self._search_trace_builder
 
+    @staticmethod
+    def _resolve_model_checkpoint(path_str: str) -> Path:
+        ckpt_path = Path(path_str)
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
+        return ckpt_path
+
+    @staticmethod
+    def _resolve_model_device(device_name: str, torch_module) -> str:
+        device = device_name
+        if device == "cuda" and not torch_module.cuda.is_available():
+            device = "cpu"
+        return device
+
+    def _load_search_prior_family_model(self, checkpoint_path: str, device_name: str):
+        import torch
+        from src.models.search_prior_value import SearchPriorValueNet
+        from src.utils.features import EnhancedFeatureBuilder
+
+        ckpt_path = self._resolve_model_checkpoint(checkpoint_path)
+        if not ckpt_path.exists():
+            return None, None, None, None
+
+        device = self._resolve_model_device(device_name, torch)
+        checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+        config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+        board_dim = int(config.get("board_dim", 272))
+        action_dim = int(config.get("action_dim", 16))
+        n_actions = int(config.get("n_actions", 13))
+        hidden_dim = int(config.get("hidden_dim", 256))
+        dropout = float(config.get("dropout", 0.1))
+
+        model = SearchPriorValueNet(
+            board_dim=board_dim,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            n_actions=n_actions,
+            dropout=dropout,
+        ).to(device)
+        state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+        model.load_state_dict(state_dict)
+        model.eval()
+        feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
+        return model, feature_builder, torch, str(ckpt_path)
+
     def _init_rl_prior(self) -> bool:
         if self._rl_prior_failed:
             return False
@@ -467,250 +532,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
             from src.models.actor_critic import ActorCritic, RecurrentActorCritic
             from src.utils.features import EnhancedFeatureBuilder
             from training.config import RLConfig
-        except Exception:
-            self._rl_prior_failed = True
-            return False
 
-    def _init_search_prior(self) -> bool:
-        if self._search_prior_failed:
-            return False
-        if self._search_prior_ready and self._search_prior_model is not None:
-            return True
-        if not self.SEARCH_PRIOR_ENABLED:
-            return False
-        try:
-            import torch
-            from src.models.search_prior_value import SearchPriorValueNet
-            from src.utils.features import EnhancedFeatureBuilder
-        except Exception:
-            self._search_prior_failed = True
-            return False
+            ckpt_path = self._resolve_model_checkpoint(self.RL_PRIOR_CHECKPOINT)
+            if not ckpt_path.exists():
+                self._rl_prior_failed = True
+                return False
 
-    def _init_switch_prior(self) -> bool:
-        if self._switch_prior_failed:
-            return False
-        if self._switch_prior_ready and self._switch_prior_model is not None:
-            return True
-        if not self.SWITCH_PRIOR_ENABLED:
-            return False
-        try:
-            import torch
-            from src.models.search_prior_value import SearchPriorValueNet
-            from src.utils.features import EnhancedFeatureBuilder
-        except Exception:
-            self._switch_prior_failed = True
-            return False
-
-    def _init_passive_breaker(self) -> bool:
-        if self._passive_breaker_failed:
-            return False
-        if self._passive_breaker_ready and self._passive_breaker_model is not None:
-            return True
-        if not self.PASSIVE_BREAKER_ENABLED:
-            return False
-        try:
-            import torch
-            from src.models.search_prior_value import SearchPriorValueNet
-            from src.utils.features import EnhancedFeatureBuilder
-        except Exception:
-            self._passive_breaker_failed = True
-            return False
-
-    def _init_tera_pruner(self) -> bool:
-        if self._tera_pruner_failed:
-            return False
-        if self._tera_pruner_ready and self._tera_pruner_model is not None:
-            return True
-        if not self.TERA_PRUNER_ENABLED:
-            return False
-        try:
-            import torch
-            from src.models.search_prior_value import SearchPriorValueNet
-            from src.utils.features import EnhancedFeatureBuilder
-        except Exception:
-            self._tera_pruner_failed = True
-            return False
-
-        ckpt_path = Path(self.TERA_PRUNER_CHECKPOINT)
-        if not ckpt_path.is_absolute():
-            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
-        if not ckpt_path.exists():
-            self._tera_pruner_failed = True
-            return False
-
-        device = self.TERA_PRUNER_DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
-
-        try:
-            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-            board_dim = int(config.get("board_dim", 272))
-            action_dim = int(config.get("action_dim", 16))
-            n_actions = int(config.get("n_actions", 13))
-            hidden_dim = int(config.get("hidden_dim", 256))
-            dropout = float(config.get("dropout", 0.1))
-
-            model = SearchPriorValueNet(
-                board_dim=board_dim,
-                action_dim=action_dim,
-                hidden_dim=hidden_dim,
-                n_actions=n_actions,
-                dropout=dropout,
-            ).to(device)
-            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            self._tera_pruner_model = model
-            self._tera_pruner_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
-            self._tera_pruner_device = device
-            self._tera_pruner_torch = torch
-            self._tera_pruner_checkpoint = str(ckpt_path)
-            self._tera_pruner_ready = True
-            return True
-        except Exception:
-            self._tera_pruner_failed = True
-            return False
-
-        ckpt_path = Path(self.PASSIVE_BREAKER_CHECKPOINT)
-        if not ckpt_path.is_absolute():
-            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
-        if not ckpt_path.exists():
-            self._passive_breaker_failed = True
-            return False
-
-        device = self.PASSIVE_BREAKER_DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
-
-        try:
-            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-            board_dim = int(config.get("board_dim", 272))
-            action_dim = int(config.get("action_dim", 16))
-            n_actions = int(config.get("n_actions", 13))
-            hidden_dim = int(config.get("hidden_dim", 256))
-            dropout = float(config.get("dropout", 0.1))
-
-            model = SearchPriorValueNet(
-                board_dim=board_dim,
-                action_dim=action_dim,
-                hidden_dim=hidden_dim,
-                n_actions=n_actions,
-                dropout=dropout,
-            ).to(device)
-            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            self._passive_breaker_model = model
-            self._passive_breaker_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
-            self._passive_breaker_device = device
-            self._passive_breaker_torch = torch
-            self._passive_breaker_checkpoint = str(ckpt_path)
-            self._passive_breaker_ready = True
-            return True
-        except Exception:
-            self._passive_breaker_failed = True
-            return False
-
-        ckpt_path = Path(self.SWITCH_PRIOR_CHECKPOINT)
-        if not ckpt_path.is_absolute():
-            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
-        if not ckpt_path.exists():
-            self._switch_prior_failed = True
-            return False
-
-        device = self.SWITCH_PRIOR_DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
-
-        try:
-            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-            board_dim = int(config.get("board_dim", 272))
-            action_dim = int(config.get("action_dim", 16))
-            n_actions = int(config.get("n_actions", 13))
-            hidden_dim = int(config.get("hidden_dim", 256))
-            dropout = float(config.get("dropout", 0.1))
-
-            model = SearchPriorValueNet(
-                board_dim=board_dim,
-                action_dim=action_dim,
-                hidden_dim=hidden_dim,
-                n_actions=n_actions,
-                dropout=dropout,
-            ).to(device)
-            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            self._switch_prior_model = model
-            self._switch_prior_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
-            self._switch_prior_device = device
-            self._switch_prior_torch = torch
-            self._switch_prior_checkpoint = str(ckpt_path)
-            self._switch_prior_ready = True
-            return True
-        except Exception:
-            self._switch_prior_failed = True
-            return False
-
-        ckpt_path = Path(self.SEARCH_PRIOR_CHECKPOINT)
-        if not ckpt_path.is_absolute():
-            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
-        if not ckpt_path.exists():
-            self._search_prior_failed = True
-            return False
-
-        device = self.SEARCH_PRIOR_DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
-
-        try:
-            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-            board_dim = int(config.get("board_dim", 272))
-            action_dim = int(config.get("action_dim", 16))
-            n_actions = int(config.get("n_actions", 13))
-            hidden_dim = int(config.get("hidden_dim", 256))
-            dropout = float(config.get("dropout", 0.1))
-
-            model = SearchPriorValueNet(
-                board_dim=board_dim,
-                action_dim=action_dim,
-                hidden_dim=hidden_dim,
-                n_actions=n_actions,
-                dropout=dropout,
-            ).to(device)
-            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            self._search_prior_model = model
-            self._search_prior_feature_builder = EnhancedFeatureBuilder(enable_prediction_features=False)
-            self._search_prior_device = device
-            self._search_prior_torch = torch
-            self._search_prior_checkpoint = str(ckpt_path)
-            self._search_prior_ready = True
-            return True
-        except Exception:
-            self._search_prior_failed = True
-            return False
-
-        ckpt_path = Path(self.RL_PRIOR_CHECKPOINT)
-        if not ckpt_path.is_absolute():
-            ckpt_path = Path(__file__).resolve().parents[2] / ckpt_path
-        if not ckpt_path.exists():
-            self._rl_prior_failed = True
-            return False
-
-        device = self.RL_PRIOR_DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
-
-        try:
+            device = self._resolve_model_device(self.RL_PRIOR_DEVICE, torch)
             checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
             ckpt_config = checkpoint.get("config", {})
             config = RLConfig()
@@ -755,6 +583,154 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return True
         except Exception:
             self._rl_prior_failed = True
+            return False
+
+    def _init_search_prior(self) -> bool:
+        if self._search_prior_failed:
+            return False
+        if self._search_prior_ready and self._search_prior_model is not None:
+            return True
+        if not self.SEARCH_PRIOR_ENABLED:
+            return False
+        try:
+            model, feature_builder, torch, ckpt_path = self._load_search_prior_family_model(
+                self.SEARCH_PRIOR_CHECKPOINT,
+                self.SEARCH_PRIOR_DEVICE,
+            )
+            if model is None:
+                self._search_prior_failed = True
+                return False
+            self._search_prior_model = model
+            self._search_prior_feature_builder = feature_builder
+            self._search_prior_device = self._resolve_model_device(self.SEARCH_PRIOR_DEVICE, torch)
+            self._search_prior_torch = torch
+            self._search_prior_checkpoint = ckpt_path
+            self._search_prior_ready = True
+            return True
+        except Exception:
+            self._search_prior_failed = True
+            return False
+
+    def _init_switch_prior(self) -> bool:
+        if self._switch_prior_failed:
+            return False
+        if self._switch_prior_ready and self._switch_prior_model is not None:
+            return True
+        if not self.SWITCH_PRIOR_ENABLED:
+            return False
+        try:
+            model, feature_builder, torch, ckpt_path = self._load_search_prior_family_model(
+                self.SWITCH_PRIOR_CHECKPOINT,
+                self.SWITCH_PRIOR_DEVICE,
+            )
+            if model is None:
+                self._switch_prior_failed = True
+                return False
+            self._switch_prior_model = model
+            self._switch_prior_feature_builder = feature_builder
+            self._switch_prior_device = self._resolve_model_device(self.SWITCH_PRIOR_DEVICE, torch)
+            self._switch_prior_torch = torch
+            self._switch_prior_checkpoint = ckpt_path
+            self._switch_prior_ready = True
+            return True
+        except Exception:
+            self._switch_prior_failed = True
+            return False
+
+    def _init_passive_breaker(self) -> bool:
+        if self._passive_breaker_failed:
+            return False
+        if self._passive_breaker_ready and self._passive_breaker_model is not None:
+            return True
+        if not self.PASSIVE_BREAKER_ENABLED:
+            return False
+        try:
+            model, feature_builder, torch, ckpt_path = self._load_search_prior_family_model(
+                self.PASSIVE_BREAKER_CHECKPOINT,
+                self.PASSIVE_BREAKER_DEVICE,
+            )
+            if model is None:
+                self._passive_breaker_failed = True
+                return False
+            self._passive_breaker_model = model
+            self._passive_breaker_feature_builder = feature_builder
+            self._passive_breaker_device = self._resolve_model_device(self.PASSIVE_BREAKER_DEVICE, torch)
+            self._passive_breaker_torch = torch
+            self._passive_breaker_checkpoint = ckpt_path
+            self._passive_breaker_ready = True
+            return True
+        except Exception:
+            self._passive_breaker_failed = True
+            return False
+
+    def _init_tera_pruner(self) -> bool:
+        if self._tera_pruner_failed:
+            return False
+        if self._tera_pruner_ready and self._tera_pruner_model is not None:
+            return True
+        if not self.TERA_PRUNER_ENABLED:
+            return False
+        try:
+            model, feature_builder, torch, ckpt_path = self._load_search_prior_family_model(
+                self.TERA_PRUNER_CHECKPOINT,
+                self.TERA_PRUNER_DEVICE,
+            )
+            if model is None:
+                self._tera_pruner_failed = True
+                return False
+            self._tera_pruner_model = model
+            self._tera_pruner_feature_builder = feature_builder
+            self._tera_pruner_device = self._resolve_model_device(self.TERA_PRUNER_DEVICE, torch)
+            self._tera_pruner_torch = torch
+            self._tera_pruner_checkpoint = ckpt_path
+            self._tera_pruner_ready = True
+            return True
+        except Exception:
+            self._tera_pruner_failed = True
+            return False
+
+    def _init_world_ranker(self) -> bool:
+        if self._world_ranker_failed:
+            return False
+        if self._world_ranker_ready and self._world_ranker_model is not None:
+            return True
+        if not self.WORLD_RANKER_ENABLED:
+            return False
+        try:
+            import torch
+            from src.models.world_ranker import WorldRankerNet
+
+            ckpt_path = self._resolve_model_checkpoint(self.WORLD_RANKER_CHECKPOINT)
+            if not ckpt_path.exists():
+                self._world_ranker_failed = True
+                return False
+
+            device = self._resolve_model_device(self.WORLD_RANKER_DEVICE, torch)
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+            board_dim = int(config.get("board_dim", 272))
+            world_dim = int(config.get("world_dim", 101))
+            hidden_dim = int(config.get("hidden_dim", 256))
+            dropout = float(config.get("dropout", 0.1))
+
+            model = WorldRankerNet(
+                board_dim=board_dim,
+                world_dim=world_dim,
+                hidden_dim=hidden_dim,
+                dropout=dropout,
+            ).to(device)
+            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            self._world_ranker_model = model
+            self._world_ranker_device = device
+            self._world_ranker_torch = torch
+            self._world_ranker_checkpoint = str(ckpt_path)
+            self._world_ranker_ready = True
+            return True
+        except Exception:
+            self._world_ranker_failed = True
             return False
 
     def _build_rl_action_mask_and_maps(
@@ -1499,6 +1475,121 @@ class OranguruEnginePlayer(RuleBotPlayer):
             float(int(bool(getattr(active, "tera_type", "")))),
         ]
 
+    def _is_low_uncertainty_turn(self, battle: Battle) -> bool:
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        opp_known_moves = len(self._get_known_moves(opponent)) if opponent is not None else 0
+        opponent_team = list(getattr(battle, "opponent_team", {}).values())
+        opp_revealed = len([mon for mon in opponent_team if mon is not None])
+        return (
+            opp_revealed >= max(1, self.LOW_UNCERTAINTY_MIN_REVEALED)
+            and opp_known_moves >= max(0, self.LOW_UNCERTAINTY_MIN_KNOWN_MOVES)
+        )
+
+    def _is_endgame_turn(self, battle: Battle) -> bool:
+        opponent_team = list(getattr(battle, "opponent_team", {}).values())
+        my_team = list(getattr(battle, "team", {}).values())
+        opp_alive = len([mon for mon in opponent_team if mon is not None and not getattr(mon, "fainted", False)])
+        my_alive = len([mon for mon in my_team if mon is not None and not getattr(mon, "fainted", False)])
+        return my_alive <= 2 or opp_alive <= 2
+
+    def _world_ranker_turn_allowed(self, battle: Battle) -> bool:
+        low_uncertainty = self._is_low_uncertainty_turn(battle)
+        endgame = self._is_endgame_turn(battle)
+        allow_low_uncertainty = self.WORLD_RANKER_LOW_UNCERTAINTY_ONLY and low_uncertainty
+        allow_endgame = self.WORLD_RANKER_ENDGAME_ONLY and endgame
+        if self.WORLD_RANKER_LOW_UNCERTAINTY_ONLY or self.WORLD_RANKER_ENDGAME_ONLY:
+            return allow_low_uncertainty or allow_endgame
+        return True
+
+    def _build_world_ranker_input_features(
+        self,
+        battle: Battle,
+        fp_battle: FPBattle,
+        sample_weight: float,
+    ) -> tuple[list[float], list[float]] | tuple[None, None]:
+        feature_builder = self._init_search_trace_builder()
+        if feature_builder is None:
+            return None, None
+        try:
+            board_features = feature_builder.build(battle)
+            board_features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in board_features
+            ]
+        except Exception:
+            return None, None
+
+        mask, _, _ = self._build_rl_action_mask_and_maps(battle)
+        valid_actions = max(1, sum(1 for v in mask if v))
+        turn = int(getattr(battle, "turn", 0) or 0)
+        phase = self._search_trace_phase(battle)
+        world_features = self._build_world_rank_features(fp_battle)
+        plausibility_features = self._build_world_plausibility_features(fp_battle)
+        world_features = [float(v) for v in world_features] + [float(v) for v in plausibility_features] + [
+            float(sample_weight),
+            min(1.0, valid_actions / max(1, len(mask))),
+            min(1.0, turn / 30.0),
+            1.0 if phase == "opening" else 0.0,
+            1.0 if phase == "mid" else 0.0,
+            1.0 if phase == "end" else 0.0,
+        ]
+        return board_features, world_features
+
+    def _rank_and_trim_worlds(
+        self,
+        battle: Battle,
+        fp_battles: List[FPBattle],
+        weights: List[float],
+    ) -> tuple[List[FPBattle], List[float]]:
+        if not self.WORLD_RANKER_ENABLED:
+            return fp_battles, weights
+        if len(fp_battles) < max(1, self.WORLD_RANKER_MIN_CANDIDATES):
+            return fp_battles, weights
+        if len(fp_battles) <= max(1, self.WORLD_RANKER_KEEP_TOPK):
+            return fp_battles, weights
+        if not self._world_ranker_turn_allowed(battle):
+            return fp_battles, weights
+        if not self._init_world_ranker():
+            return fp_battles, weights
+
+        torch = self._world_ranker_torch
+        model = self._world_ranker_model
+        if torch is None or model is None:
+            return fp_battles, weights
+
+        pairs: List[tuple[float, int]] = []
+        try:
+            for index, (fp_battle, weight) in enumerate(zip(fp_battles, weights)):
+                board_features, world_features = self._build_world_ranker_input_features(
+                    battle,
+                    fp_battle,
+                    sample_weight=float(weight),
+                )
+                if board_features is None or world_features is None:
+                    return fp_battles, weights
+                board_t = torch.tensor([board_features], dtype=torch.float32, device=self._world_ranker_device)
+                world_t = torch.tensor([world_features], dtype=torch.float32, device=self._world_ranker_device)
+                with torch.no_grad():
+                    score = float(model(board_t, world_t)[0].detach().cpu().item())
+                pairs.append((score, index))
+        except Exception:
+            self._world_ranker_failed = True
+            return fp_battles, weights
+
+        keep_topk = max(1, min(len(fp_battles), self.WORLD_RANKER_KEEP_TOPK))
+        kept_indices = {idx for _, idx in sorted(pairs, key=lambda item: item[0], reverse=True)[:keep_topk]}
+        if len(kept_indices) >= len(fp_battles):
+            return fp_battles, weights
+
+        self._mcts_stats["world_ranker_used"] += 1
+        self._mcts_stats["world_ranker_pruned"] += max(0, len(fp_battles) - len(kept_indices))
+        trimmed_battles = [fp_b for idx, fp_b in enumerate(fp_battles) if idx in kept_indices]
+        trimmed_weights = [w for idx, w in enumerate(weights) if idx in kept_indices]
+        total_weight = sum(max(0.0, float(w)) for w in trimmed_weights)
+        if total_weight > 0:
+            trimmed_weights = [float(w) / total_weight for w in trimmed_weights]
+        return trimmed_battles, trimmed_weights
+
     def _build_world_candidate_summary(
         self,
         battle: Battle,
@@ -1546,21 +1637,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def _apply_world_budget_controls(self, battle: Battle, sample_states: int) -> int:
         requested = max(1, int(sample_states))
         budgeted = requested
-
-        opponent = getattr(battle, "opponent_active_pokemon", None)
-        opp_known_moves = len(self._get_known_moves(opponent)) if opponent is not None else 0
-        opponent_team = list(getattr(battle, "opponent_team", {}).values())
-        my_team = list(getattr(battle, "team", {}).values())
-        opp_revealed = len([mon for mon in opponent_team if mon is not None])
-        opp_alive = len([mon for mon in opponent_team if mon is not None and not getattr(mon, "fainted", False)])
-        my_alive = len([mon for mon in my_team if mon is not None and not getattr(mon, "fainted", False)])
-
-        low_uncertainty = (
-            self.LOW_UNCERTAINTY_WORLD_REDUCTION
-            and opp_revealed >= max(1, self.LOW_UNCERTAINTY_MIN_REVEALED)
-            and opp_known_moves >= max(0, self.LOW_UNCERTAINTY_MIN_KNOWN_MOVES)
-        )
-        endgame = self.ENDGAME_WORLD_REDUCTION and (my_alive <= 2 or opp_alive <= 2)
+        low_uncertainty = self.LOW_UNCERTAINTY_WORLD_REDUCTION and self._is_low_uncertainty_turn(battle)
+        endgame = self.ENDGAME_WORLD_REDUCTION and self._is_endgame_turn(battle)
 
         if low_uncertainty:
             budgeted = min(budgeted, max(1, self.LOW_UNCERTAINTY_MAX_STATES))
@@ -3802,6 +3880,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     self._build_fp_battle(battle, seed, fill_opponent_sets=True)
                 )
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
+
+        fp_battles, weights = self._rank_and_trim_worlds(battle, fp_battles, weights)
 
         states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
         self._mcts_stats["states_sampled"] += len(states)

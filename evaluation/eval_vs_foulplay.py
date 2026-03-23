@@ -1521,6 +1521,8 @@ async def main():
         passive_breaker_used = int(mcts_stats.get("passive_breaker_used", 0))
         tera_pruner_used = int(mcts_stats.get("tera_pruner_used", 0))
         tera_pruner_pruned = int(mcts_stats.get("tera_pruner_pruned", 0))
+        world_ranker_used = int(mcts_stats.get("world_ranker_used", 0))
+        world_ranker_pruned = int(mcts_stats.get("world_ranker_pruned", 0))
         if adaptive_triggered or adaptive_rerank or adaptive_second_pass:
             print(
                 "   Adaptive(trigger/rerank/2nd): {}/{}/{}".format(
@@ -1537,6 +1539,8 @@ async def main():
             print(f"   Passive breaker uses: {passive_breaker_used}")
         if tera_pruner_used or tera_pruner_pruned:
             print(f"   Tera pruner uses/pruned: {tera_pruner_used}/{tera_pruner_pruned}")
+        if world_ranker_used or world_ranker_pruned:
+            print(f"   World ranker uses/pruned: {world_ranker_used}/{world_ranker_pruned}")
         diag_turns = int(mcts_stats.get("diag_turns", 0))
         if diag_turns > 0:
             print("\n📌 Decision Diagnostics")
