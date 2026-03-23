@@ -1497,9 +1497,10 @@ async def main():
             )
         )
         print(
-            "   Avg worlds req/budget/kept: {:.2f}/{:.2f}/{:.2f}".format(
+            "   Avg worlds req/budget/gen/searched: {:.2f}/{:.2f}/{:.2f}/{:.2f}".format(
                 float(mcts_stats.get("avg_requested_worlds_per_call", 0.0)),
                 float(mcts_stats.get("avg_budgeted_worlds_per_call", 0.0)),
+                float(mcts_stats.get("avg_generated_worlds_per_call", 0.0)),
                 float(mcts_stats.get("avg_kept_worlds_per_call", 0.0)),
             )
         )

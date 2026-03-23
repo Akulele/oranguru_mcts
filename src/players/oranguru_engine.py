@@ -163,10 +163,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
         "checkpoints/rl/world_ranker_g6_server_v3.pt",
     )
     WORLD_RANKER_DEVICE = os.getenv("ORANGURU_WORLD_RANKER_DEVICE", "cpu").strip().lower()
-    WORLD_RANKER_KEEP_TOPK = int(os.getenv("ORANGURU_WORLD_RANKER_KEEP_TOPK", "6"))
-    WORLD_RANKER_MIN_CANDIDATES = int(os.getenv("ORANGURU_WORLD_RANKER_MIN_CANDIDATES", "7"))
+    WORLD_RANKER_KEEP_TOPK = int(os.getenv("ORANGURU_WORLD_RANKER_KEEP_TOPK", "12"))
+    WORLD_RANKER_MIN_CANDIDATES = int(os.getenv("ORANGURU_WORLD_RANKER_MIN_CANDIDATES", "14"))
     WORLD_RANKER_LOW_UNCERTAINTY_ONLY = bool(
-        int(os.getenv("ORANGURU_WORLD_RANKER_LOW_UNCERTAINTY_ONLY", "1"))
+        int(os.getenv("ORANGURU_WORLD_RANKER_LOW_UNCERTAINTY_ONLY", "0"))
     )
     WORLD_RANKER_ENDGAME_ONLY = bool(int(os.getenv("ORANGURU_WORLD_RANKER_ENDGAME_ONLY", "1")))
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
@@ -330,6 +330,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "calls": 0,
             "sample_states_requested_total": 0,
             "sample_states_budgeted_total": 0,
+            "worlds_generated_total": 0,
+            "worlds_searched_total": 0,
             "states_sampled": 0,
             "results_kept": 0,
             "result_none": 0,
@@ -1260,20 +1262,25 @@ class OranguruEnginePlayer(RuleBotPlayer):
         stats = dict(self._mcts_stats)
         calls = max(1, int(stats.get("calls", 0)))
         sampled = max(1, int(stats.get("states_sampled", 0)))
+        generated = max(1, int(stats.get("worlds_generated_total", sampled)))
+        searched = max(1, int(stats.get("worlds_searched_total", sampled)))
         stats["empty_results_rate"] = float(stats.get("empty_results", 0)) / calls
         stats["fallback_super_rate"] = float(stats.get("fallback_super", 0)) / calls
         stats["fallback_random_rate"] = float(stats.get("fallback_random", 0)) / calls
         stats["state_failure_rate"] = float(
             stats.get("result_none", 0) + stats.get("result_errors", 0)
         ) / sampled
-        stats["world_keep_rate"] = float(stats.get("results_kept", 0)) / sampled
+        stats["world_generated_rate"] = float(generated) / calls
+        stats["world_search_rate"] = float(searched) / calls
+        stats["world_keep_rate"] = float(searched) / generated
         stats["avg_requested_worlds_per_call"] = float(
             stats.get("sample_states_requested_total", 0)
         ) / calls
         stats["avg_budgeted_worlds_per_call"] = float(
             stats.get("sample_states_budgeted_total", 0)
         ) / calls
-        stats["avg_kept_worlds_per_call"] = float(stats.get("results_kept", 0)) / calls
+        stats["avg_generated_worlds_per_call"] = float(stats.get("worlds_generated_total", 0)) / calls
+        stats["avg_kept_worlds_per_call"] = float(stats.get("worlds_searched_total", 0)) / calls
         diag_turns = max(1, int(stats.get("diag_turns", 0)))
         stats["diag_low_conf_rate"] = float(stats.get("diag_low_conf_turns", 0)) / diag_turns
         stats["diag_low_margin_rate"] = float(stats.get("diag_low_margin_turns", 0)) / diag_turns
@@ -3881,7 +3888,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 )
             weights = [1.0 / len(fp_battles)] * len(fp_battles)
 
+        self._mcts_stats["worlds_generated_total"] += len(fp_battles)
         fp_battles, weights = self._rank_and_trim_worlds(battle, fp_battles, weights)
+        self._mcts_stats["worlds_searched_total"] += len(fp_battles)
 
         states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
         self._mcts_stats["states_sampled"] += len(states)
