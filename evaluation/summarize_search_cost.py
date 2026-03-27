@@ -12,7 +12,9 @@ from pathlib import Path
 
 
 CALLS_STATES_RE = re.compile(r"Calls/states:\s+(\d+)/(\d+)")
-AVG_WORLDS_RE = re.compile(r"Avg worlds req/budget/kept:\s+([0-9.]+)/([0-9.]+)/([0-9.]+)")
+AVG_WORLDS_RE = re.compile(
+    r"Avg worlds req/budget/gen/searched:\s+([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+)"
+)
 WORLD_KEEP_RE = re.compile(
     r"World keep rate:\s+([0-9.]+)% \| Low-unc turns/saved:\s+(\d+)/(\d+) \| Endgame turns/saved:\s+(\d+)/(\d+)"
 )
@@ -29,6 +31,7 @@ def _parse_stdout_metrics(path: str) -> dict:
         "states": 0,
         "req_worlds_total": 0.0,
         "budget_worlds_total": 0.0,
+        "generated_worlds_total": 0.0,
         "kept_worlds_total": 0.0,
         "low_unc_turns": 0,
         "low_unc_saved": 0,
@@ -45,9 +48,11 @@ def _parse_stdout_metrics(path: str) -> dict:
     if match and metrics["calls"] > 0:
         req = float(match.group(1))
         budget = float(match.group(2))
-        kept = float(match.group(3))
+        generated = float(match.group(3))
+        kept = float(match.group(4))
         metrics["req_worlds_total"] = req * metrics["calls"]
         metrics["budget_worlds_total"] = budget * metrics["calls"]
+        metrics["generated_worlds_total"] = generated * metrics["calls"]
         metrics["kept_worlds_total"] = kept * metrics["calls"]
 
     match = WORLD_KEEP_RE.search(text)
@@ -75,6 +80,7 @@ def _summarize(summary_path: str) -> dict:
         "states": 0,
         "req_worlds_total": 0.0,
         "budget_worlds_total": 0.0,
+        "generated_worlds_total": 0.0,
         "kept_worlds_total": 0.0,
         "low_unc_turns": 0,
         "low_unc_saved": 0,
@@ -97,6 +103,7 @@ def _summarize(summary_path: str) -> dict:
             "states",
             "req_worlds_total",
             "budget_worlds_total",
+            "generated_worlds_total",
             "kept_worlds_total",
             "low_unc_turns",
             "low_unc_saved",
@@ -112,6 +119,7 @@ def _summarize(summary_path: str) -> dict:
     agg["states_per_call"] = agg["states"] / calls
     agg["avg_req_worlds_per_call"] = agg["req_worlds_total"] / calls
     agg["avg_budget_worlds_per_call"] = agg["budget_worlds_total"] / calls
+    agg["avg_generated_worlds_per_call"] = agg["generated_worlds_total"] / calls
     agg["avg_kept_worlds_per_call"] = agg["kept_worlds_total"] / calls
     return agg
 
@@ -130,7 +138,7 @@ def main() -> int:
         "states/b".rjust(10),
         "calls/b".rjust(9),
         "states/c".rjust(10),
-        "req/bud/kept".rjust(18),
+        "req/bud/gen/kept".rjust(22),
         "lowunc_saved".rjust(13),
         "endg_saved".rjust(11),
     )
@@ -144,8 +152,9 @@ def main() -> int:
             (
                 f"{row['avg_req_worlds_per_call']:.2f}/"
                 f"{row['avg_budget_worlds_per_call']:.2f}/"
+                f"{row['avg_generated_worlds_per_call']:.2f}/"
                 f"{row['avg_kept_worlds_per_call']:.2f}"
-            ).rjust(18),
+            ).rjust(22),
             str(int(row["low_unc_saved"])).rjust(13),
             str(int(row["endgame_saved"])).rjust(11),
         )
