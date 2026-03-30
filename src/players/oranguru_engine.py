@@ -1759,6 +1759,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
         top1_kind = top_actions[0]["kind"] if top_actions else "unknown"
         switch_candidate_count = sum(1 for idx in range(4, 9) if idx < len(mask) and mask[idx])
         tera_candidate_count = sum(1 for idx in range(9, 13) if idx < len(mask) and mask[idx])
+        state_value_features = [
+            min(1.0, float(getattr(battle, "turn", 0) or 0) / 30.0),
+            1.0 if phase == "opening" else 0.0,
+            1.0 if phase == "mid" else 0.0,
+            1.0 if phase == "end" else 0.0,
+            1.0 if bool(getattr(battle, "can_tera", False)) else 0.0,
+            min(1.0, float(switch_candidate_count) / 5.0),
+            min(1.0, float(tera_candidate_count) / 4.0),
+            max(-1.0, min(1.0, float(hazard_load))),
+            max(-1.0, min(1.0, float(matchup_score))),
+            max(-1.0, min(1.0, float(best_reply_score))),
+        ]
         mem = self._get_battle_memory(battle)
         examples = mem.setdefault("search_trace_examples", [])
         examples.append(
@@ -1790,6 +1802,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 "matchup_score": float(matchup_score),
                 "best_reply_score": float(best_reply_score),
                 "phase": phase,
+                "state_value_features": state_value_features,
                 "world_candidates": list(world_candidates or []),
             }
         )
