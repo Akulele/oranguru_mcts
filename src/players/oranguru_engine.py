@@ -169,6 +169,21 @@ class OranguruEnginePlayer(RuleBotPlayer):
         int(os.getenv("ORANGURU_WORLD_RANKER_LOW_UNCERTAINTY_ONLY", "0"))
     )
     WORLD_RANKER_ENDGAME_ONLY = bool(int(os.getenv("ORANGURU_WORLD_RANKER_ENDGAME_ONLY", "1")))
+    LEAF_VALUE_ENABLED = bool(int(os.getenv("ORANGURU_LEAF_VALUE", "0")))
+    LEAF_VALUE_CHECKPOINT = os.getenv(
+        "ORANGURU_LEAF_VALUE_CHECKPOINT",
+        "checkpoints/rl/leaf_value_strength1500.pt",
+    )
+    LEAF_VALUE_DEVICE = os.getenv("ORANGURU_LEAF_VALUE_DEVICE", "cpu").strip().lower()
+    LEAF_VALUE_LOWCONF_ONLY = bool(int(os.getenv("ORANGURU_LEAF_VALUE_LOWCONF_ONLY", "1")))
+    LEAF_VALUE_MIN_TURN = int(os.getenv("ORANGURU_LEAF_VALUE_MIN_TURN", "4"))
+    LEAF_VALUE_TRIGGER_ABS_MAX = float(os.getenv("ORANGURU_LEAF_VALUE_TRIGGER_ABS_MAX", "0.35"))
+    LEAF_VALUE_ESCALATE_MS_MULT = float(os.getenv("ORANGURU_LEAF_VALUE_ESCALATE_MS_MULT", "1.35"))
+    LEAF_VALUE_ESCALATE_SAMPLE_MULT = float(os.getenv("ORANGURU_LEAF_VALUE_ESCALATE_SAMPLE_MULT", "1.0"))
+    LEAF_VALUE_ESCALATE_MAX_MS = int(os.getenv("ORANGURU_LEAF_VALUE_ESCALATE_MAX_MS", "700"))
+    LEAF_VALUE_ESCALATE_MAX_STATES = int(
+        os.getenv("ORANGURU_LEAF_VALUE_ESCALATE_MAX_STATES", str(MAX_SAMPLE_STATES))
+    )
     SEARCH_TRACE_ENABLED = bool(int(os.getenv("ORANGURU_SEARCH_TRACE", "0")))
     SEARCH_TRACE_OUT = os.getenv(
         "ORANGURU_SEARCH_TRACE_OUT",
@@ -354,6 +369,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "tera_pruner_pruned": 0,
             "world_ranker_used": 0,
             "world_ranker_pruned": 0,
+            "leaf_value_used": 0,
+            "leaf_value_escalated": 0,
+            "leaf_value_escalate_failed": 0,
+            "leaf_value_pred_sum": 0.0,
+            "leaf_value_pred_count": 0,
             "adaptive_triggered": 0,
             "adaptive_heuristic_used": 0,
             "adaptive_heuristic_failed": 0,
@@ -447,6 +467,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._world_ranker_device = "cpu"
         self._world_ranker_torch = None
         self._world_ranker_checkpoint = ""
+        self._leaf_value_ready = False
+        self._leaf_value_failed = False
+        self._leaf_value_model = None
+        self._leaf_value_device = "cpu"
+        self._leaf_value_torch = None
+        self._leaf_value_checkpoint = ""
         self._diag_finished_battle_tags = set()
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
@@ -733,6 +759,50 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return True
         except Exception:
             self._world_ranker_failed = True
+            return False
+
+    def _init_leaf_value(self) -> bool:
+        if self._leaf_value_failed:
+            return False
+        if self._leaf_value_ready and self._leaf_value_model is not None:
+            return True
+        if not self.LEAF_VALUE_ENABLED:
+            return False
+        try:
+            import torch
+            from src.models.leaf_value import LeafValueNet
+
+            ckpt_path = self._resolve_model_checkpoint(self.LEAF_VALUE_CHECKPOINT)
+            if not ckpt_path.exists():
+                self._leaf_value_failed = True
+                return False
+
+            device = self._resolve_model_device(self.LEAF_VALUE_DEVICE, torch)
+            checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+            board_dim = int(config.get("board_dim", 272))
+            extra_dim = int(config.get("extra_dim", 10))
+            hidden_dim = int(config.get("hidden_dim", 256))
+            dropout = float(config.get("dropout", 0.1))
+
+            model = LeafValueNet(
+                board_dim=board_dim,
+                extra_dim=extra_dim,
+                hidden_dim=hidden_dim,
+                dropout=dropout,
+            ).to(device)
+            state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            self._leaf_value_model = model
+            self._leaf_value_device = device
+            self._leaf_value_torch = torch
+            self._leaf_value_checkpoint = str(ckpt_path)
+            self._leaf_value_ready = True
+            return True
+        except Exception:
+            self._leaf_value_failed = True
             return False
 
     def _build_rl_action_mask_and_maps(
@@ -1281,6 +1351,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
         ) / calls
         stats["avg_generated_worlds_per_call"] = float(stats.get("worlds_generated_total", 0)) / calls
         stats["avg_kept_worlds_per_call"] = float(stats.get("worlds_searched_total", 0)) / calls
+        stats["avg_leaf_value_pred"] = float(stats.get("leaf_value_pred_sum", 0.0)) / max(
+            1, int(stats.get("leaf_value_pred_count", 0))
+        )
         diag_turns = max(1, int(stats.get("diag_turns", 0)))
         stats["diag_low_conf_rate"] = float(stats.get("diag_low_conf_turns", 0)) / diag_turns
         stats["diag_low_margin_rate"] = float(stats.get("diag_low_margin_turns", 0)) / diag_turns
@@ -1542,6 +1615,105 @@ class OranguruEnginePlayer(RuleBotPlayer):
         ]
         return board_features, world_features
 
+    def _build_state_value_features(
+        self,
+        battle: Battle,
+        *,
+        phase: Optional[str] = None,
+        hazard_load: Optional[float] = None,
+        matchup_score: Optional[float] = None,
+        best_reply_score: Optional[float] = None,
+    ) -> list[float]:
+        if phase is None:
+            phase = self._search_trace_phase(battle)
+        if hazard_load is None:
+            try:
+                hazard_load = float(self._side_hazard_pressure(battle))
+            except Exception:
+                hazard_load = 0.0
+        active = getattr(battle, "active_pokemon", None)
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        if matchup_score is None:
+            if active is not None and opponent is not None:
+                try:
+                    matchup_score = float(self._estimate_matchup(active, opponent))
+                except Exception:
+                    matchup_score = 0.0
+            else:
+                matchup_score = 0.0
+        if best_reply_score is None:
+            if active is not None and opponent is not None:
+                try:
+                    best_reply_score = float(self._estimate_best_reply_score(opponent, active, battle))
+                except Exception:
+                    best_reply_score = 0.0
+            else:
+                best_reply_score = 0.0
+        mask, _, _ = self._build_rl_action_mask_and_maps(battle)
+        switch_candidate_count = sum(1 for idx in range(4, 9) if idx < len(mask) and mask[idx])
+        tera_candidate_count = sum(1 for idx in range(9, 13) if idx < len(mask) and mask[idx])
+        return [
+            min(1.0, float(getattr(battle, "turn", 0) or 0) / 30.0),
+            1.0 if phase == "opening" else 0.0,
+            1.0 if phase == "mid" else 0.0,
+            1.0 if phase == "end" else 0.0,
+            1.0 if bool(getattr(battle, "can_tera", False)) else 0.0,
+            min(1.0, float(switch_candidate_count) / 5.0),
+            min(1.0, float(tera_candidate_count) / 4.0),
+            max(-1.0, min(1.0, float(hazard_load))),
+            max(-1.0, min(1.0, float(matchup_score))),
+            max(-1.0, min(1.0, float(best_reply_score))),
+        ]
+
+    def _predict_leaf_value(self, battle: Battle) -> Optional[float]:
+        if not self.LEAF_VALUE_ENABLED:
+            return None
+        if not self._init_leaf_value():
+            return None
+        feature_builder = self._init_search_trace_builder()
+        torch = self._leaf_value_torch
+        model = self._leaf_value_model
+        if feature_builder is None or torch is None or model is None:
+            return None
+        try:
+            board_features = feature_builder.build(battle)
+            board_features = [
+                0.0 if (not isinstance(f, (int, float)) or f != f or f > 1e6 or f < -1e6) else float(f)
+                for f in board_features
+            ]
+            extra_features = self._build_state_value_features(battle)
+            board_t = torch.tensor([board_features], dtype=torch.float32, device=self._leaf_value_device)
+            extra_t = torch.tensor([extra_features], dtype=torch.float32, device=self._leaf_value_device)
+            with torch.no_grad():
+                pred = float(model(board_t, extra_t)[0].detach().cpu().item())
+            if not math.isfinite(pred):
+                return None
+            pred = max(-1.0, min(1.0, pred))
+            self._mcts_stats["leaf_value_used"] += 1
+            self._mcts_stats["leaf_value_pred_sum"] += pred
+            self._mcts_stats["leaf_value_pred_count"] += 1
+            return pred
+        except Exception:
+            self._leaf_value_failed = True
+            return None
+
+    def _should_trigger_leaf_value_escalation(
+        self,
+        battle: Battle,
+        confidence: float,
+        threshold: float,
+    ) -> bool:
+        if not self.LEAF_VALUE_ENABLED:
+            return False
+        if int(getattr(battle, "turn", 0) or 0) < max(1, self.LEAF_VALUE_MIN_TURN):
+            return False
+        if self.LEAF_VALUE_LOWCONF_ONLY and confidence >= threshold:
+            return False
+        pred = self._predict_leaf_value(battle)
+        if pred is None:
+            return False
+        return abs(pred) <= max(0.0, min(1.0, self.LEAF_VALUE_TRIGGER_ABS_MAX))
+
     def _rank_and_trim_worlds(
         self,
         battle: Battle,
@@ -1759,18 +1931,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
         top1_kind = top_actions[0]["kind"] if top_actions else "unknown"
         switch_candidate_count = sum(1 for idx in range(4, 9) if idx < len(mask) and mask[idx])
         tera_candidate_count = sum(1 for idx in range(9, 13) if idx < len(mask) and mask[idx])
-        state_value_features = [
-            min(1.0, float(getattr(battle, "turn", 0) or 0) / 30.0),
-            1.0 if phase == "opening" else 0.0,
-            1.0 if phase == "mid" else 0.0,
-            1.0 if phase == "end" else 0.0,
-            1.0 if bool(getattr(battle, "can_tera", False)) else 0.0,
-            min(1.0, float(switch_candidate_count) / 5.0),
-            min(1.0, float(tera_candidate_count) / 4.0),
-            max(-1.0, min(1.0, float(hazard_load))),
-            max(-1.0, min(1.0, float(matchup_score))),
-            max(-1.0, min(1.0, float(best_reply_score))),
-        ]
+        state_value_features = self._build_state_value_features(
+            battle,
+            phase=phase,
+            hazard_load=hazard_load,
+            matchup_score=matchup_score,
+            best_reply_score=best_reply_score,
+        )
         mem = self._get_battle_memory(battle)
         examples = mem.setdefault("search_trace_examples", [])
         examples.append(
@@ -4353,16 +4520,28 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return super().choose_move(battle)
 
         banned_choices = self._sleep_clause_banned_choices(battle)
-        if self.ADAPTIVE_ESCALATE_ENABLED:
-            ordered_pre, _total_pre, conf_pre, th_pre = self._aggregate_policy_from_results(
-                results,
-                banned_choices=banned_choices,
-            )
-            if ordered_pre and self._should_trigger_adaptive_fallback(
+        ordered_pre, _total_pre, conf_pre, th_pre = self._aggregate_policy_from_results(
+            results,
+            banned_choices=banned_choices,
+        )
+        adaptive_escalate = False
+        leaf_escalate = False
+        if self.ADAPTIVE_ESCALATE_ENABLED and ordered_pre:
+            adaptive_escalate = self._should_trigger_adaptive_fallback(
                 battle, ordered_pre, conf_pre, th_pre, record_diag=False
-            ):
+            )
+        if ordered_pre:
+            leaf_escalate = self._should_trigger_leaf_value_escalation(
+                battle,
+                conf_pre,
+                th_pre,
+            )
+        if adaptive_escalate or leaf_escalate:
+            boosted_ms = search_time_ms
+            boosted_states = sample_states
+            if adaptive_escalate:
                 boosted_ms = max(
-                    search_time_ms,
+                    boosted_ms,
                     int(search_time_ms * max(1.0, self.ADAPTIVE_ESCALATE_MS_MULT)),
                 )
                 boosted_ms = min(
@@ -4370,25 +4549,48 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     max(search_time_ms, self.ADAPTIVE_ESCALATE_MAX_MS),
                 )
                 boosted_states = max(
-                    sample_states,
+                    boosted_states,
                     int(sample_states * max(1.0, self.ADAPTIVE_ESCALATE_SAMPLE_MULT)),
                 )
                 boosted_states = min(
                     boosted_states,
                     max(sample_states, self.ADAPTIVE_ESCALATE_MAX_STATES),
                 )
-                if boosted_ms > search_time_ms or boosted_states > sample_states:
-                    second_results, second_world_candidates = self._collect_mcts_results(
-                        battle,
-                        sample_states=boosted_states,
-                        search_time_ms=boosted_ms,
-                    )
-                    if second_results:
-                        results = second_results
-                        world_candidates = second_world_candidates
+            if leaf_escalate:
+                boosted_ms = max(
+                    boosted_ms,
+                    int(search_time_ms * max(1.0, self.LEAF_VALUE_ESCALATE_MS_MULT)),
+                )
+                boosted_ms = min(
+                    boosted_ms,
+                    max(search_time_ms, self.LEAF_VALUE_ESCALATE_MAX_MS),
+                )
+                boosted_states = max(
+                    boosted_states,
+                    int(sample_states * max(1.0, self.LEAF_VALUE_ESCALATE_SAMPLE_MULT)),
+                )
+                boosted_states = min(
+                    boosted_states,
+                    max(sample_states, self.LEAF_VALUE_ESCALATE_MAX_STATES),
+                )
+            if boosted_ms > search_time_ms or boosted_states > sample_states:
+                second_results, second_world_candidates = self._collect_mcts_results(
+                    battle,
+                    sample_states=boosted_states,
+                    search_time_ms=boosted_ms,
+                )
+                if second_results:
+                    results = second_results
+                    world_candidates = second_world_candidates
+                    if adaptive_escalate:
                         self._mcts_stats["adaptive_second_pass_used"] += 1
-                    else:
+                    if leaf_escalate:
+                        self._mcts_stats["leaf_value_escalated"] += 1
+                else:
+                    if adaptive_escalate:
                         self._mcts_stats["adaptive_second_pass_failed"] += 1
+                    if leaf_escalate:
+                        self._mcts_stats["leaf_value_escalate_failed"] += 1
 
         choice = self._select_move_from_results(
             results,

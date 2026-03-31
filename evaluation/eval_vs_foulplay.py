@@ -1524,6 +1524,10 @@ async def main():
         tera_pruner_pruned = int(mcts_stats.get("tera_pruner_pruned", 0))
         world_ranker_used = int(mcts_stats.get("world_ranker_used", 0))
         world_ranker_pruned = int(mcts_stats.get("world_ranker_pruned", 0))
+        leaf_value_used = int(mcts_stats.get("leaf_value_used", 0))
+        leaf_value_escalated = int(mcts_stats.get("leaf_value_escalated", 0))
+        leaf_value_failed = int(mcts_stats.get("leaf_value_escalate_failed", 0))
+        leaf_value_avg = float(mcts_stats.get("avg_leaf_value_pred", 0.0))
         if adaptive_triggered or adaptive_rerank or adaptive_second_pass:
             print(
                 "   Adaptive(trigger/rerank/2nd): {}/{}/{}".format(
@@ -1542,6 +1546,15 @@ async def main():
             print(f"   Tera pruner uses/pruned: {tera_pruner_used}/{tera_pruner_pruned}")
         if world_ranker_used or world_ranker_pruned:
             print(f"   World ranker uses/pruned: {world_ranker_used}/{world_ranker_pruned}")
+        if leaf_value_used or leaf_value_escalated or leaf_value_failed:
+            print(
+                "   Leaf value uses/escalated/failed avg: {}/{}/{} {:.3f}".format(
+                    leaf_value_used,
+                    leaf_value_escalated,
+                    leaf_value_failed,
+                    leaf_value_avg,
+                )
+            )
         diag_turns = int(mcts_stats.get("diag_turns", 0))
         if diag_turns > 0:
             print("\n📌 Decision Diagnostics")
