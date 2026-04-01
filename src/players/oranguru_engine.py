@@ -193,6 +193,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SEARCH_TRACE_TAG = os.getenv("ORANGURU_SEARCH_TRACE_TAG", "live_search")
     SEARCH_TRACE_MIN_TOTAL = float(os.getenv("ORANGURU_SEARCH_TRACE_MIN_TOTAL", "0.0"))
     SEARCH_TRACE_SKIP_FALLBACK = bool(int(os.getenv("ORANGURU_SEARCH_TRACE_SKIP_FALLBACK", "1")))
+    SEARCH_TRACE_INCLUDE_STATE_STR = bool(int(os.getenv("ORANGURU_SEARCH_TRACE_INCLUDE_STATE_STR", "0")))
     ADAPTIVE_FALLBACK_ENABLED = bool(int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK", "0")))
     ADAPTIVE_FALLBACK_CONFIDENCE = float(
         os.getenv("ORANGURU_ADAPTIVE_FALLBACK_CONFIDENCE", "0.30")
@@ -1775,6 +1776,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         fp_battle: FPBattle,
         sample_weight: float,
         result,
+        state_str: str = "",
     ) -> dict:
         mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
         world_visits = [0.0] * len(mask)
@@ -1798,7 +1800,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
         top_choice_idx = self._choice_to_rl_action_idx(top_choice, mask, move_map, switch_map)
         top_choice_prob = 0.0 if total_visits <= 0 else top_choice_visits / total_visits
-        return {
+        summary = {
             "index": 0,
             "sample_weight": float(sample_weight),
             "world_features": [float(v) for v in self._build_world_rank_features(fp_battle)],
@@ -1812,6 +1814,37 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "top_choice_kind": self._search_trace_choice_kind(battle, top_choice),
             "top_choice_prob": float(top_choice_prob),
         }
+        if self.SEARCH_TRACE_INCLUDE_STATE_STR and state_str:
+            summary["state_str"] = str(state_str)
+        return summary
+
+    def _build_search_trace_action_labels(
+        self,
+        battle: Battle,
+        mask: List[bool],
+    ) -> List[str]:
+        labels = [""] * len(mask)
+        for i in range(min(4, len(battle.available_moves or []))):
+            if i >= len(labels):
+                break
+            move = battle.available_moves[i]
+            move_id = normalize_name(getattr(move, "id", "") or "")
+            if not move_id:
+                continue
+            if mask[i]:
+                labels[i] = move_id
+            tera_idx = 9 + i
+            if tera_idx < len(labels) and mask[tera_idx]:
+                labels[tera_idx] = f"{move_id}-tera"
+        for i in range(min(5, len(battle.available_switches or []))):
+            idx = 4 + i
+            if idx >= len(labels):
+                break
+            sw = battle.available_switches[i]
+            sw_id = normalize_name(getattr(sw, "species", "") or "")
+            if sw_id and mask[idx]:
+                labels[idx] = f"switch {sw_id}"
+        return labels
 
     def _apply_world_budget_controls(self, battle: Battle, sample_states: int) -> int:
         requested = max(1, int(sample_states))
@@ -1884,6 +1917,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return
         board_features = builder.build(battle)
         action_features = self._build_search_trace_action_features(battle, mask)
+        action_labels = self._build_search_trace_action_labels(battle, mask)
         visit_counts = [0.0] * len(mask)
         total_policy = 0.0
         for choice, weight in ordered:
@@ -1947,6 +1981,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 "rating": None,
                 "board_features": [float(v) for v in board_features],
                 "action_features": action_features,
+                "action_labels": action_labels,
                 "action_mask": [bool(v) for v in mask],
                 "visit_counts": [float(v) for v in visit_counts],
                 "value_target": 0.0,
@@ -4087,7 +4122,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 executor.submit(_run_mcts, state, search_time_ms)  # type: ignore[union-attr]
                 for state in states
             ]
-            for index, (fut, weight, fp_state) in enumerate(zip(futures, weights, fp_battles)):
+            for index, (fut, weight, fp_state, state_str) in enumerate(zip(futures, weights, fp_battles, states)):
                 try:
                     timeout_sec = max(1.0, (search_time_ms / 1000.0) * 2.0 + 2.0)
                     res = fut.result(timeout=timeout_sec)
@@ -4098,7 +4133,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
-                summary = self._build_world_candidate_summary(battle, fp_state, weight, res)
+                summary = self._build_world_candidate_summary(
+                    battle, fp_state, weight, res, state_str=state_str
+                )
                 summary["index"] = int(index)
                 world_candidates.append(summary)
                 self._mcts_stats["results_kept"] += 1
@@ -4109,7 +4146,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
                     self._mcts_stats["result_none"] += 1
                     continue
                 results.append((res, weight))
-                summary = self._build_world_candidate_summary(battle, fp_state, weight, res)
+                summary = self._build_world_candidate_summary(
+                    battle, fp_state, weight, res, state_str=state
+                )
                 summary["index"] = int(index)
                 world_candidates.append(summary)
                 self._mcts_stats["results_kept"] += 1
