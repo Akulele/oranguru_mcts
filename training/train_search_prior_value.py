@@ -172,6 +172,8 @@ def main() -> int:
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--value-coef", type=float, default=0.25)
+    parser.add_argument("--policy-only", action="store_true")
+    parser.add_argument("--value-target-field", default="value_target")
     parser.add_argument("--min-visits", type=float, default=1.0)
     parser.add_argument("--rating-weight", type=float, default=0.0)
     parser.add_argument("--rating-baseline", type=float, default=1500.0)
@@ -180,6 +182,8 @@ def main() -> int:
 
     _set_seed(args.seed)
     device = _resolve_device(args.device)
+    if args.policy_only:
+        args.value_coef = 0.0
 
     train_examples, val_examples = _load_split(args.input, args.val_input, args.val_split, args.seed)
     train_ds = SearchAssistDataset(
@@ -188,11 +192,13 @@ def main() -> int:
         rating_weight=args.rating_weight,
         rating_baseline=args.rating_baseline,
         rating_scale=args.rating_scale,
+        value_target_field=args.value_target_field,
     )
     val_ds = SearchAssistDataset(
         val_examples,
         min_visits=args.min_visits,
         rating_weight=0.0,
+        value_target_field=args.value_target_field,
     )
     if len(train_ds) == 0 or len(val_ds) == 0:
         raise SystemExit(f"Empty dataset after filtering (train={len(train_ds)} val={len(val_ds)})")
@@ -275,6 +281,8 @@ def main() -> int:
                     "hidden_dim": args.hidden_dim,
                 "dropout": args.dropout,
                 "value_coef": args.value_coef,
+                "value_target_field": args.value_target_field,
+                "policy_only": bool(args.policy_only),
                 "checkpoint_in": args.checkpoint_in or None,
             },
         }
@@ -298,6 +306,9 @@ def main() -> int:
             "val_input": args.val_input or None,
             "checkpoint_in": args.checkpoint_in or None,
             "output": args.output,
+            "value_target_field": args.value_target_field,
+            "policy_only": bool(args.policy_only),
+            "value_coef": args.value_coef,
         }
         path = Path(args.summary_out)
         path.parent.mkdir(parents=True, exist_ok=True)

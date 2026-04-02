@@ -72,11 +72,14 @@ def _normalize_policy_target(
     return None
 
 
-def validate_search_assist_example(example: dict) -> tuple[bool, str]:
+def validate_search_assist_example(
+    example: dict,
+    value_target_field: str = "value_target",
+) -> tuple[bool, str]:
     board = example.get("board_features")
     action_features = example.get("action_features")
     mask = example.get("action_mask")
-    value = example.get("value_target")
+    value = example.get(value_target_field)
 
     if not isinstance(board, list) or not board:
         return False, "missing_board_features"
@@ -99,7 +102,7 @@ def validate_search_assist_example(example: dict) -> tuple[bool, str]:
     if policy is None:
         return False, "missing_policy_target"
     if not isinstance(value, (int, float)):
-        return False, "missing_value_target"
+        return False, f"missing_{value_target_field}"
     return True, "ok"
 
 
@@ -129,10 +132,14 @@ class SearchAssistDataset(Dataset):
         rating_weight: float = 0.0,
         rating_baseline: float = 1500.0,
         rating_scale: float = 1000.0,
+        value_target_field: str = "value_target",
     ):
         self.items: list[dict] = []
         for ex in examples:
-            ok, reason = validate_search_assist_example(ex)
+            ok, reason = validate_search_assist_example(
+                ex,
+                value_target_field=value_target_field,
+            )
             if not ok:
                 continue
             mask = [bool(v) for v in ex["action_mask"]]
@@ -158,7 +165,7 @@ class SearchAssistDataset(Dataset):
                     ],
                     "action_mask": mask,
                     "policy_target": policy,
-                    "value_target": safe_float(ex.get("value_target", 0.0), 0.0),
+                    "value_target": safe_float(ex.get(value_target_field, 0.0), 0.0),
                     "weight": weight,
                 }
             )
