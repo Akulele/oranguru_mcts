@@ -194,6 +194,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SEARCH_TRACE_MIN_TOTAL = float(os.getenv("ORANGURU_SEARCH_TRACE_MIN_TOTAL", "0.0"))
     SEARCH_TRACE_SKIP_FALLBACK = bool(int(os.getenv("ORANGURU_SEARCH_TRACE_SKIP_FALLBACK", "1")))
     SEARCH_TRACE_INCLUDE_STATE_STR = bool(int(os.getenv("ORANGURU_SEARCH_TRACE_INCLUDE_STATE_STR", "0")))
+    SEARCH_TRACE_INCLUDE_FP_ORACLE = bool(
+        int(os.getenv("ORANGURU_SEARCH_TRACE_INCLUDE_FP_ORACLE", "0"))
+    )
     ADAPTIVE_FALLBACK_ENABLED = bool(int(os.getenv("ORANGURU_ADAPTIVE_FALLBACK", "0")))
     ADAPTIVE_FALLBACK_CONFIDENCE = float(
         os.getenv("ORANGURU_ADAPTIVE_FALLBACK_CONFIDENCE", "0.30")
@@ -1846,6 +1849,152 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 labels[idx] = f"switch {sw_id}"
         return labels
 
+    @staticmethod
+    def _serialize_fp_last_used_move(move: LastUsedMove) -> dict:
+        return {
+            "pokemon_name": str(getattr(move, "pokemon_name", "") or ""),
+            "move": str(getattr(move, "move", "") or ""),
+            "turn": int(getattr(move, "turn", 0) or 0),
+        }
+
+    @staticmethod
+    def _serialize_fp_move(move) -> dict:
+        return {
+            "name": str(getattr(move, "name", "") or ""),
+            "disabled": bool(getattr(move, "disabled", False)),
+            "can_z": bool(getattr(move, "can_z", False)),
+            "current_pp": int(getattr(move, "current_pp", 0) or 0),
+            "max_pp": int(getattr(move, "max_pp", 0) or 0),
+        }
+
+    @staticmethod
+    def _serialize_fp_pokemon(mon: Optional[FPPokemon]) -> Optional[dict]:
+        if mon is None:
+            return None
+        speed_range = getattr(mon, "speed_range", None)
+        return {
+            "name": str(getattr(mon, "name", "") or ""),
+            "nickname": getattr(mon, "nickname", None),
+            "base_name": str(getattr(mon, "base_name", "") or ""),
+            "level": int(getattr(mon, "level", 0) or 0),
+            "nature": str(getattr(mon, "nature", "serious") or "serious"),
+            "evs": [int(v) for v in tuple(getattr(mon, "evs", ()) or ())],
+            "base_stats": dict(getattr(mon, "base_stats", {}) or {}),
+            "stats": dict(getattr(mon, "stats", {}) or {}),
+            "max_hp": int(getattr(mon, "max_hp", 0) or 0),
+            "hp": int(getattr(mon, "hp", 0) or 0),
+            "substitute_hit": bool(getattr(mon, "substitute_hit", False)),
+            "ability": getattr(mon, "ability", None),
+            "types": [str(t) for t in tuple(getattr(mon, "types", ()) or ())],
+            "item": getattr(mon, "item", None),
+            "removed_item": getattr(mon, "removed_item", None),
+            "unknown_forme": bool(getattr(mon, "unknown_forme", False)),
+            "moves_used_since_switch_in": sorted(
+                str(v) for v in set(getattr(mon, "moves_used_since_switch_in", set()) or set())
+            ),
+            "zoroark_disguised_as": getattr(mon, "zoroark_disguised_as", None),
+            "hp_at_switch_in": int(getattr(mon, "hp_at_switch_in", 0) or 0),
+            "status_at_switch_in": getattr(mon, "status_at_switch_in", None),
+            "terastallized": bool(getattr(mon, "terastallized", False)),
+            "tera_type": getattr(mon, "tera_type", None),
+            "forme_changed": bool(getattr(mon, "forme_changed", False)),
+            "original_ability": getattr(mon, "original_ability", None),
+            "fainted": bool(getattr(mon, "fainted", False)),
+            "reviving": bool(getattr(mon, "reviving", False)),
+            "moves": [OranguruEnginePlayer._serialize_fp_move(m) for m in list(getattr(mon, "moves", []) or [])],
+            "status": getattr(mon, "status", None),
+            "volatile_statuses": [str(v) for v in list(getattr(mon, "volatile_statuses", []) or [])],
+            "volatile_status_durations": {
+                str(k): int(v) for k, v in dict(getattr(mon, "volatile_status_durations", {}) or {}).items()
+            },
+            "boosts": {
+                str(k): int(v) for k, v in dict(getattr(mon, "boosts", {}) or {}).items()
+            },
+            "rest_turns": int(getattr(mon, "rest_turns", 0) or 0),
+            "sleep_turns": int(getattr(mon, "sleep_turns", 0) or 0),
+            "knocked_off": bool(getattr(mon, "knocked_off", False)),
+            "can_mega_evo": bool(getattr(mon, "can_mega_evo", False)),
+            "can_ultra_burst": bool(getattr(mon, "can_ultra_burst", False)),
+            "can_dynamax": bool(getattr(mon, "can_dynamax", False)),
+            "can_terastallize": bool(getattr(mon, "can_terastallize", False)),
+            "is_mega": bool(getattr(mon, "is_mega", False)),
+            "mega_name": getattr(mon, "mega_name", None),
+            "can_have_choice_item": bool(getattr(mon, "can_have_choice_item", True)),
+            "item_inferred": bool(getattr(mon, "item_inferred", False)),
+            "gen_3_consecutive_sleep_talks": int(
+                getattr(mon, "gen_3_consecutive_sleep_talks", 0) or 0
+            ),
+            "impossible_items": sorted(
+                str(v) for v in set(getattr(mon, "impossible_items", set()) or set())
+            ),
+            "impossible_abilities": sorted(
+                str(v) for v in set(getattr(mon, "impossible_abilities", set()) or set())
+            ),
+            "speed_range": {
+                "min": int(getattr(speed_range, "min", 0) or 0),
+                "max": float(getattr(speed_range, "max", float("inf")) or float("inf")),
+            },
+            "hidden_power_possibilities": sorted(
+                str(v)
+                for v in set(getattr(mon, "hidden_power_possibilities", set()) or set())
+            ),
+        }
+
+    @classmethod
+    def _serialize_fp_battler(cls, battler: Battler) -> dict:
+        return {
+            "active": cls._serialize_fp_pokemon(getattr(battler, "active", None)),
+            "reserve": [
+                cls._serialize_fp_pokemon(mon)
+                for mon in list(getattr(battler, "reserve", []) or [])
+            ],
+            "side_conditions": {
+                str(k): int(v) for k, v in dict(getattr(battler, "side_conditions", {}) or {}).items()
+            },
+            "name": getattr(battler, "name", None),
+            "trapped": bool(getattr(battler, "trapped", False)),
+            "baton_passing": bool(getattr(battler, "baton_passing", False)),
+            "shed_tailing": bool(getattr(battler, "shed_tailing", False)),
+            "wish": list(tuple(getattr(battler, "wish", (0, 0)) or (0, 0))),
+            "future_sight": list(tuple(getattr(battler, "future_sight", (0, "")) or (0, ""))),
+            "account_name": getattr(battler, "account_name", None),
+            "team_dict": getattr(battler, "team_dict", None),
+            "last_selected_move": cls._serialize_fp_last_used_move(
+                getattr(battler, "last_selected_move", LastUsedMove("", "", 0))
+            ),
+            "last_used_move": cls._serialize_fp_last_used_move(
+                getattr(battler, "last_used_move", LastUsedMove("", "", 0))
+            ),
+        }
+
+    @classmethod
+    def _serialize_fp_battle(cls, battle: FPBattle) -> dict:
+        return {
+            "battle_tag": str(getattr(battle, "battle_tag", "") or ""),
+            "turn": int(getattr(battle, "turn", 0) or 0),
+            "weather": getattr(battle, "weather", None),
+            "weather_turns_remaining": int(getattr(battle, "weather_turns_remaining", -1) or -1),
+            "weather_source": getattr(battle, "weather_source", ""),
+            "field": getattr(battle, "field", None),
+            "field_turns_remaining": int(getattr(battle, "field_turns_remaining", 0) or 0),
+            "trick_room": bool(getattr(battle, "trick_room", False)),
+            "trick_room_turns_remaining": int(
+                getattr(battle, "trick_room_turns_remaining", 0) or 0
+            ),
+            "gravity": bool(getattr(battle, "gravity", False)),
+            "team_preview": bool(getattr(battle, "team_preview", False)),
+            "started": bool(getattr(battle, "started", False)),
+            "rqid": getattr(battle, "rqid", None),
+            "force_switch": bool(getattr(battle, "force_switch", False)),
+            "wait": bool(getattr(battle, "wait", False)),
+            "battle_type": getattr(battle, "battle_type", None),
+            "pokemon_format": getattr(battle, "pokemon_format", None),
+            "generation": getattr(battle, "generation", None),
+            "time_remaining": getattr(battle, "time_remaining", None),
+            "user": cls._serialize_fp_battler(getattr(battle, "user", Battler())),
+            "opponent": cls._serialize_fp_battler(getattr(battle, "opponent", Battler())),
+        }
+
     def _apply_world_budget_controls(self, battle: Battle, sample_states: int) -> int:
         requested = max(1, int(sample_states))
         budgeted = requested
@@ -1974,6 +2123,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         )
         mem = self._get_battle_memory(battle)
         examples = mem.setdefault("search_trace_examples", [])
+        fp_oracle_battle = None
+        if self.SEARCH_TRACE_INCLUDE_FP_ORACLE:
+            try:
+                fp_oracle_battle = self._serialize_fp_battle(
+                    self._build_fp_battle(battle, seed=0, fill_opponent_sets=False)
+                )
+            except Exception:
+                fp_oracle_battle = None
         examples.append(
             {
                 "battle_id": str(getattr(battle, "battle_tag", "")),
@@ -2006,6 +2163,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 "phase": phase,
                 "state_value_features": state_value_features,
                 "world_candidates": list(world_candidates or []),
+                "fp_oracle_battle": fp_oracle_battle,
             }
         )
 
