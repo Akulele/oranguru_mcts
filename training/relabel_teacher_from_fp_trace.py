@@ -276,6 +276,7 @@ def _relabel_example(
     search_ms: int,
     num_battles: int,
     seed: int,
+    value_mode: str,
     executor,
 ) -> dict | None:
     action_mask = ex.get("action_mask")
@@ -358,7 +359,12 @@ def _relabel_example(
     else:
         policy = [(v / policy_total) if action_mask[i] else 0.0 for i, v in enumerate(policy)]
 
-    teacher_value = max(-1.0, min(1.0, 2.0 * teacher_value01 - 1.0))
+    fp_value_target = max(-1.0, min(1.0, 2.0 * teacher_value01 - 1.0))
+    orig_value_target = safe_float(ex.get("value_target", 0.0), 0.0)
+    if value_mode == "orig":
+        value_target = orig_value_target
+    else:
+        value_target = fp_value_target
     return {
         "battle_id": battle_id,
         "turn": turn,
@@ -368,7 +374,7 @@ def _relabel_example(
         "action_labels": action_labels,
         "action_mask": [bool(v) for v in action_mask],
         "policy_target": policy,
-        "value_target": teacher_value,
+        "value_target": value_target,
         "weight": float(ex.get("weight", 1.0) or 1.0),
         "source": str(ex.get("source", "")),
         "tag": str(ex.get("tag", "")),
@@ -379,7 +385,9 @@ def _relabel_example(
         "teacher_samples_used": int(samples_used),
         "teacher_total_visits": float(teacher_visits),
         "teacher_value01": float(teacher_value01),
-        "orig_value_target": safe_float(ex.get("value_target", 0.0), 0.0),
+        "fp_value_target": fp_value_target,
+        "orig_value_target": orig_value_target,
+        "value_target_source": value_mode,
         "orig_policy_confidence": safe_float(ex.get("policy_confidence", 0.0), 0.0),
         "orig_policy_threshold": safe_float(ex.get("policy_threshold", 0.0), 0.0),
         "selection_path": str(ex.get("selection_path", "")),
@@ -395,6 +403,7 @@ def main() -> int:
     parser.add_argument("--num-battles", type=int, default=12)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--value-mode", choices=["fp", "orig"], default="fp")
     parser.add_argument("--min-turn", type=int, default=1)
     parser.add_argument("--keep-lowconf-only", action="store_true")
     parser.add_argument("--keep-nonfallback-only", action="store_true")
@@ -436,6 +445,7 @@ def main() -> int:
                     search_ms=max(1, args.search_ms),
                     num_battles=max(1, args.num_battles),
                     seed=args.seed,
+                    value_mode=args.value_mode,
                     executor=executor,
                 )
                 if relabeled is None:
@@ -470,6 +480,7 @@ def main() -> int:
             "num_battles": int(args.num_battles),
             "workers": int(args.workers),
             "seed": int(args.seed),
+            "value_mode": args.value_mode,
         }
         summary_path = Path(args.summary_out)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
