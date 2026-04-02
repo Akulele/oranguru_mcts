@@ -24,6 +24,7 @@ def _safe_median(values):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze a teacher-relabeled dataset.")
     parser.add_argument("--input", required=True)
+    parser.add_argument("--show-samples", type=int, default=0)
     args = parser.parse_args()
 
     path = Path(args.input)
@@ -38,7 +39,16 @@ def main() -> int:
     turns = [int(r.get("turn", 0) or 0) for r in rows]
     values = [float(r.get("value_target", 0.0) or 0.0) for r in rows]
     orig_values = [float(r.get("orig_value_target", 0.0) or 0.0) for r in rows]
-    worlds = [int(r.get("teacher_worlds_used", 0) or 0) for r in rows]
+    worlds = [
+        int(
+            r.get(
+                "teacher_worlds_used",
+                r.get("teacher_samples_used", 0),
+            )
+            or 0
+        )
+        for r in rows
+    ]
     visits = [float(r.get("teacher_total_visits", 0.0) or 0.0) for r in rows]
     paths = Counter(str(r.get("selection_path", "")) for r in rows)
 
@@ -73,6 +83,7 @@ def main() -> int:
         value_diffs.append(float(row.get("value_target", 0.0) or 0.0) - float(row.get("orig_value_target", 0.0) or 0.0))
 
     absdiffs = [abs(x) for x in value_diffs]
+    sign_agreement = sum((tv >= 0) == (ov >= 0) for tv, ov in zip(values, orig_values)) / len(rows)
 
     print(f"Dataset: {path}")
     print(f"Rows: {len(rows)}")
@@ -96,8 +107,36 @@ def main() -> int:
     print(f"  mean diff: {_safe_mean(value_diffs):.4f}")
     print(f"  mean abs diff: {_safe_mean(absdiffs):.4f}")
     print(f"  median abs diff: {_safe_median(absdiffs):.4f}")
+    print(f"  sign agreement: {sign_agreement:.4f}")
     print(f"  share abs diff >= 0.25: {sum(x >= 0.25 for x in absdiffs) / len(absdiffs):.4f}")
     print(f"  share abs diff >= 0.50: {sum(x >= 0.50 for x in absdiffs) / len(absdiffs):.4f}")
+    if args.show_samples > 0:
+        print()
+        print("Samples")
+        for i, row in enumerate(rows[: args.show_samples]):
+            probs = [float(x) for x in row.get("policy_target", [])]
+            labels = [str(x) for x in row.get("action_labels", [])]
+            best_i = max(range(len(probs)), key=lambda j: probs[j]) if probs else 0
+            best_label = labels[best_i] if best_i < len(labels) else ""
+            best_prob = probs[best_i] if probs and best_i < len(probs) else 0.0
+            print(
+                {
+                    "i": i,
+                    "turn": int(row.get("turn", 0) or 0),
+                    "orig_value": round(float(row.get("orig_value_target", 0.0) or 0.0), 4),
+                    "teacher_value": round(float(row.get("value_target", 0.0) or 0.0), 4),
+                    "teacher_value01": round(float(row.get("teacher_value01", 0.0) or 0.0), 4),
+                    "best_label": best_label,
+                    "best_prob": round(float(best_prob), 4),
+                    "samples_used": int(
+                        row.get(
+                            "teacher_worlds_used",
+                            row.get("teacher_samples_used", 0),
+                        )
+                        or 0
+                    ),
+                }
+            )
     return 0
 
 
