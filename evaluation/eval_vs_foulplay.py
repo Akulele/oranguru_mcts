@@ -1517,6 +1517,8 @@ async def main():
         adaptive_rerank = int(mcts_stats.get("adaptive_rerank_used", 0))
         adaptive_second_pass = int(mcts_stats.get("adaptive_second_pass_used", 0))
         search_prior_used = int(mcts_stats.get("search_prior_used", 0))
+        search_prior_init_failed = int(mcts_stats.get("search_prior_init_failed", 0))
+        search_prior_apply_failed = int(mcts_stats.get("search_prior_apply_failed", 0))
         switch_prior_used = int(mcts_stats.get("switch_prior_used", 0))
         switch_prior_pruned = int(mcts_stats.get("switch_prior_pruned", 0))
         passive_breaker_used = int(mcts_stats.get("passive_breaker_used", 0))
@@ -1536,8 +1538,14 @@ async def main():
                     adaptive_second_pass,
                 )
             )
-        if search_prior_used:
-            print(f"   Search prior uses: {search_prior_used}")
+        if search_prior_used or search_prior_init_failed or search_prior_apply_failed:
+            print(
+                "   Search prior uses/init_failed/apply_failed: {}/{}/{}".format(
+                    search_prior_used,
+                    search_prior_init_failed,
+                    search_prior_apply_failed,
+                )
+            )
         if switch_prior_used or switch_prior_pruned:
             print(f"   Switch prior uses/pruned: {switch_prior_used}/{switch_prior_pruned}")
         if passive_breaker_used:

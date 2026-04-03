@@ -366,6 +366,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "fallback_super": 0,
             "fallback_random": 0,
             "search_prior_used": 0,
+            "search_prior_init_failed": 0,
+            "search_prior_apply_failed": 0,
             "switch_prior_used": 0,
             "switch_prior_pruned": 0,
             "passive_breaker_used": 0,
@@ -630,6 +632,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 self.SEARCH_PRIOR_DEVICE,
             )
             if model is None:
+                self._mcts_stats["search_prior_init_failed"] = int(
+                    self._mcts_stats.get("search_prior_init_failed", 0) or 0
+                ) + 1
                 self._search_prior_failed = True
                 return False
             self._search_prior_model = model
@@ -640,6 +645,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self._search_prior_ready = True
             return True
         except Exception:
+            self._mcts_stats["search_prior_init_failed"] = int(
+                self._mcts_stats.get("search_prior_init_failed", 0) or 0
+            ) + 1
             self._search_prior_failed = True
             return False
 
@@ -964,6 +972,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self._mcts_stats["search_prior_used"] = int(self._mcts_stats.get("search_prior_used", 0) or 0) + 1
             return priors
         except Exception:
+            self._mcts_stats["search_prior_apply_failed"] = int(
+                self._mcts_stats.get("search_prior_apply_failed", 0) or 0
+            ) + 1
             self._search_prior_failed = True
             return None
 
@@ -4487,6 +4498,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             mcts_norm = [w / mcts_total for w in mcts_weights]
 
         selection_path = "blend"
+        applied_heuristic_blend = False
+        applied_prior_blend = False
         if blend <= 0:
             combined = mcts_norm
             selection_path = "mcts"
@@ -4504,6 +4517,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 combined = [
                     (1.0 - blend) * m + blend * h for m, h in zip(mcts_norm, heur_norm)
                 ]
+                applied_heuristic_blend = True
 
         rl_blend = max(0.0, min(1.0, self.RL_PRIOR_BLEND))
         if rl_blend > 0.0 and (not self.RL_PRIOR_LOWCONF_ONLY or confidence < threshold):
@@ -4516,6 +4530,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                         (1.0 - rl_blend) * base + rl_blend * rl
                         for base, rl in zip(combined, rl_norm)
                     ]
+                    applied_prior_blend = True
 
         search_prior_blend = max(0.0, min(1.0, self.SEARCH_PRIOR_BLEND))
         if search_prior_blend > 0.0 and (not self.SEARCH_PRIOR_LOWCONF_ONLY or confidence < threshold):
@@ -4528,6 +4543,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
                         (1.0 - search_prior_blend) * base + search_prior_blend * prior
                         for base, prior in zip(combined, prior_norm)
                     ]
+                    applied_prior_blend = True
+
+        if applied_prior_blend and not applied_heuristic_blend:
+            selection_path = "policy"
+        elif applied_prior_blend or applied_heuristic_blend:
+            selection_path = "blend"
+        else:
+            selection_path = "mcts"
 
         return _return_choice(_pick_choice(choices, combined), selection_path)
 
