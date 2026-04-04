@@ -301,6 +301,23 @@ def _mark_replay_fetch(
     conn.commit()
 
 
+def _mark_replay_error(
+    conn: sqlite3.Connection,
+    *,
+    replay_id: str,
+    reject_reason: str,
+) -> None:
+    conn.execute(
+        """
+        UPDATE replays
+        SET accepted=0, reject_reason=?, fetched_at=?
+        WHERE replay_id=?
+        """,
+        (reject_reason, int(time.time()), replay_id),
+    )
+    conn.commit()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Crawl public Pokemon Showdown replays.")
     parser.add_argument("--format-id", default="gen9randombattle")
@@ -461,14 +478,17 @@ def main() -> int:
                     except HTTPError as exc:
                         stats["http_errors"] += 1
                         print(f"HTTP error on replay {candidate.replay_id}: {exc}")
+                        _mark_replay_error(conn, replay_id=candidate.replay_id, reject_reason="fetch_http_error")
                         continue
                     except URLError as exc:
                         stats["url_errors"] += 1
                         print(f"URL error on replay {candidate.replay_id}: {exc}")
+                        _mark_replay_error(conn, replay_id=candidate.replay_id, reject_reason="fetch_url_error")
                         continue
                     except TimeoutError as exc:
                         stats["url_errors"] += 1
                         print(f"Timeout on replay {candidate.replay_id}: {exc}")
+                        _mark_replay_error(conn, replay_id=candidate.replay_id, reject_reason="fetch_timeout")
                         continue
 
                     payload_obj["_scrape"] = {

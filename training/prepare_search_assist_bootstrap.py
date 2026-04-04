@@ -271,7 +271,12 @@ def _parse_effect_event(state: dict, event: dict) -> None:
 def _resolve_winner_side(obj: dict, state: dict) -> str | None:
     players = obj.get("players", {}) or {}
     outcome = (obj.get("metadata", {}) or {}).get("outcome", {}) or {}
-    candidate = outcome.get("winner_side") or outcome.get("winner")
+    candidate = (
+        outcome.get("winner_side")
+        or outcome.get("winner_player")
+        or outcome.get("winner")
+        or outcome.get("winner_name")
+    )
     cand = _norm(str(candidate)) if candidate is not None else ""
     if cand in {"p1", "p2"}:
         return cand
