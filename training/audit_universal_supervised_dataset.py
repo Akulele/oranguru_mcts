@@ -46,9 +46,11 @@ def main() -> int:
     battle_ids = Counter()
     action_kind_counts = Counter()
     top_labels = Counter()
-    duplicate_keys = Counter()
+    duplicate_turn_keys = Counter()
+    duplicate_decision_keys = Counter()
     legal_counts = []
     turns = []
+    decision_indexes = []
     ratings = []
     values = []
     sources = Counter()
@@ -63,6 +65,8 @@ def main() -> int:
 
         turn = int(row.get("turn", 0) or 0)
         turns.append(turn)
+        decision_index = int(row.get("decision_index", 0) or 0)
+        decision_indexes.append(decision_index)
 
         rating = row.get("rating")
         if isinstance(rating, (int, float)):
@@ -98,12 +102,17 @@ def main() -> int:
         if not isinstance(action_features, list) or (mask and len(action_features) != len(mask)):
             bad_action_features += 1
 
-        dup_key = (battle_id, str(row.get("player", "")), turn)
-        duplicate_keys[dup_key] += 1
+        dup_turn_key = (battle_id, str(row.get("player", "")), turn)
+        duplicate_turn_keys[dup_turn_key] += 1
+        dup_decision_key = (battle_id, str(row.get("player", "")), turn, decision_index)
+        duplicate_decision_keys[dup_decision_key] += 1
 
-    duplicate_collisions = sum(1 for _, count in duplicate_keys.items() if count > 1)
+    duplicate_turn_collisions = sum(1 for _, count in duplicate_turn_keys.items() if count > 1)
+    duplicate_decision_collisions = sum(1 for _, count in duplicate_decision_keys.items() if count > 1)
     unique_battles = len(battle_ids)
     rows_per_battle = [count for count in battle_ids.values()]
+    max_decision_index = max(decision_indexes) if decision_indexes else 0
+    multi_decision_turns = sum(1 for _, count in duplicate_turn_keys.items() if count > 1)
 
     turn_p10, turn_p50, turn_p90 = _quantiles([float(x) for x in turns]) if turns else (0.0, 0.0, 0.0)
     rating_p10, rating_p50, rating_p90 = _quantiles(ratings) if ratings else (0.0, 0.0, 0.0)
@@ -140,7 +149,10 @@ def main() -> int:
         "action_kind_counts": dict(action_kind_counts),
         "top_labels": top_labels.most_common(args.top_k),
         "source_counts": dict(sources),
-        "duplicate_battle_player_turn_keys": duplicate_collisions,
+        "duplicate_battle_player_turn_keys": duplicate_turn_collisions,
+        "duplicate_battle_player_turn_decision_keys": duplicate_decision_collisions,
+        "multi_decision_turns": multi_decision_turns,
+        "max_decision_index": max_decision_index,
         "empty_masks": empty_masks,
         "bad_policy_len": bad_policy_len,
         "bad_action_features": bad_action_features,
@@ -164,7 +176,10 @@ def main() -> int:
     print(f"  value counts: {dict(value_counter)}")
     print()
     print("Integrity")
-    print(f"  duplicate battle/player/turn keys: {duplicate_collisions}")
+    print(f"  duplicate battle/player/turn keys: {duplicate_turn_collisions}")
+    print(f"  duplicate battle/player/turn/decision keys: {duplicate_decision_collisions}")
+    print(f"  multi-decision turns: {multi_decision_turns}")
+    print(f"  max decision index: {max_decision_index}")
     print(f"  empty masks: {empty_masks}")
     print(f"  bad policy len: {bad_policy_len}")
     print(f"  bad action features: {bad_action_features}")

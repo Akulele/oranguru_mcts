@@ -78,6 +78,7 @@ def _append_row(
     side: str,
     action_index: int,
     turn_number: int,
+    decision_index: int,
     battle_id: str,
     rating: float | None,
     winner_side: str,
@@ -109,6 +110,8 @@ def _append_row(
             "battle_id": battle_id,
             "format_id": str(obj.get("format_id", "")),
             "turn": int(turn_number),
+            "decision_index": int(decision_index),
+            "decision_key": f"{battle_id}|{side}|{int(turn_number)}|{int(decision_index)}",
             "player": side,
             "rating": rating,
             "winner_side": winner_side,
@@ -200,6 +203,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
             state["species"][uid] = _norm(mon.get("species"))
 
     pending_rows: list[dict] = []
+    decision_counters: dict[tuple[str, int], int] = {}
     for turn in turns:
         turn_number = int(turn.get("turn_number") or 0)
         for event in (turn.get("events") or []):
@@ -220,12 +224,16 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                     if into_uid in bench:
                         idx = bench.index(into_uid)
                         if 0 <= idx < 5:
+                            key = (side, turn_number)
+                            decision_index = decision_counters.get(key, 0)
+                            decision_counters[key] = decision_index + 1
                             pending_rows.append(
                                 {
                                     "state": copy.deepcopy(state),
                                     "side": side,
                                     "action_index": 4 + idx,
                                     "turn_number": turn_number,
+                                    "decision_index": decision_index,
                                 }
                             )
                 state["active"][side] = into_uid
@@ -247,12 +255,16 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                         action_index = slot
                         if state["tera_used"].get(side, False):
                             action_index = slot
+                        key = (side, turn_number)
+                        decision_index = decision_counters.get(key, 0)
+                        decision_counters[key] = decision_index + 1
                         pending_rows.append(
                             {
                                 "state": copy.deepcopy(state),
                                 "side": side,
                                 "action_index": action_index,
                                 "turn_number": turn_number,
+                                "decision_index": decision_index,
                             }
                         )
                 continue
@@ -301,6 +313,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
             side=item["side"],
             action_index=item["action_index"],
             turn_number=item["turn_number"],
+            decision_index=item["decision_index"],
             battle_id=battle_id,
             rating=side_ratings.get(item["side"]),
             winner_side=winner_side,
