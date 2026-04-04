@@ -58,6 +58,30 @@ def _fetch_json(url: str, timeout_s: float) -> Any:
     return json.loads(raw.decode("utf-8"))
 
 
+def _fetch_json_with_retries(
+    url: str,
+    *,
+    timeout_s: float,
+    retries: int,
+    retry_sleep_s: float,
+    context: str,
+) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _fetch_json(url, timeout_s=timeout_s)
+        except (HTTPError, URLError, TimeoutError) as exc:
+            last_error = exc
+            if attempt >= retries:
+                raise
+            wait_s = retry_sleep_s * float(attempt + 1)
+            print(f"{context}: attempt {attempt + 1}/{retries + 1} failed: {exc}; retrying in {wait_s:.1f}s")
+            time.sleep(wait_s)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"{context}: unexpected fetch failure")
+
+
 def _load_search_items(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -289,6 +313,9 @@ def main() -> int:
     parser.add_argument("--sleep-seconds", type=float, default=1.0)
     parser.add_argument("--jitter-seconds", type=float, default=0.25)
     parser.add_argument("--timeout-seconds", type=float, default=20.0)
+    parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--retry-sleep-seconds", type=float, default=2.0)
+    parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--search-url-template", default=DEFAULT_SEARCH_URL)
     parser.add_argument("--replay-url-template", default=DEFAULT_REPLAY_URL)
     parser.add_argument("--raw-root", default="data/showdown/raw")
@@ -330,7 +357,13 @@ def main() -> int:
                 page=page,
             )
             try:
-                payload = _fetch_json(search_url, timeout_s=args.timeout_seconds)
+                payload = _fetch_json_with_retries(
+                    search_url,
+                    timeout_s=args.timeout_seconds,
+                    retries=max(0, args.retries),
+                    retry_sleep_s=max(0.0, args.retry_sleep_seconds),
+                    context=f"search page {page}",
+                )
             except HTTPError as exc:
                 stats["http_errors"] += 1
                 print(f"HTTP error on search page {page}: {exc}")
@@ -338,6 +371,10 @@ def main() -> int:
             except URLError as exc:
                 stats["url_errors"] += 1
                 print(f"URL error on search page {page}: {exc}")
+                break
+            except TimeoutError as exc:
+                stats["url_errors"] += 1
+                print(f"Timeout on search page {page}: {exc}")
                 break
 
             payload_path = search_root / f"page_{page:06d}.json"
@@ -354,6 +391,7 @@ def main() -> int:
                 item_count=len(items),
                 payload_path=str(payload_path),
             )
+            print(f"Page {page}: {len(items)} candidates")
 
             if not items:
                 empty_pages += 1
@@ -412,10 +450,14 @@ def main() -> int:
                 if payload_obj is None or raw_bytes is None:
                     replay_url = args.replay_url_template.format(replay_id=quote(candidate.replay_id, safe=""))
                     try:
-                        req = Request(replay_url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-                        with urlopen(req, timeout=args.timeout_seconds) as resp:
-                            raw_bytes = resp.read()
-                        payload_obj = json.loads(raw_bytes.decode("utf-8"))
+                        payload_obj = _fetch_json_with_retries(
+                            replay_url,
+                            timeout_s=args.timeout_seconds,
+                            retries=max(0, args.retries),
+                            retry_sleep_s=max(0.0, args.retry_sleep_seconds),
+                            context=f"replay {candidate.replay_id}",
+                        )
+                        raw_bytes = json.dumps(payload_obj, ensure_ascii=True, indent=2).encode("utf-8")
                     except HTTPError as exc:
                         stats["http_errors"] += 1
                         print(f"HTTP error on replay {candidate.replay_id}: {exc}")
@@ -423,6 +465,10 @@ def main() -> int:
                     except URLError as exc:
                         stats["url_errors"] += 1
                         print(f"URL error on replay {candidate.replay_id}: {exc}")
+                        continue
+                    except TimeoutError as exc:
+                        stats["url_errors"] += 1
+                        print(f"Timeout on replay {candidate.replay_id}: {exc}")
                         continue
 
                     payload_obj["_scrape"] = {
@@ -437,6 +483,16 @@ def main() -> int:
                     raw_bytes = raw_text.encode("utf-8")
                     stats["replays_downloaded"] += 1
                     downloaded += 1
+                    if args.progress_every > 0 and downloaded % args.progress_every == 0:
+                        print(
+                            "Downloaded {} accepted={} low_rating={} missing_rating={} short={}".format(
+                                downloaded,
+                                stats["accepted"],
+                                stats["reject_low_rating"],
+                                stats["reject_missing_rating"],
+                                stats["reject_short_game"],
+                            )
+                        )
                     _sleep_with_jitter(args.sleep_seconds, args.jitter_seconds)
 
                 assert payload_obj is not None and raw_bytes is not None
