@@ -1517,6 +1517,10 @@ async def main():
         adaptive_rerank = int(mcts_stats.get("adaptive_rerank_used", 0))
         adaptive_second_pass = int(mcts_stats.get("adaptive_second_pass_used", 0))
         search_prior_used = int(mcts_stats.get("search_prior_used", 0))
+        search_prior_calls = int(mcts_stats.get("search_prior_calls", 0))
+        search_prior_mask_empty = int(mcts_stats.get("search_prior_mask_empty", 0))
+        search_prior_unmapped = int(mcts_stats.get("search_prior_unmapped_choices", 0))
+        search_prior_zero_sum = int(mcts_stats.get("search_prior_zero_sum", 0))
         search_prior_init_failed = int(mcts_stats.get("search_prior_init_failed", 0))
         search_prior_apply_failed = int(mcts_stats.get("search_prior_apply_failed", 0))
         switch_prior_used = int(mcts_stats.get("switch_prior_used", 0))
@@ -1538,10 +1542,22 @@ async def main():
                     adaptive_second_pass,
                 )
             )
-        if search_prior_used or search_prior_init_failed or search_prior_apply_failed:
+        if (
+            search_prior_calls
+            or search_prior_used
+            or search_prior_mask_empty
+            or search_prior_unmapped
+            or search_prior_zero_sum
+            or search_prior_init_failed
+            or search_prior_apply_failed
+        ):
             print(
-                "   Search prior uses/init_failed/apply_failed: {}/{}/{}".format(
+                "   Search prior calls/uses/mask0/unmapped/zero/initF/applyF: {}/{}/{}/{}/{}/{}/{}".format(
+                    search_prior_calls,
                     search_prior_used,
+                    search_prior_mask_empty,
+                    search_prior_unmapped,
+                    search_prior_zero_sum,
                     search_prior_init_failed,
                     search_prior_apply_failed,
                 )

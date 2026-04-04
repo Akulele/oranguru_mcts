@@ -366,6 +366,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
             "fallback_super": 0,
             "fallback_random": 0,
             "search_prior_used": 0,
+            "search_prior_calls": 0,
+            "search_prior_mask_empty": 0,
+            "search_prior_unmapped_choices": 0,
+            "search_prior_zero_sum": 0,
             "search_prior_init_failed": 0,
             "search_prior_apply_failed": 0,
             "switch_prior_used": 0,
@@ -931,6 +935,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     def _search_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
         if not choices or not self.SEARCH_PRIOR_ENABLED:
             return None
+        self._mcts_stats["search_prior_calls"] = int(
+            self._mcts_stats.get("search_prior_calls", 0) or 0
+        ) + 1
         if not self._init_search_prior():
             return None
         torch = self._search_prior_torch
@@ -946,6 +953,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
             ]
             mask, move_map, switch_map = self._build_rl_action_mask_and_maps(battle)
             if not any(mask):
+                self._mcts_stats["search_prior_mask_empty"] = int(
+                    self._mcts_stats.get("search_prior_mask_empty", 0) or 0
+                ) + 1
                 return None
             action_features = self._build_search_trace_action_features(battle, mask)
             board_t = torch.tensor([board_features], dtype=torch.float32, device=self._search_prior_device)
@@ -961,13 +971,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
             probs_arr = probs[0].detach().cpu().tolist()
 
             priors: List[float] = []
+            unmapped = 0
             for choice in choices:
                 idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
                 if idx is None or idx >= len(probs_arr):
+                    unmapped += 1
                     priors.append(0.0)
                 else:
                     priors.append(max(0.0, float(probs_arr[idx])))
+            if unmapped > 0:
+                self._mcts_stats["search_prior_unmapped_choices"] = int(
+                    self._mcts_stats.get("search_prior_unmapped_choices", 0) or 0
+                ) + int(unmapped)
             if sum(priors) <= 0:
+                self._mcts_stats["search_prior_zero_sum"] = int(
+                    self._mcts_stats.get("search_prior_zero_sum", 0) or 0
+                ) + 1
                 return None
             self._mcts_stats["search_prior_used"] = int(self._mcts_stats.get("search_prior_used", 0) or 0) + 1
             return priors
