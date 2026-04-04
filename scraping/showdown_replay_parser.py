@@ -66,6 +66,15 @@ def _raw_player_name(payload: dict[str, Any], side: str) -> str | None:
         value = players.get(side)
         if isinstance(value, str) and value.strip():
             return value.strip()
+    scrape = payload.get("_scrape")
+    if isinstance(scrape, dict):
+        scrape_players = scrape.get("players")
+        if isinstance(scrape_players, list):
+            idx = 0 if side == "p1" else 1
+            if idx < len(scrape_players):
+                value = scrape_players[idx]
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
     return None
 
 
