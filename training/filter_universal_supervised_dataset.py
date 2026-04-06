@@ -35,6 +35,10 @@ def main() -> int:
     parser.add_argument("--max-turn", type=int, default=0)
     parser.add_argument("--min-total-turns", type=int, default=0)
     parser.add_argument("--max-total-turns", type=int, default=0)
+    parser.add_argument("--phase", action="append", default=[], help="Repeatable: early, mid, late")
+    parser.add_argument("--require-can-tera", action="store_true")
+    parser.add_argument("--min-opp-revealed-moves", type=int, default=0)
+    parser.add_argument("--min-opp-revealed-team", type=int, default=0)
     parser.add_argument("--only-decision-index", type=int, default=-1)
     parser.add_argument("--exclude-forfeit", action="store_true")
     parser.add_argument("--exclude-inactivity", action="store_true")
@@ -47,6 +51,7 @@ def main() -> int:
 
     action_kinds = {str(x) for x in args.action_kind if str(x)}
     terminal_reasons = {str(x) for x in args.terminal_reason if str(x)}
+    phases = {str(x) for x in args.phase if str(x)}
     out_rows = []
     counters = Counter()
     kept_action = Counter()
@@ -60,6 +65,9 @@ def main() -> int:
             continue
         if not _keep_terminal_reason(row, terminal_reasons):
             counters["drop_terminal_reason"] += 1
+            continue
+        if phases and str(row.get("phase", "") or "") not in phases:
+            counters["drop_phase"] += 1
             continue
 
         rating = row.get("rating")
@@ -87,6 +95,18 @@ def main() -> int:
             continue
         if args.max_total_turns > 0 and total_turns > args.max_total_turns:
             counters["drop_max_total_turns"] += 1
+            continue
+
+        if args.require_can_tera and not bool(row.get("can_tera", False)):
+            counters["drop_can_tera"] += 1
+            continue
+
+        if args.min_opp_revealed_moves > 0 and int(row.get("opp_revealed_moves", 0) or 0) < args.min_opp_revealed_moves:
+            counters["drop_opp_revealed_moves"] += 1
+            continue
+
+        if args.min_opp_revealed_team > 0 and int(row.get("opp_revealed_team", 0) or 0) < args.min_opp_revealed_team:
+            counters["drop_opp_revealed_team"] += 1
             continue
 
         decision_index = int(row.get("decision_index", 0) or 0)
@@ -126,6 +146,10 @@ def main() -> int:
             "max_turn": args.max_turn,
             "min_total_turns": args.min_total_turns,
             "max_total_turns": args.max_total_turns,
+            "phase": sorted(phases),
+            "require_can_tera": bool(args.require_can_tera),
+            "min_opp_revealed_moves": args.min_opp_revealed_moves,
+            "min_opp_revealed_team": args.min_opp_revealed_team,
             "only_decision_index": args.only_decision_index,
             "exclude_forfeit": bool(args.exclude_forfeit),
             "exclude_inactivity": bool(args.exclude_inactivity),

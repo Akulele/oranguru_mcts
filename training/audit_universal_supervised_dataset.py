@@ -55,12 +55,17 @@ def main() -> int:
     values = []
     sources = Counter()
     terminal_reasons = Counter()
+    phases = Counter()
     forfeit_rows = 0
     inactivity_rows = 0
     terastallize_count = 0
+    rows_with_state_snapshot = 0
     empty_masks = 0
     bad_policy_len = 0
     bad_action_features = 0
+    can_tera_rows = 0
+    opp_revealed_moves = []
+    opp_revealed_team = []
 
     for row in rows:
         battle_id = str(row.get("battle_id", ""))
@@ -92,6 +97,10 @@ def main() -> int:
         if source:
             sources[source] += 1
 
+        phase = str(row.get("phase", "") or "")
+        if phase:
+            phases[phase] += 1
+
         terminal_reason = str(row.get("terminal_reason", "") or "normal")
         terminal_reasons[terminal_reason] += 1
         if bool(row.get("ended_by_forfeit", False)):
@@ -101,6 +110,14 @@ def main() -> int:
 
         if bool(row.get("chosen_terastallize", False)):
             terastallize_count += 1
+        if bool(row.get("can_tera", False)):
+            can_tera_rows += 1
+        if isinstance(row.get("state_snapshot"), dict):
+            rows_with_state_snapshot += 1
+        if isinstance(row.get("opp_revealed_moves"), (int, float)):
+            opp_revealed_moves.append(float(row.get("opp_revealed_moves")))
+        if isinstance(row.get("opp_revealed_team"), (int, float)):
+            opp_revealed_team.append(float(row.get("opp_revealed_team")))
 
         mask = row.get("action_mask") or []
         if not isinstance(mask, list) or not any(bool(x) for x in mask):
@@ -131,6 +148,8 @@ def main() -> int:
     turn_p10, turn_p50, turn_p90 = _quantiles([float(x) for x in turns]) if turns else (0.0, 0.0, 0.0)
     rating_p10, rating_p50, rating_p90 = _quantiles(ratings) if ratings else (0.0, 0.0, 0.0)
     legal_p10, legal_p50, legal_p90 = _quantiles([float(x) for x in legal_counts]) if legal_counts else (0.0, 0.0, 0.0)
+    opp_moves_p10, opp_moves_p50, opp_moves_p90 = _quantiles(opp_revealed_moves) if opp_revealed_moves else (0.0, 0.0, 0.0)
+    opp_team_p10, opp_team_p50, opp_team_p90 = _quantiles(opp_revealed_team) if opp_revealed_team else (0.0, 0.0, 0.0)
 
     value_counter = Counter()
     for v in values:
@@ -162,9 +181,18 @@ def main() -> int:
         "legal_count_p90": legal_p90,
         "action_kind_counts": dict(action_kind_counts),
         "chosen_terastallize_count": terastallize_count,
+        "can_tera_rows": can_tera_rows,
+        "phase_counts": dict(phases),
         "terminal_reason_counts": dict(terminal_reasons),
         "rows_from_forfeit_games": forfeit_rows,
         "rows_from_inactivity_games": inactivity_rows,
+        "rows_with_state_snapshot": rows_with_state_snapshot,
+        "opp_revealed_moves_p10": opp_moves_p10,
+        "opp_revealed_moves_p50": opp_moves_p50,
+        "opp_revealed_moves_p90": opp_moves_p90,
+        "opp_revealed_team_p10": opp_team_p10,
+        "opp_revealed_team_p50": opp_team_p50,
+        "opp_revealed_team_p90": opp_team_p90,
         "top_labels": top_labels.most_common(args.top_k),
         "source_counts": dict(sources),
         "duplicate_battle_player_turn_keys": duplicate_turn_collisions,
@@ -188,15 +216,20 @@ def main() -> int:
     print("Actions")
     print(f"  action kinds: {dict(action_kind_counts)}")
     print(f"  chosen terastallize count: {terastallize_count}")
+    print(f"  can-tera rows: {can_tera_rows}")
     print(f"  legal count mean p10/p50/p90: {summary['legal_count_mean']:.2f} / {summary['legal_count_p10']:.1f} / {summary['legal_count_p50']:.1f} / {summary['legal_count_p90']:.1f}")
+    print(f"  opp revealed moves p10/p50/p90: {opp_moves_p10:.1f} / {opp_moves_p50:.1f} / {opp_moves_p90:.1f}")
+    print(f"  opp revealed team p10/p50/p90: {opp_team_p10:.1f} / {opp_team_p50:.1f} / {opp_team_p90:.1f}")
     print(f"  top labels: {top_labels.most_common(args.top_k)}")
     print()
     print("Values")
     print(f"  value counts: {dict(value_counter)}")
+    print(f"  phases: {dict(phases)}")
     print(f"  terminal reasons: {dict(terminal_reasons)}")
     print(f"  rows from forfeit/inactivity games: {forfeit_rows}/{inactivity_rows}")
     print()
     print("Integrity")
+    print(f"  rows with state snapshot: {rows_with_state_snapshot}")
     print(f"  duplicate battle/player/turn keys: {duplicate_turn_collisions}")
     print(f"  duplicate battle/player/turn/decision keys: {duplicate_decision_collisions}")
     print(f"  multi-decision turns: {multi_decision_turns}")

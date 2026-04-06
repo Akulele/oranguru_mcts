@@ -70,6 +70,60 @@ def _build_action_labels(state: dict, side: str, mask: list[bool]) -> list[str]:
     return labels
 
 
+def _remaining_count(state: dict, side: str) -> int:
+    total = 0
+    for uid in state["team_order"].get(side, []):
+        hp = state["hp"].get(uid)
+        if not isinstance(hp, (int, float)) or hp > 0:
+            total += 1
+    return total
+
+
+def _revealed_move_count(state: dict, side: str) -> int:
+    total = 0
+    for uid in state["team_order"].get(side, []):
+        total += len(state["move_slots"].get(uid, {}) or {})
+    return total
+
+
+def _phase_label(turn_number: int, total_turns: int) -> str:
+    if total_turns > 0:
+        frac = float(turn_number) / float(max(1, total_turns))
+        if frac <= 0.33:
+            return "early"
+        if frac <= 0.66:
+            return "mid"
+        return "late"
+    if turn_number <= 10:
+        return "early"
+    if turn_number <= 25:
+        return "mid"
+    return "late"
+
+
+def _state_snapshot(state: dict) -> dict:
+    return {
+        "team_order": {
+            side: [str(uid) for uid in state["team_order"].get(side, [])]
+            for side in ("p1", "p2")
+        },
+        "active": {side: state["active"].get(side) for side in ("p1", "p2")},
+        "hp": {str(uid): int(hp) for uid, hp in dict(state["hp"]).items() if isinstance(hp, (int, float))},
+        "max_hp": {str(uid): int(hp) for uid, hp in dict(state["max_hp"]).items() if isinstance(hp, (int, float))},
+        "status": {str(uid): bool(v) for uid, v in dict(state["status"]).items()},
+        "species": {str(uid): str(species) for uid, species in dict(state["species"]).items()},
+        "move_slots": {
+            str(uid): {str(move): int(slot) for move, slot in dict(slots).items()}
+            for uid, slots in dict(state["move_slots"]).items()
+        },
+        "hazards": {
+            side: {str(k): int(v) for k, v in dict(state["hazards"].get(side, {})).items()}
+            for side in ("p1", "p2")
+        },
+        "tera_used": {side: bool(state["tera_used"].get(side, False)) for side in ("p1", "p2")},
+    }
+
+
 def _append_row(
     rows: list[dict],
     *,
@@ -94,6 +148,7 @@ def _append_row(
         mask[action_index] = True
     action_features = _build_action_features(state, side, mask)
     action_labels = _build_action_labels(state, side, mask)
+    legal_action_count = sum(1 for ok in mask if bool(ok))
     policy_target = [0.0] * N_ACTIONS
     policy_target[action_index] = 1.0
     chosen_label = action_labels[action_index]
@@ -106,6 +161,18 @@ def _append_row(
 
     outcome = copy.deepcopy((obj.get("metadata", {}) or {}).get("outcome", {}))
     total_turns = int((obj.get("metadata", {}) or {}).get("total_turns") or 0)
+    other = "p2" if side == "p1" else "p1"
+    active_uid = state["active"].get(side)
+    opp_active_uid = state["active"].get(other)
+    phase = _phase_label(int(turn_number), total_turns)
+    can_tera = any(bool(mask[idx]) for idx in range(9, min(13, len(mask))))
+    tera_candidate_count = sum(1 for idx in range(9, min(13, len(mask))) if bool(mask[idx]))
+    my_revealed_team = len(state["team_order"].get(side, []))
+    opp_revealed_team = len(state["team_order"].get(other, []))
+    my_revealed_moves = _revealed_move_count(state, side)
+    opp_revealed_moves = _revealed_move_count(state, other)
+    my_active_revealed_moves = len(state["move_slots"].get(active_uid, {}) or {}) if active_uid else 0
+    opp_active_revealed_moves = len(state["move_slots"].get(opp_active_uid, {}) or {}) if opp_active_uid else 0
     rows.append(
         {
             "schema_version": SCHEMA_VERSION,
@@ -117,6 +184,18 @@ def _append_row(
             "player": side,
             "rating": rating,
             "total_turns": total_turns,
+            "phase": phase,
+            "legal_action_count": int(legal_action_count),
+            "can_tera": bool(can_tera),
+            "tera_candidate_count": int(tera_candidate_count),
+            "my_revealed_team": int(my_revealed_team),
+            "opp_revealed_team": int(opp_revealed_team),
+            "my_revealed_moves": int(my_revealed_moves),
+            "opp_revealed_moves": int(opp_revealed_moves),
+            "my_active_revealed_moves": int(my_active_revealed_moves),
+            "opp_active_revealed_moves": int(opp_active_revealed_moves),
+            "my_remaining": int(_remaining_count(state, side)),
+            "opp_remaining": int(_remaining_count(state, other)),
             "winner_side": winner_side,
             "value_target": 1.0 if side == winner_side else -1.0,
             "board_features": _build_features(state, side, turn_number),
@@ -132,6 +211,7 @@ def _append_row(
             "source": source_tag,
             "tag": source_tag,
             "source_path": source_path,
+            "state_snapshot": _state_snapshot(state),
             "terminal_reason": str(outcome.get("terminal_reason", "") or "normal"),
             "ended_by_forfeit": bool(outcome.get("ended_by_forfeit", False)),
             "ended_by_inactivity": bool(outcome.get("ended_by_inactivity", False)),
