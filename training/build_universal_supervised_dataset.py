@@ -166,6 +166,8 @@ def _append_row(
     winner_side: str,
     source_path: str,
     source_tag: str,
+    decision_event_seq: int,
+    decision_event_type: str,
 ) -> None:
     if side not in ("p1", "p2"):
         return
@@ -209,6 +211,8 @@ def _append_row(
             "turn": int(turn_number),
             "decision_index": int(decision_index),
             "decision_key": f"{battle_id}|{side}|{int(turn_number)}|{int(decision_index)}",
+            "decision_event_seq": int(decision_event_seq),
+            "decision_event_type": str(decision_event_type),
             "player": side,
             "rating": rating,
             "total_turns": total_turns,
@@ -353,6 +357,8 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                     "action_index": 4 + idx,
                                     "turn_number": turn_number,
                                     "decision_index": decision_index,
+                                    "decision_event_seq": int(event.get("seq", -1) or -1),
+                                    "decision_event_type": str(etype),
                                 }
                             )
                 state["active"][side] = into_uid
@@ -383,6 +389,8 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                 "action_index": action_index,
                                 "turn_number": turn_number,
                                 "decision_index": decision_index,
+                                "decision_event_seq": int(event.get("seq", -1) or -1),
+                                "decision_event_type": str(etype),
                             }
                         )
                 if side in tera_pending:
@@ -448,6 +456,8 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
             winner_side=winner_side,
             source_path=source_path,
             source_tag=args.source_tag,
+            decision_event_seq=item["decision_event_seq"],
+            decision_event_type=item["decision_event_type"],
         )
 
     if not rows:
