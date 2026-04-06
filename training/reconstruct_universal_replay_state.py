@@ -116,13 +116,45 @@ def _apply_event(state: dict, event: dict) -> None:
     _parse_effect_event(state, event)
 
 
+def _event_seq(event: dict) -> int:
+    value = event.get("seq", -1)
+    try:
+        return int(value)
+    except Exception:
+        return -1
+
+
+def _apply_decision_prefix(state: dict, event: dict) -> None:
+    """Mirror builder semantics for the stored pre-decision snapshot.
+
+    For move decisions, the builder records state after:
+    - setting the acting side's active uid
+    - revealing / slotting the move
+    but before downstream move effects.
+
+    For switch decisions, the builder records state before changing the active.
+    """
+    if event.get("type") != "move":
+        return
+    side = event.get("player")
+    uid = event.get("pokemon_uid")
+    move_id = str(event.get("move_id", "") or "")
+    if side in ("p1", "p2") and uid:
+        state["active"][side] = uid
+        if move_id:
+            slots = state["move_slots"][uid]
+            if move_id not in slots and len(slots) < 4:
+                slots[move_id] = len(slots)
+
+
 def _reconstruct_state(obj: dict, turn_number: int, decision_event_seq: int) -> dict:
     state = _init_state_from_obj(obj)
     for turn in obj.get("turns", []) or []:
         tnum = int(turn.get("turn_number") or 0)
         for event in (turn.get("events") or []):
-            seq = int(event.get("seq", -1) or -1)
+            seq = _event_seq(event)
             if tnum == turn_number and seq == decision_event_seq:
+                _apply_decision_prefix(state, event)
                 return state
             _apply_event(state, event)
     return state
@@ -148,7 +180,11 @@ def main() -> int:
         counters["rows_seen"] += 1
         source_path = str(row.get("source_path", "") or "")
         turn = int(row.get("turn", 0) or 0)
-        seq = int(row.get("decision_event_seq", -1) or -1)
+        seq_value = row.get("decision_event_seq", -1)
+        try:
+            seq = int(seq_value)
+        except Exception:
+            seq = -1
         stored = row.get("state_snapshot")
         if not source_path or not isinstance(stored, dict):
             counters["drop_missing_source_or_snapshot"] += 1

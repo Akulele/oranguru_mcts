@@ -152,6 +152,14 @@ def _public_team_snapshot(obj: dict, state: dict) -> dict:
     return snapshot
 
 
+def _event_seq(event: dict) -> int:
+    value = event.get("seq", -1)
+    try:
+        return int(value)
+    except Exception:
+        return -1
+
+
 def _append_row(
     rows: list[dict],
     *,
@@ -357,7 +365,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                     "action_index": 4 + idx,
                                     "turn_number": turn_number,
                                     "decision_index": decision_index,
-                                    "decision_event_seq": int(event.get("seq", -1) or -1),
+                                    "decision_event_seq": _event_seq(event),
                                     "decision_event_type": str(etype),
                                 }
                             )
@@ -389,7 +397,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                 "action_index": action_index,
                                 "turn_number": turn_number,
                                 "decision_index": decision_index,
-                                "decision_event_seq": int(event.get("seq", -1) or -1),
+                                "decision_event_seq": _event_seq(event),
                                 "decision_event_type": str(etype),
                             }
                         )
