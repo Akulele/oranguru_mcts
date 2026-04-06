@@ -124,6 +124,34 @@ def _state_snapshot(state: dict) -> dict:
     }
 
 
+def _public_team_snapshot(obj: dict, state: dict) -> dict:
+    teams = (obj.get("team_revelation", {}) or {}).get("teams", {}) or {}
+    snapshot = {"p1": [], "p2": []}
+    for side in ("p1", "p2"):
+        active_uid = state["active"].get(side)
+        for mon in teams.get(side, []) or []:
+            uid = str(mon.get("pokemon_uid", "") or "")
+            if not uid:
+                continue
+            snapshot[side].append(
+                {
+                    "pokemon_uid": uid,
+                    "species": str(mon.get("species", "") or ""),
+                    "level": mon.get("level"),
+                    "gender": mon.get("gender"),
+                    "first_seen_turn": int(mon.get("first_seen_turn", 0) or 0),
+                    "revealed_moves": [str(m) for m in list(mon.get("known_moves", []) or [])],
+                    "known_tera_type": mon.get("known_tera_type"),
+                    "active": bool(uid == active_uid),
+                    "hp": int(state["hp"].get(uid, 0) or 0) if isinstance(state["hp"].get(uid), (int, float)) else None,
+                    "max_hp": int(state["max_hp"].get(uid, 0) or 0) if isinstance(state["max_hp"].get(uid), (int, float)) else None,
+                    "status": bool(state["status"].get(uid, False)),
+                    "fainted": bool(isinstance(state["hp"].get(uid), (int, float)) and state["hp"].get(uid, 1) <= 0),
+                }
+            )
+    return snapshot
+
+
 def _append_row(
     rows: list[dict],
     *,
@@ -212,6 +240,8 @@ def _append_row(
             "tag": source_tag,
             "source_path": source_path,
             "state_snapshot": _state_snapshot(state),
+            "public_team_snapshot": _public_team_snapshot(obj, state),
+            "search_relabel_ready": True,
             "terminal_reason": str(outcome.get("terminal_reason", "") or "normal"),
             "ended_by_forfeit": bool(outcome.get("ended_by_forfeit", False)),
             "ended_by_inactivity": bool(outcome.get("ended_by_inactivity", False)),

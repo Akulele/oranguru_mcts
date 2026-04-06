@@ -60,6 +60,8 @@ def main() -> int:
     inactivity_rows = 0
     terastallize_count = 0
     rows_with_state_snapshot = 0
+    rows_with_public_team_snapshot = 0
+    rows_search_relabel_ready = 0
     empty_masks = 0
     bad_policy_len = 0
     bad_action_features = 0
@@ -114,6 +116,10 @@ def main() -> int:
             can_tera_rows += 1
         if isinstance(row.get("state_snapshot"), dict):
             rows_with_state_snapshot += 1
+        if isinstance(row.get("public_team_snapshot"), dict):
+            rows_with_public_team_snapshot += 1
+        if bool(row.get("search_relabel_ready", False)):
+            rows_search_relabel_ready += 1
         if isinstance(row.get("opp_revealed_moves"), (int, float)):
             opp_revealed_moves.append(float(row.get("opp_revealed_moves")))
         if isinstance(row.get("opp_revealed_team"), (int, float)):
@@ -187,6 +193,8 @@ def main() -> int:
         "rows_from_forfeit_games": forfeit_rows,
         "rows_from_inactivity_games": inactivity_rows,
         "rows_with_state_snapshot": rows_with_state_snapshot,
+        "rows_with_public_team_snapshot": rows_with_public_team_snapshot,
+        "rows_search_relabel_ready": rows_search_relabel_ready,
         "opp_revealed_moves_p10": opp_moves_p10,
         "opp_revealed_moves_p50": opp_moves_p50,
         "opp_revealed_moves_p90": opp_moves_p90,
@@ -230,6 +238,8 @@ def main() -> int:
     print()
     print("Integrity")
     print(f"  rows with state snapshot: {rows_with_state_snapshot}")
+    print(f"  rows with public team snapshot: {rows_with_public_team_snapshot}")
+    print(f"  rows search-relabel ready: {rows_search_relabel_ready}")
     print(f"  duplicate battle/player/turn keys: {duplicate_turn_collisions}")
     print(f"  duplicate battle/player/turn/decision keys: {duplicate_decision_collisions}")
     print(f"  multi-decision turns: {multi_decision_turns}")
