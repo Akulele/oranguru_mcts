@@ -374,20 +374,28 @@ def _event_from_parts(
 
     if kind.startswith("-"):
         effect_type = _norm(kind.lstrip("-"))
+        effect_side = None
+        effect_uid = None
+        effect_tera_type = None
         if effect_type == "terastallize" and len(parts) >= 2:
-            side = _side_from_ident(parts[1])
-            if side:
-                state["tera_used"][side] = True
-                uid = active_slots.get(f"{side}a")
+            effect_side = _side_from_ident(parts[1])
+            if effect_side:
+                state["tera_used"][effect_side] = True
+                effect_uid = active_slots.get(f"{effect_side}a")
+                if len(parts) >= 3:
+                    effect_tera_type = str(parts[2])
                 teams = team_revelation.get("teams", {}) or {}
-                for mon in teams.get(side, []):
-                    if mon.get("pokemon_uid") == uid and len(parts) >= 3:
-                        mon["known_tera_type"] = str(parts[2])
+                for mon in teams.get(effect_side, []):
+                    if mon.get("pokemon_uid") == effect_uid and effect_tera_type:
+                        mon["known_tera_type"] = effect_tera_type
                         break
         return {
             "seq": seq,
             "type": "effect",
             "effect_type": effect_type,
+            "player": effect_side,
+            "target_uid": effect_uid,
+            "tera_type": effect_tera_type,
             "raw_parts": raw_parts,
         }
 

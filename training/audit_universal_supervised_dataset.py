@@ -54,6 +54,7 @@ def main() -> int:
     ratings = []
     values = []
     sources = Counter()
+    terastallize_count = 0
     empty_masks = 0
     bad_policy_len = 0
     bad_action_features = 0
@@ -87,6 +88,9 @@ def main() -> int:
         source = str(row.get("source", ""))
         if source:
             sources[source] += 1
+
+        if bool(row.get("chosen_terastallize", False)):
+            terastallize_count += 1
 
         mask = row.get("action_mask") or []
         if not isinstance(mask, list) or not any(bool(x) for x in mask):
@@ -147,6 +151,7 @@ def main() -> int:
         "legal_count_p50": legal_p50,
         "legal_count_p90": legal_p90,
         "action_kind_counts": dict(action_kind_counts),
+        "chosen_terastallize_count": terastallize_count,
         "top_labels": top_labels.most_common(args.top_k),
         "source_counts": dict(sources),
         "duplicate_battle_player_turn_keys": duplicate_turn_collisions,
@@ -169,6 +174,7 @@ def main() -> int:
     print()
     print("Actions")
     print(f"  action kinds: {dict(action_kind_counts)}")
+    print(f"  chosen terastallize count: {terastallize_count}")
     print(f"  legal count mean p10/p50/p90: {summary['legal_count_mean']:.2f} / {summary['legal_count_p10']:.1f} / {summary['legal_count_p50']:.1f} / {summary['legal_count_p90']:.1f}")
     print(f"  top labels: {top_labels.most_common(args.top_k)}")
     print()

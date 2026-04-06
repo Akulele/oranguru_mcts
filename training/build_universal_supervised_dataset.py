@@ -63,7 +63,7 @@ def _build_action_labels(state: dict, side: str, mask: list[bool]) -> list[str]:
     for idx in range(9, 13):
         move_idx = idx - 9
         move_id = slot_to_move.get(move_idx, f"move_slot_{move_idx + 1}")
-        labels[idx] = f"tera {move_id}"
+        labels[idx] = f"{move_id}-tera"
     for idx, ok in enumerate(mask):
         if not ok:
             labels[idx] = ""
@@ -124,6 +124,7 @@ def _append_row(
             "chosen_action_index": int(action_index),
             "chosen_action_label": chosen_label,
             "chosen_action_kind": chosen_kind,
+            "chosen_terastallize": bool(action_index >= 9),
             "weight": 1.0,
             "source": source_tag,
             "tag": source_tag,
@@ -204,6 +205,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
 
     pending_rows: list[dict] = []
     decision_counters: dict[tuple[str, int], int] = {}
+    tera_pending = {"p1": False, "p2": False}
     for turn in turns:
         turn_number = int(turn.get("turn_number") or 0)
         for event in (turn.get("events") or []):
@@ -237,6 +239,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                 }
                             )
                 state["active"][side] = into_uid
+                tera_pending[side] = False
                 continue
 
             if etype == "move":
@@ -252,9 +255,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                 if move_id in slots:
                     slot = slots[move_id]
                     if 0 <= slot < 4:
-                        action_index = slot
-                        if state["tera_used"].get(side, False):
-                            action_index = slot
+                        action_index = (9 + slot) if tera_pending.get(side, False) else slot
                         key = (side, turn_number)
                         decision_index = decision_counters.get(key, 0)
                         decision_counters[key] = decision_index + 1
@@ -267,6 +268,8 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                                 "decision_index": decision_index,
                             }
                         )
+                if side in tera_pending:
+                    tera_pending[side] = False
                 continue
 
             if etype in {"damage", "heal"}:
@@ -297,7 +300,16 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                     state["status"][uid] = False
                 continue
 
+            if etype == "effect":
+                if str(event.get("effect_type", "")) == "terastallize":
+                    side = event.get("player")
+                    if side in ("p1", "p2"):
+                        tera_pending[side] = True
+
             _parse_effect_event(state, event)
+
+        tera_pending["p1"] = False
+        tera_pending["p2"] = False
 
     winner_side = _resolve_winner_side(obj, state)
     if winner_side is None:
