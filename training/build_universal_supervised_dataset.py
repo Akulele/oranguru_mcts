@@ -104,6 +104,8 @@ def _append_row(
     else:
         chosen_kind = "tera_move"
 
+    outcome = copy.deepcopy((obj.get("metadata", {}) or {}).get("outcome", {}))
+    total_turns = int((obj.get("metadata", {}) or {}).get("total_turns") or 0)
     rows.append(
         {
             "schema_version": SCHEMA_VERSION,
@@ -114,6 +116,7 @@ def _append_row(
             "decision_key": f"{battle_id}|{side}|{int(turn_number)}|{int(decision_index)}",
             "player": side,
             "rating": rating,
+            "total_turns": total_turns,
             "winner_side": winner_side,
             "value_target": 1.0 if side == winner_side else -1.0,
             "board_features": _build_features(state, side, turn_number),
@@ -129,11 +132,15 @@ def _append_row(
             "source": source_tag,
             "tag": source_tag,
             "source_path": source_path,
+            "terminal_reason": str(outcome.get("terminal_reason", "") or "normal"),
+            "ended_by_forfeit": bool(outcome.get("ended_by_forfeit", False)),
+            "ended_by_inactivity": bool(outcome.get("ended_by_inactivity", False)),
             "metadata": {
                 "players": copy.deepcopy(obj.get("players", {})),
-                "outcome": copy.deepcopy((obj.get("metadata", {}) or {}).get("outcome", {})),
+                "outcome": outcome,
                 "timestamp_unix": (obj.get("metadata", {}) or {}).get("timestamp_unix"),
                 "replay_rating": (obj.get("metadata", {}) or {}).get("replay_rating"),
+                "total_turns": total_turns,
             },
         }
     )

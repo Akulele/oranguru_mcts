@@ -54,6 +54,9 @@ def main() -> int:
     ratings = []
     values = []
     sources = Counter()
+    terminal_reasons = Counter()
+    forfeit_rows = 0
+    inactivity_rows = 0
     terastallize_count = 0
     empty_masks = 0
     bad_policy_len = 0
@@ -88,6 +91,13 @@ def main() -> int:
         source = str(row.get("source", ""))
         if source:
             sources[source] += 1
+
+        terminal_reason = str(row.get("terminal_reason", "") or "normal")
+        terminal_reasons[terminal_reason] += 1
+        if bool(row.get("ended_by_forfeit", False)):
+            forfeit_rows += 1
+        if bool(row.get("ended_by_inactivity", False)):
+            inactivity_rows += 1
 
         if bool(row.get("chosen_terastallize", False)):
             terastallize_count += 1
@@ -152,6 +162,9 @@ def main() -> int:
         "legal_count_p90": legal_p90,
         "action_kind_counts": dict(action_kind_counts),
         "chosen_terastallize_count": terastallize_count,
+        "terminal_reason_counts": dict(terminal_reasons),
+        "rows_from_forfeit_games": forfeit_rows,
+        "rows_from_inactivity_games": inactivity_rows,
         "top_labels": top_labels.most_common(args.top_k),
         "source_counts": dict(sources),
         "duplicate_battle_player_turn_keys": duplicate_turn_collisions,
@@ -180,6 +193,8 @@ def main() -> int:
     print()
     print("Values")
     print(f"  value counts: {dict(value_counter)}")
+    print(f"  terminal reasons: {dict(terminal_reasons)}")
+    print(f"  rows from forfeit/inactivity games: {forfeit_rows}/{inactivity_rows}")
     print()
     print("Integrity")
     print(f"  duplicate battle/player/turn keys: {duplicate_turn_collisions}")

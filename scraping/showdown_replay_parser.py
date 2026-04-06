@@ -52,6 +52,15 @@ def _extract_log_text(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _detect_terminal_reason(log_text: str) -> tuple[str, bool, bool]:
+    text = log_text.lower()
+    if "lost due to inactivity" in text:
+        return "inactivity", False, True
+    if "forfeit" in text or "forfeited." in text:
+        return "forfeit", True, False
+    return "normal", False, False
+
+
 def _raw_player_name(payload: dict[str, Any], side: str) -> str | None:
     for key in (side, side.upper()):
         value = payload.get(key)
@@ -500,6 +509,7 @@ def _parse_replay(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str |
                 break
 
     total_turns = len(turns)
+    terminal_reason, ended_by_forfeit, ended_by_inactivity = _detect_terminal_reason(log_text)
     out = {
         "schema_version": SCHEMA_VERSION,
         "battle_id": battle_id,
@@ -513,6 +523,9 @@ def _parse_replay(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str |
                 "winner_name": winner_name,
                 "winner_side": winner_side,
                 "winner_player": winner_side,
+                "terminal_reason": terminal_reason,
+                "ended_by_forfeit": ended_by_forfeit,
+                "ended_by_inactivity": ended_by_inactivity,
             },
             "source": {
                 "site": "replay.pokemonshowdown.com",
