@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from training.build_universal_supervised_dataset import _state_snapshot
+from training.build_universal_supervised_dataset import _public_view_state, _state_snapshot
 from training.prepare_search_assist_bootstrap import _parse_effect_event
 
 
@@ -40,7 +40,9 @@ def _init_state_from_obj(obj: dict) -> dict:
         "active": {"p1": None, "p2": None},
         "hp": {},
         "max_hp": {},
-        "status": defaultdict(bool),
+        "status": defaultdict(str),
+        "boosts": defaultdict(lambda: defaultdict(int)),
+        "volatile_statuses": defaultdict(set),
         "species": {},
         "move_slots": defaultdict(dict),
         "hazards": {
@@ -48,6 +50,9 @@ def _init_state_from_obj(obj: dict) -> dict:
             "p2": {"spikes": 0, "toxicspikes": 0, "stealthrock": 0, "stickyweb": 0},
         },
         "tera_used": {"p1": False, "p2": False},
+        "weather": "none",
+        "terrain": "none",
+        "trick_room": False,
     }
     for side in ("p1", "p2"):
         for mon in teams.get(side, []):
@@ -58,6 +63,7 @@ def _init_state_from_obj(obj: dict) -> dict:
             if isinstance(hp, (int, float)):
                 state["hp"][uid] = int(hp)
                 state["max_hp"][uid] = int(hp)
+            state["status"][uid] = ""
             species = mon.get("species")
             if species:
                 state["species"][uid] = "".join(ch.lower() for ch in str(species) if ch.isalnum())
@@ -104,13 +110,13 @@ def _apply_event(state: dict, event: dict) -> None:
     if etype == "status_start":
         uid = event.get("target_uid")
         if uid:
-            state["status"][uid] = True
+            state["status"][uid] = str(event.get("status", "") or "")
         return
 
     if etype == "status_end":
         uid = event.get("target_uid")
         if uid:
-            state["status"][uid] = False
+            state["status"][uid] = ""
         return
 
     _parse_effect_event(state, event)
@@ -202,7 +208,7 @@ def main() -> int:
                 continue
             cache[source_path] = obj
 
-        rebuilt = _state_snapshot(_reconstruct_state(obj, turn, seq))
+        rebuilt = _state_snapshot(_public_view_state(obj, _reconstruct_state(obj, turn, seq), str(row.get("player", "")), turn))
         if rebuilt == stored:
             counters["verified"] += 1
         else:

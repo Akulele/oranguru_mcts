@@ -110,17 +110,89 @@ def _state_snapshot(state: dict) -> dict:
         "active": {side: state["active"].get(side) for side in ("p1", "p2")},
         "hp": {str(uid): int(hp) for uid, hp in dict(state["hp"]).items() if isinstance(hp, (int, float))},
         "max_hp": {str(uid): int(hp) for uid, hp in dict(state["max_hp"]).items() if isinstance(hp, (int, float))},
-        "status": {str(uid): bool(v) for uid, v in dict(state["status"]).items()},
+        "status": {str(uid): (str(v) if v else "") for uid, v in dict(state["status"]).items()},
         "species": {str(uid): str(species) for uid, species in dict(state["species"]).items()},
         "move_slots": {
             str(uid): {str(move): int(slot) for move, slot in dict(slots).items()}
             for uid, slots in dict(state["move_slots"]).items()
+        },
+        "boosts": {
+            str(uid): {str(stat): int(value) for stat, value in dict(boosts).items()}
+            for uid, boosts in dict(state["boosts"]).items()
+        },
+        "volatile_statuses": {
+            str(uid): sorted(str(v) for v in set(statuses))
+            for uid, statuses in dict(state["volatile_statuses"]).items()
         },
         "hazards": {
             side: {str(k): int(v) for k, v in dict(state["hazards"].get(side, {})).items()}
             for side in ("p1", "p2")
         },
         "tera_used": {side: bool(state["tera_used"].get(side, False)) for side in ("p1", "p2")},
+        "weather": str(state.get("weather", "none") or "none"),
+        "terrain": str(state.get("terrain", "none") or "none"),
+        "trick_room": bool(state.get("trick_room", False)),
+    }
+
+
+def _public_view_state(obj: dict, state: dict, perspective_side: str, turn_number: int) -> dict:
+    other = "p2" if perspective_side == "p1" else "p1"
+    teams = (obj.get("team_revelation", {}) or {}).get("teams", {}) or {}
+
+    own_team = [
+        str(mon.get("pokemon_uid"))
+        for mon in list(teams.get(perspective_side, []) or [])
+        if mon.get("pokemon_uid")
+    ]
+    if not own_team:
+        own_team = [str(uid) for uid in state["team_order"].get(perspective_side, [])]
+
+    opp_team = [
+        str(mon.get("pokemon_uid"))
+        for mon in list(teams.get(other, []) or [])
+        if mon.get("pokemon_uid") and int(mon.get("first_seen_turn", 0) or 0) <= int(turn_number)
+    ]
+    opp_active = state["active"].get(other)
+    if opp_active and opp_active not in opp_team:
+        opp_team.append(str(opp_active))
+
+    view_team_order = {
+        perspective_side: own_team,
+        other: opp_team,
+    }
+    visible_uids = {uid for team in view_team_order.values() for uid in team}
+
+    return {
+        "team_order": view_team_order,
+        "uid_side": {uid: side for side, team in view_team_order.items() for uid in team},
+        "active": {
+            "p1": state["active"].get("p1"),
+            "p2": state["active"].get("p2"),
+        },
+        "hp": {uid: hp for uid, hp in dict(state["hp"]).items() if uid in visible_uids},
+        "max_hp": {uid: hp for uid, hp in dict(state["max_hp"]).items() if uid in visible_uids},
+        "status": {uid: v for uid, v in dict(state["status"]).items() if uid in visible_uids},
+        "species": {uid: v for uid, v in dict(state["species"]).items() if uid in visible_uids},
+        "move_slots": {
+            uid: dict(slots)
+            for uid, slots in dict(state["move_slots"]).items()
+            if uid in visible_uids
+        },
+        "boosts": {
+            uid: defaultdict(int, dict(boosts))
+            for uid, boosts in dict(state["boosts"]).items()
+            if uid in visible_uids
+        },
+        "volatile_statuses": {
+            uid: set(statuses)
+            for uid, statuses in dict(state["volatile_statuses"]).items()
+            if uid in visible_uids
+        },
+        "hazards": copy.deepcopy(state["hazards"]),
+        "tera_used": dict(state["tera_used"]),
+        "weather": str(state.get("weather", "none") or "none"),
+        "terrain": str(state.get("terrain", "none") or "none"),
+        "trick_room": bool(state.get("trick_room", False)),
     }
 
 
@@ -129,9 +201,10 @@ def _public_team_snapshot(obj: dict, state: dict) -> dict:
     snapshot = {"p1": [], "p2": []}
     for side in ("p1", "p2"):
         active_uid = state["active"].get(side)
+        visible_uids = set(state["team_order"].get(side, []) or [])
         for mon in teams.get(side, []) or []:
             uid = str(mon.get("pokemon_uid", "") or "")
-            if not uid:
+            if not uid or uid not in visible_uids:
                 continue
             snapshot[side].append(
                 {
@@ -140,12 +213,12 @@ def _public_team_snapshot(obj: dict, state: dict) -> dict:
                     "level": mon.get("level"),
                     "gender": mon.get("gender"),
                     "first_seen_turn": int(mon.get("first_seen_turn", 0) or 0),
-                    "revealed_moves": [str(m) for m in list(mon.get("known_moves", []) or [])],
-                    "known_tera_type": mon.get("known_tera_type"),
+                    "revealed_moves": sorted(str(move) for move in dict(state["move_slots"].get(uid, {})).keys()),
+                    "known_tera_type": None,
                     "active": bool(uid == active_uid),
                     "hp": int(state["hp"].get(uid, 0) or 0) if isinstance(state["hp"].get(uid), (int, float)) else None,
                     "max_hp": int(state["max_hp"].get(uid, 0) or 0) if isinstance(state["max_hp"].get(uid), (int, float)) else None,
-                    "status": bool(state["status"].get(uid, False)),
+                    "status": str(state["status"].get(uid, "") or ""),
                     "fainted": bool(isinstance(state["hp"].get(uid), (int, float)) and state["hp"].get(uid, 1) <= 0),
                 }
             )
@@ -181,11 +254,12 @@ def _append_row(
         return
     if action_index < 0 or action_index >= N_ACTIONS:
         return
-    mask = _build_action_mask(state, side)
+    public_state = _public_view_state(obj, state, side, turn_number)
+    mask = _build_action_mask(public_state, side)
     if not mask[action_index]:
         mask[action_index] = True
-    action_features = _build_action_features(state, side, mask)
-    action_labels = _build_action_labels(state, side, mask)
+    action_features = _build_action_features(public_state, side, mask)
+    action_labels = _build_action_labels(public_state, side, mask)
     legal_action_count = sum(1 for ok in mask if bool(ok))
     policy_target = [0.0] * N_ACTIONS
     policy_target[action_index] = 1.0
@@ -200,17 +274,17 @@ def _append_row(
     outcome = copy.deepcopy((obj.get("metadata", {}) or {}).get("outcome", {}))
     total_turns = int((obj.get("metadata", {}) or {}).get("total_turns") or 0)
     other = "p2" if side == "p1" else "p1"
-    active_uid = state["active"].get(side)
-    opp_active_uid = state["active"].get(other)
+    active_uid = public_state["active"].get(side)
+    opp_active_uid = public_state["active"].get(other)
     phase = _phase_label(int(turn_number), total_turns)
     can_tera = any(bool(mask[idx]) for idx in range(9, min(13, len(mask))))
     tera_candidate_count = sum(1 for idx in range(9, min(13, len(mask))) if bool(mask[idx]))
-    my_revealed_team = len(state["team_order"].get(side, []))
-    opp_revealed_team = len(state["team_order"].get(other, []))
-    my_revealed_moves = _revealed_move_count(state, side)
-    opp_revealed_moves = _revealed_move_count(state, other)
-    my_active_revealed_moves = len(state["move_slots"].get(active_uid, {}) or {}) if active_uid else 0
-    opp_active_revealed_moves = len(state["move_slots"].get(opp_active_uid, {}) or {}) if opp_active_uid else 0
+    my_revealed_team = len(public_state["team_order"].get(side, []))
+    opp_revealed_team = len(public_state["team_order"].get(other, []))
+    my_revealed_moves = _revealed_move_count(public_state, side)
+    opp_revealed_moves = _revealed_move_count(public_state, other)
+    my_active_revealed_moves = len(public_state["move_slots"].get(active_uid, {}) or {}) if active_uid else 0
+    opp_active_revealed_moves = len(public_state["move_slots"].get(opp_active_uid, {}) or {}) if opp_active_uid else 0
     rows.append(
         {
             "schema_version": SCHEMA_VERSION,
@@ -234,11 +308,11 @@ def _append_row(
             "opp_revealed_moves": int(opp_revealed_moves),
             "my_active_revealed_moves": int(my_active_revealed_moves),
             "opp_active_revealed_moves": int(opp_active_revealed_moves),
-            "my_remaining": int(_remaining_count(state, side)),
-            "opp_remaining": int(_remaining_count(state, other)),
+            "my_remaining": int(_remaining_count(public_state, side)),
+            "opp_remaining": int(_remaining_count(public_state, other)),
             "winner_side": winner_side,
             "value_target": 1.0 if side == winner_side else -1.0,
-            "board_features": _build_features(state, side, turn_number),
+            "board_features": _build_features(public_state, side, turn_number),
             "action_features": action_features,
             "action_mask": mask,
             "action_labels": action_labels,
@@ -251,8 +325,8 @@ def _append_row(
             "source": source_tag,
             "tag": source_tag,
             "source_path": source_path,
-            "state_snapshot": _state_snapshot(state),
-            "public_team_snapshot": _public_team_snapshot(obj, state),
+            "state_snapshot": _state_snapshot(public_state),
+            "public_team_snapshot": _public_team_snapshot(obj, public_state),
             "search_relabel_ready": True,
             "terminal_reason": str(outcome.get("terminal_reason", "") or "normal"),
             "ended_by_forfeit": bool(outcome.get("ended_by_forfeit", False)),
@@ -311,7 +385,9 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
         "active": {"p1": None, "p2": None},
         "hp": {},
         "max_hp": {},
-        "status": defaultdict(bool),
+        "status": defaultdict(str),
+        "boosts": defaultdict(lambda: defaultdict(int)),
+        "volatile_statuses": defaultdict(set),
         "species": {},
         "move_slots": defaultdict(dict),
         "hazards": {
@@ -319,6 +395,9 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
             "p2": {"spikes": 0, "toxicspikes": 0, "stealthrock": 0, "stickyweb": 0},
         },
         "tera_used": {"p1": False, "p2": False},
+        "weather": "none",
+        "terrain": "none",
+        "trick_room": False,
     }
 
     for side in ("p1", "p2"):
@@ -331,6 +410,7 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
                 state["hp"][uid] = int(hp)
                 state["max_hp"][uid] = int(hp)
             state["species"][uid] = _norm(mon.get("species"))
+            state["status"][uid] = ""
 
     pending_rows: list[dict] = []
     decision_counters: dict[tuple[str, int], int] = {}
@@ -424,13 +504,13 @@ def _process_replay(obj: dict, args: argparse.Namespace, counters: Counter, sour
             if etype == "status_start":
                 uid = event.get("target_uid")
                 if uid:
-                    state["status"][uid] = True
+                    state["status"][uid] = str(event.get("status", "") or "")
                 continue
 
             if etype == "status_end":
                 uid = event.get("target_uid")
                 if uid:
-                    state["status"][uid] = False
+                    state["status"][uid] = ""
                 continue
 
             if etype == "effect":
