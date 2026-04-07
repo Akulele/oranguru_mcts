@@ -43,6 +43,7 @@ from fp.search.poke_engine_helpers import battle_to_poke_engine_state  # noqa: E
 from fp.search.random_battles import prepare_random_battles  # noqa: E402
 from poke_engine import State as PokeEngineState, monte_carlo_tree_search  # noqa: E402
 from data.pkmn_sets import RandomBattleTeamDatasets  # noqa: E402
+from data import all_move_json  # noqa: E402
 
 from training.search_assist_utils import safe_float
 
@@ -142,6 +143,35 @@ def _sample_weighted_index(weights: list[float], rng: random.Random) -> int:
         if acc >= target:
             return idx
     return len(weights) - 1
+
+
+def _species_hash(species: object) -> float:
+    value = _norm(species)
+    if not value:
+        return 0.0
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()
+    return float(int(digest[:8], 16) % 997) / 996.0
+
+
+def _move_hash(move_id: object) -> float:
+    value = _norm(move_id)
+    if not value:
+        return 0.0
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()
+    return float(int(digest[:8], 16) % 997) / 996.0
+
+
+def _move_meta(move_id: object) -> tuple[float, float, float]:
+    move = all_move_json.get(_norm(move_id), {}) or {}
+    category = _norm(move.get(constants.CATEGORY))
+    is_status = 1.0 if category == "status" else 0.0
+    is_damaging = 1.0 if category in {"physical", "special"} else 0.0
+    try:
+        priority = int(move.get(constants.PRIORITY, 0) or 0)
+    except Exception:
+        priority = 0
+    priority_norm = max(-7.0, min(7.0, float(priority))) / 7.0
+    return is_status, is_damaging, priority_norm
 
 
 def _restore_known_runtime_state(mon: FPPokemon, *, hp: object, max_hp: object, status: object, boosts: dict, volatile: list[str], can_tera: bool, tera_type: object) -> None:
@@ -303,6 +333,76 @@ def _battle_choice_maps(battle: FPBattle, action_mask: list[bool]) -> dict[str, 
     return choice_to_idx
 
 
+def _build_teacher_action_labels_and_features(battle: FPBattle, action_mask: list[bool]) -> tuple[list[str], list[list[float]]]:
+    n_actions = len(action_mask)
+    labels = [""] * n_actions
+    features: list[list[float]] = []
+
+    active = getattr(getattr(battle, "user", None), "active", None)
+    opp = getattr(getattr(battle, "opponent", None), "active", None)
+    active_moves = list(getattr(active, "moves", []) or [])
+    bench = [mon for mon in list(getattr(getattr(battle, "user", None), "reserve", []) or []) if getattr(mon, "hp", 0) > 0]
+    my_hazards = getattr(getattr(battle, "user", None), "side_conditions", {}) or {}
+    hazard_load = float(
+        int(my_hazards.get(constants.SPIKES, 0) or 0)
+        + int(my_hazards.get(constants.TOXIC_SPIKES, 0) or 0)
+        + int(my_hazards.get(constants.STEALTH_ROCK, 0) or 0)
+        + int(my_hazards.get(constants.STICKY_WEB, 0) or 0)
+    ) / 7.0
+    opp_hp_frac = (
+        float(getattr(opp, "hp", 0) or 0) / float(max(1, int(getattr(opp, "max_hp", 1) or 1)))
+        if opp is not None
+        else 1.0
+    )
+    my_hp_frac = (
+        float(getattr(active, "hp", 0) or 0) / float(max(1, int(getattr(active, "max_hp", 1) or 1)))
+        if active is not None
+        else 1.0
+    )
+    opp_status_flag = 1.0 if _status_to_fp(getattr(opp, "status", None)) else 0.0
+    my_status_flag = 1.0 if _status_to_fp(getattr(active, "status", None)) else 0.0
+    can_tera = 1.0 if bool(getattr(active, "can_terastallize", False)) else 0.0
+
+    for idx in range(n_actions):
+        row = [0.0] * 20
+        row[0] = 1.0 if idx < 4 else 0.0
+        row[1] = 1.0 if 4 <= idx < 9 else 0.0
+        row[2] = 1.0 if 9 <= idx < 13 else 0.0
+        row[3] = float(idx) / float(max(1, n_actions - 1))
+        row[4] = 1.0 if action_mask[idx] else 0.0
+        row[5] = opp_hp_frac
+        row[6] = hazard_load
+        row[15] = can_tera
+        row[16] = float(idx % 4) / 3.0 if idx < 4 or idx >= 9 else 0.0
+        row[17] = my_hp_frac
+        row[18] = opp_status_flag
+        row[19] = my_status_flag
+
+        if idx < 4 or idx >= 9:
+            move_idx = idx if idx < 4 else idx - 9
+            if move_idx < len(active_moves):
+                move = active_moves[move_idx]
+                move_id = _norm(getattr(move, "name", "") or "")
+                is_status, is_damaging, priority_norm = _move_meta(move_id)
+                row[7] = 1.0
+                row[8] = _move_hash(move_id)
+                row[9] = is_status
+                row[10] = is_damaging
+                row[11] = priority_norm
+                labels[idx] = f"{move_id}-tera" if idx >= 9 else move_id
+        elif 4 <= idx < 9:
+            bench_idx = idx - 4
+            if bench_idx < len(bench):
+                mon = bench[bench_idx]
+                row[12] = float(getattr(mon, "hp", 0) or 0) / float(max(1, int(getattr(mon, "max_hp", 1) or 1)))
+                row[13] = _species_hash(getattr(mon, "name", ""))
+                row[14] = 1.0
+                labels[idx] = f"switch {_norm(getattr(mon, 'name', '') or '')}"
+        features.append(row)
+
+    return labels, features
+
+
 def _mcts_from_state(task: tuple[str, int]):
     state_str, search_ms = task
     state = PokeEngineState.from_string(state_str)
@@ -387,6 +487,9 @@ def _relabel_row(row: dict, *, search_ms: int, num_battles: int, seed: int, valu
     base_battle = _build_base_battle(row, rng)
     if base_battle is None:
         return None
+    teacher_action_labels, teacher_action_features = _build_teacher_action_labels_and_features(
+        base_battle, [bool(v) for v in action_mask]
+    )
 
     try:
         sampled = _prepare_sample_battles(base_battle, num_battles)
@@ -469,6 +572,10 @@ def _relabel_row(row: dict, *, search_ms: int, num_battles: int, seed: int, valu
     new_row = copy.deepcopy(row)
     new_row["orig_policy_target"] = list(row.get("policy_target", []) or [])
     new_row["orig_value_target"] = safe_float(row.get("value_target", 0.0), 0.0)
+    new_row["orig_action_labels"] = list(row.get("action_labels", []) or [])
+    new_row["orig_action_features"] = copy.deepcopy(row.get("action_features", []) or [])
+    new_row["action_labels"] = teacher_action_labels
+    new_row["action_features"] = teacher_action_features
     new_row["teacher_policy_target"] = list(policy)
     new_row["teacher_value_target"] = float(teacher_value)
     new_row["teacher_value01"] = float(teacher_value01)
