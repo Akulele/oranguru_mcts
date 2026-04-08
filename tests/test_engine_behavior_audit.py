@@ -87,6 +87,90 @@ class EngineBehaviorAuditTests(unittest.TestCase):
         summary = analyze_examples(rows, moves_data=moves, sample_limit=5)
         self.assertEqual(summary["issue_counts"].get("sleep_clause_risk"), 1)
 
+    def test_flags_damage_into_type_immunity(self):
+        rows = [
+            {
+                "battle_id": "b4",
+                "turn": 6,
+                "chosen_choice": "thunderbolt",
+                "selection_path": "mcts",
+                "source": "test",
+                "tag": "test",
+                "fp_oracle_battle": _fp_battle(
+                    user_active={"name": "raichu", "hp": 100, "max_hp": 100},
+                    opponent_active={"name": "clodsire", "status": "", "types": ["ground"], "hp": 100, "max_hp": 100},
+                ),
+            }
+        ]
+        moves = {"thunderbolt": {"name": "Thunderbolt", "type": "Electric", "category": "Special"}}
+        summary = analyze_examples(rows, moves_data=moves, sample_limit=5)
+        self.assertEqual(summary["issue_counts"].get("damage_into_type_immunity"), 1)
+
+    def test_flags_passive_family_loop_for_protect(self):
+        battle = _fp_battle(
+            user_active={"name": "gliscor", "hp": 220, "max_hp": 300},
+            opponent_active={"name": "tinglu", "hp": 280, "max_hp": 350, "types": ["ground", "dark"]},
+        )
+        rows = [
+            {
+                "battle_id": "b5",
+                "turn": 10,
+                "chosen_choice": "protect",
+                "selection_path": "mcts",
+                "source": "test",
+                "tag": "test",
+                "fp_oracle_battle": battle,
+            },
+            {
+                "battle_id": "b5",
+                "turn": 11,
+                "chosen_choice": "protect",
+                "selection_path": "mcts",
+                "source": "test",
+                "tag": "test",
+                "fp_oracle_battle": battle,
+            },
+            {
+                "battle_id": "b5",
+                "turn": 12,
+                "chosen_choice": "protect",
+                "selection_path": "mcts",
+                "source": "test",
+                "tag": "test",
+                "fp_oracle_battle": battle,
+            },
+        ]
+        moves = {"protect": {"name": "Protect", "category": "Status"}}
+        summary = analyze_examples(rows, moves_data=moves, passive_repeat_streak=2, sample_limit=5)
+        self.assertEqual(summary["issue_counts"].get("passive_family_loop"), 1)
+
+    def test_flags_redundant_hazard_setup(self):
+        rows = [
+            {
+                "battle_id": "b6",
+                "turn": 9,
+                "chosen_choice": "stealthrock",
+                "selection_path": "mcts",
+                "source": "test",
+                "tag": "test",
+                "fp_oracle_battle": {
+                    **_fp_battle(
+                        user_active={"name": "tinglu", "hp": 100, "max_hp": 100},
+                        opponent_active={"name": "zapdos", "status": "", "types": ["electric", "flying"], "hp": 100, "max_hp": 100},
+                    ),
+                    "opponent": {
+                        **_fp_battle(opponent_active={})["opponent"],
+                        "active": {"name": "zapdos", "status": "", "types": ["electric", "flying"], "hp": 100, "max_hp": 100},
+                        "reserve": [],
+                        "side_conditions": {"stealthrock": 1},
+                    },
+                },
+            }
+        ]
+        moves = {"stealthrock": {"name": "Stealth Rock", "category": "Status"}}
+        summary = analyze_examples(rows, moves_data=moves, sample_limit=5)
+        self.assertEqual(summary["issue_counts"].get("redundant_hazard_setup"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

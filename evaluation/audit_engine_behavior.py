@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.players.rule_bot import RuleBotPlayer
-from src.utils.damage_calc import normalize_name
+from src.utils.damage_calc import get_type_effectiveness, normalize_name
 from src.utils.features import load_moves
 
 
@@ -153,6 +153,41 @@ def _passive_kind(move_id: str, moves_data: dict) -> str:
     return ""
 
 
+def _move_type(entry: dict) -> str:
+    if not entry:
+        return ""
+    return normalize_name(entry.get("type", ""))
+
+
+def _side_conditions(fp_oracle_battle: dict, side: str) -> dict:
+    if not isinstance(fp_oracle_battle, dict):
+        return {}
+    side_data = fp_oracle_battle.get(side) or {}
+    side_conditions = side_data.get("side_conditions") or {}
+    return side_conditions if isinstance(side_conditions, dict) else {}
+
+
+def _is_setup_move(entry: dict) -> bool:
+    if not entry:
+        return False
+    boosts = entry.get("boosts") or {}
+    self_boosts = (entry.get("self") or {}).get("boosts") or {}
+    self_boost = entry.get("selfBoost") or {}
+    target = normalize_name(str(entry.get("target", "") or ""))
+    return bool(boosts or self_boosts or self_boost) and target in {"self", "allyside", "selfside"}
+
+
+def _boost_targets(entry: dict) -> set[str]:
+    out: set[str] = set()
+    boosts = entry.get("boosts") or {}
+    self_boosts = (entry.get("self") or {}).get("boosts") or {}
+    self_boost = entry.get("selfBoost") or {}
+    for source in (boosts, self_boosts, self_boost):
+        if isinstance(source, dict):
+            out.update(normalize_name(k) for k in source.keys())
+    return out
+
+
 def _oracle_side_active(fp_oracle_battle: dict, side: str) -> Optional[dict]:
     if not isinstance(fp_oracle_battle, dict):
         return None
@@ -263,6 +298,7 @@ def analyze_examples(
         entry = moves_data.get(move_id, {}) if move_id else {}
         status_type = RuleBotPlayer.STATUS_MOVES.get(move_id) or _status_from_move_entry(entry)
         passive = _passive_kind(move_id, moves_data)
+        move_type = _move_type(entry)
 
         def add_issue(category: str, **extra) -> None:
             issue_counts[category] += 1
@@ -280,6 +316,8 @@ def analyze_examples(
             active_hp = _hp_frac(user_active)
             opp_atk = _boost(opp_active, "attack")
             opp_spa = _boost(opp_active, "special-attack")
+            user_side_conditions = _side_conditions(fp_oracle_battle, "user")
+            opp_side_conditions = _side_conditions(fp_oracle_battle, "opponent")
 
             if status_type in {"poison", "burn", "para", "sleep", "yawn"} and opp_status:
                 add_issue("status_into_statused_target", opponent_status=opp_status)
@@ -293,6 +331,18 @@ def analyze_examples(
                 add_issue("status_into_type_immunity", opponent_types=sorted(opp_types))
             if status_type == "sap" and active_hp > 0.45 and opp_atk <= opp_spa:
                 add_issue("strength_sap_low_value", active_hp=round(active_hp, 3), opp_atk_boost=opp_atk, opp_spa_boost=opp_spa)
+            if move_id == "rest" and active_hp >= high_hp_recovery:
+                add_issue("rest_high_hp", active_hp=round(active_hp, 3))
+            if kind in {"move", "tera_move"} and move_type and normalize_name(entry.get("category", "")) != "status":
+                try:
+                    if get_type_effectiveness(move_type, sorted(opp_types)) <= 0.0:
+                        add_issue("damage_into_type_immunity", move_type=move_type, opponent_types=sorted(opp_types))
+                except Exception:
+                    pass
+            if move_id in RuleBotPlayer.ENTRY_HAZARDS and int(opp_side_conditions.get(move_id, 0) or 0) > 0:
+                add_issue("redundant_hazard_setup", hazard=move_id)
+            if move_id in RuleBotPlayer.ANTI_HAZARDS_MOVES and not user_side_conditions:
+                add_issue("hazard_clear_without_hazards")
             if passive == "setup":
                 reply_score = _safe_float(row.get("best_reply_score", 0.0), 0.0)
                 if active_hp <= setup_low_hp and reply_score >= setup_reply_threshold:
@@ -301,6 +351,11 @@ def analyze_examples(
                         active_hp=round(active_hp, 3),
                         best_reply_score=round(reply_score, 3),
                     )
+                target_stats = _boost_targets(entry)
+                if target_stats:
+                    max_boost = max(_boost(user_active, stat) for stat in target_stats)
+                    if max_boost >= 2:
+                        add_issue("redundant_setup_while_boosted", max_boost=max_boost)
 
         state = battle_repeat_state.get(battle_id)
         active_species = base["active_species"]
@@ -316,6 +371,16 @@ def analyze_examples(
             streak = int(state.get("streak", 1) or 1) + 1
         else:
             streak = 1
+        if same_context:
+            family_streak = int(state.get("family_streak", 1) or 1)
+            if passive and state.get("passive") == passive:
+                family_streak += 1
+            elif kind == "switch" and state.get("kind") == "switch":
+                family_streak += 1
+            else:
+                family_streak = 1
+        else:
+            family_streak = 1
         battle_repeat_state[battle_id] = {
             "choice": choice,
             "active_species": active_species,
@@ -324,6 +389,7 @@ def analyze_examples(
             "streak": streak,
             "passive": passive,
             "kind": kind,
+            "family_streak": family_streak,
         }
 
         if kind in {"move", "tera_move"} and streak >= repeat_streak:
@@ -336,6 +402,10 @@ def analyze_examples(
             active_hp = _hp_frac(_oracle_side_active(fp_oracle_battle or {}, "user"))
             if active_hp >= high_hp_recovery:
                 add_issue("recovery_spam_high_hp", streak=streak, active_hp=round(active_hp, 3))
+        if passive and family_streak >= passive_repeat_streak + 1:
+            add_issue("passive_family_loop", streak=family_streak, passive_kind=passive)
+        if kind == "switch" and family_streak >= 2:
+            add_issue("switch_churn", streak=family_streak)
 
     summary = {
         "rows_seen": len(rows),
