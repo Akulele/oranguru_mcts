@@ -196,6 +196,37 @@ def _relabel_example(ex: dict, search_ms: int, max_worlds: int, executor) -> dic
     }
 
 
+def _precheck_example(ex: dict) -> str | None:
+    action_mask = ex.get("action_mask")
+    action_features = ex.get("action_features")
+    action_labels = ex.get("action_labels")
+    board_features = ex.get("board_features")
+    world_candidates = ex.get("world_candidates") or []
+
+    if not isinstance(action_mask, list) or not action_mask:
+        return "missing_action_mask"
+    if not isinstance(action_features, list) or len(action_features) != len(action_mask):
+        return "bad_action_features"
+    if not isinstance(action_labels, list) or len(action_labels) != len(action_mask):
+        return "missing_action_labels"
+    if not isinstance(board_features, list) or not board_features:
+        return "missing_board_features"
+    if not isinstance(world_candidates, list) or not world_candidates:
+        return "missing_world_candidates"
+
+    has_state_str = False
+    for world in world_candidates:
+        if not isinstance(world, dict):
+            continue
+        state_str = str(world.get("state_str", "") or "")
+        if state_str:
+            has_state_str = True
+            break
+    if not has_state_str:
+        return "missing_world_state_str"
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Relabel search traces with a stronger search teacher.")
     parser.add_argument("--input", action="append", default=[], help="JSONL/PKL path or glob. Repeatable.")
@@ -236,6 +267,10 @@ def main() -> int:
                 threshold = safe_float(ex.get("policy_threshold", 0.0), 0.0)
                 if args.keep_lowconf_only and confidence >= threshold:
                     counters["drop_not_lowconf"] += 1
+                    continue
+                reason = _precheck_example(ex)
+                if reason is not None:
+                    counters[f"drop_{reason}"] += 1
                     continue
                 relabeled = _relabel_example(
                     ex,

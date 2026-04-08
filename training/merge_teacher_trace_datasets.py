@@ -71,8 +71,62 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(default)
 
 
+def _normalize_policy_target(row: dict) -> list[float]:
+    policy = row.get("policy_target")
+    if isinstance(policy, list) and policy:
+        return [_safe_float(v, 0.0) for v in policy]
+    visits = row.get("visit_counts")
+    mask = row.get("action_mask") or []
+    if not isinstance(visits, list) or not isinstance(mask, list) or len(visits) != len(mask):
+        return []
+    probs = [max(0.0, _safe_float(v, 0.0)) if bool(mask[i]) else 0.0 for i, v in enumerate(visits)]
+    total = sum(probs)
+    if total <= 0.0:
+        legal = [i for i, ok in enumerate(mask) if ok]
+        if not legal:
+            return []
+        uniform = 1.0 / float(len(legal))
+        return [uniform if ok else 0.0 for ok in mask]
+    return [v / total for v in probs]
+
+
+def _synthesize_action_labels(row: dict) -> list[str]:
+    existing = row.get("action_labels")
+    mask = row.get("action_mask") or []
+    if isinstance(existing, list) and len(existing) == len(mask):
+        return [str(v or "") for v in existing]
+    n_actions = len(mask) if isinstance(mask, list) else 0
+    if n_actions <= 0:
+        return []
+    labels = [f"action_{i}" for i in range(n_actions)]
+    for item in list(row.get("top_actions", []) or []):
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("choice_idx")
+        if not isinstance(idx, int) or idx < 0 or idx >= n_actions:
+            continue
+        choice = str(item.get("choice", "") or "")
+        if choice:
+            labels[idx] = choice
+    chosen_idx = row.get("chosen_action")
+    chosen_choice = str(row.get("chosen_choice", "") or "")
+    if isinstance(chosen_idx, int) and 0 <= chosen_idx < n_actions and chosen_choice:
+        labels[chosen_idx] = chosen_choice
+    return labels
+
+
+def _normalize_teacher_source(row: dict) -> str:
+    teacher_source = str(row.get("teacher_source", "") or "")
+    if teacher_source:
+        return teacher_source
+    source = str(row.get("source", "") or "")
+    if source:
+        return "live_search_trace"
+    return ""
+
+
 def _legal_probs(row: dict) -> list[float]:
-    policy = row.get("policy_target") or []
+    policy = _normalize_policy_target(row)
     mask = row.get("action_mask") or []
     if not isinstance(policy, list) or not isinstance(mask, list) or len(policy) != len(mask):
         return []
@@ -101,18 +155,23 @@ def _teacher_entropy(row: dict) -> float:
 
 
 def _teacher_worlds_used(row: dict) -> int:
-    return int(
-        row.get(
-            "teacher_worlds_used",
-            row.get("teacher_samples_used", 0),
+    if "teacher_worlds_used" in row or "teacher_samples_used" in row:
+        return int(
+            row.get(
+                "teacher_worlds_used",
+                row.get("teacher_samples_used", 0),
+            )
+            or 0
         )
-        or 0
-    )
+    world_candidates = row.get("world_candidates")
+    if isinstance(world_candidates, list):
+        return len(world_candidates)
+    return 0
 
 
 def _best_label(row: dict) -> str:
-    policy = row.get("policy_target") or []
-    labels = row.get("action_labels") or []
+    policy = _normalize_policy_target(row)
+    labels = _synthesize_action_labels(row)
     mask = row.get("action_mask") or []
     if (
         not isinstance(policy, list)
@@ -158,8 +217,8 @@ def _row_dims_ok(row: dict, board_dim: int | None, action_dim: int | None, n_act
     board = row.get("board_features")
     action = row.get("action_features")
     mask = row.get("action_mask")
-    labels = row.get("action_labels")
-    policy = row.get("policy_target")
+    labels = _synthesize_action_labels(row)
+    policy = _normalize_policy_target(row)
     if not isinstance(board, list) or not board:
         return False
     if not isinstance(action, list) or not action:
@@ -229,7 +288,7 @@ def main() -> int:
             if args.keep_nonfallback_only and str(row.get("selection_path", "") or "").startswith("fallback"):
                 counters["drop_fallback"] += 1
                 continue
-            teacher_source = str(row.get("teacher_source", "") or "")
+            teacher_source = _normalize_teacher_source(row)
             if allowed_sources and teacher_source not in allowed_sources:
                 counters["drop_teacher_source"] += 1
                 continue
@@ -247,7 +306,10 @@ def main() -> int:
 
             top1 = _teacher_top1_prob(row)
             entropy = _teacher_entropy(row)
-            total_visits = _safe_float(row.get("teacher_total_visits", 0.0), 0.0)
+            total_visits = _safe_float(
+                row.get("teacher_total_visits", sum(max(0.0, _safe_float(v, 0.0)) for v in list(row.get("visit_counts", []) or []))),
+                0.0,
+            )
             worlds_used = _teacher_worlds_used(row)
             label = _best_label(row)
             kind = _action_kind(label)
@@ -278,10 +340,14 @@ def main() -> int:
                 continue
 
             out = dict(row)
+            out["action_labels"] = _synthesize_action_labels(row)
+            out["policy_target"] = _normalize_policy_target(row)
+            out["teacher_source"] = teacher_source
             out["weight"] = float(out.get("weight", 1.0) or 1.0) * float(scale)
             out["teacher_top1_prob"] = float(top1)
             out["teacher_entropy"] = float(entropy)
             out["teacher_worlds_used"] = int(worlds_used)
+            out["teacher_total_visits"] = float(total_visits)
             if args.onehot_top1:
                 out["policy_target"] = _onehot_top1(
                     [_safe_float(v, 0.0) for v in list(out.get("policy_target", []) or [])],
