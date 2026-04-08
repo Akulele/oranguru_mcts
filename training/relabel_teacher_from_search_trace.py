@@ -16,6 +16,7 @@ import argparse
 import concurrent.futures
 import glob
 import json
+import math
 import pickle
 from collections import Counter
 from pathlib import Path
@@ -163,6 +164,9 @@ def _relabel_example(ex: dict, search_ms: int, max_worlds: int, executor) -> dic
         policy = [(v / policy_total) if action_mask[i] else 0.0 for i, v in enumerate(policy)]
 
     teacher_value = max(-1.0, min(1.0, 2.0 * teacher_value01 - 1.0))
+    legal_probs = [policy[i] for i, ok in enumerate(action_mask) if ok and policy[i] > 0.0]
+    teacher_top1_prob = max(legal_probs) if legal_probs else 0.0
+    teacher_entropy = -sum(p * math.log(p) for p in legal_probs)
 
     return {
         "battle_id": str(ex.get("battle_id", "")),
@@ -178,9 +182,12 @@ def _relabel_example(ex: dict, search_ms: int, max_worlds: int, executor) -> dic
         "source": str(ex.get("source", "")),
         "tag": str(ex.get("tag", "")),
         "chosen_action": ex.get("chosen_action"),
+        "teacher_source": "oranguru_search_trace",
         "teacher_search_ms": int(search_ms),
         "teacher_worlds_used": int(worlds_used),
         "teacher_total_visits": float(teacher_visits),
+        "teacher_top1_prob": float(teacher_top1_prob),
+        "teacher_entropy": float(teacher_entropy),
         "teacher_value01": float(teacher_value01),
         "orig_value_target": safe_float(ex.get("value_target", 0.0), 0.0),
         "orig_policy_confidence": safe_float(ex.get("policy_confidence", 0.0), 0.0),
