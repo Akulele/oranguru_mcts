@@ -248,6 +248,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PASSIVE_BREAK_RECOVERY_HP_MAX = float(
         os.getenv("ORANGURU_PASSIVE_BREAK_RECOVERY_HP_MAX", "0.42")
     )
+    PASSIVE_REPEAT_HIGH_HP_MAX = float(
+        os.getenv("ORANGURU_PASSIVE_REPEAT_HIGH_HP_MAX", "0.70")
+    )
+    SETUP_PRESSURE_REPLY = float(os.getenv("ORANGURU_SETUP_PRESSURE_REPLY", "160.0"))
+    SETUP_PRESSURE_HP_MAX = float(os.getenv("ORANGURU_SETUP_PRESSURE_HP_MAX", "0.55"))
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -3071,9 +3076,38 @@ class OranguruEnginePlayer(RuleBotPlayer):
     # Damage-belief: capture attacker context at action time
     # ------------------------------------------------------------------
     def _record_last_action(self, battle: Battle, order) -> None:
+        mem = self._get_battle_memory(battle)
+        prev_action = mem.get("last_action")
+        prev_turn = int(mem.get("last_action_turn", -99) or -99)
+        prev_move_id = normalize_name(str(mem.get("last_move_id", "") or ""))
+        prev_active_species = normalize_name(str(mem.get("last_active_species", "") or ""))
+        prev_opponent_species = normalize_name(str(mem.get("last_opponent_species", "") or ""))
+        active_species = normalize_name(getattr(getattr(battle, "active_pokemon", None), "species", "") or "")
+        opponent_species = normalize_name(
+            getattr(getattr(battle, "opponent_active_pokemon", None), "species", "") or ""
+        )
+
         super()._record_last_action(battle, order)
         mem = self._get_battle_memory(battle)
         order_obj = getattr(order, "order", None)
+        mem["last_active_species"] = active_species
+        if opponent_species:
+            mem["last_opponent_species"] = opponent_species
+        if hasattr(order_obj, "category"):
+            move_id = normalize_name(getattr(order_obj, "id", "") or "")
+            same_matchup_repeat = bool(
+                prev_action == "move"
+                and prev_turn == int(getattr(battle, "turn", 0) or 0) - 1
+                and prev_move_id == move_id
+                and prev_active_species == active_species
+                and prev_opponent_species == opponent_species
+            )
+            if same_matchup_repeat:
+                mem["same_move_repeat_streak"] = int(mem.get("same_move_repeat_streak", 1) or 1) + 1
+            else:
+                mem["same_move_repeat_streak"] = 1
+        else:
+            mem["same_move_repeat_streak"] = 0
         passive_kind = self._passive_choice_kind(order_obj)
         if passive_kind:
             mem["pending_passive_action"] = {
@@ -3951,6 +3985,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
         stall = int(mem.get("status_stall_streak", 0) or 0)
         passive_streak = int(mem.get("passive_no_progress_streak", 0) or 0)
         passive_kind = self._passive_choice_kind(selected_move)
+        same_matchup_repeat = bool(
+            mem.get("last_action") == "move"
+            and int(mem.get("last_action_turn", -99) or -99) == int(getattr(battle, "turn", 0) or 0) - 1
+            and normalize_name(str(mem.get("last_move_id", "") or "")) == move_id
+            and normalize_name(str(mem.get("last_active_species", "") or "")) == normalize_name(active.species)
+            and normalize_name(str(mem.get("last_opponent_species", "") or "")) == normalize_name(opponent.species)
+        )
+        same_move_repeat_streak = int(mem.get("same_move_repeat_streak", 0) or 0)
         progress_need = self._progress_need_score(
             battle,
             active,
@@ -3982,11 +4024,31 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 return best_damage_move.id
 
         if (
+            is_setup
+            and best_damage_move is not None
+            and best_damage_move.id != move_id
+            and not battle.force_switch
+            and active_hp <= self.SETUP_PRESSURE_HP_MAX
+            and reply_score >= self.SETUP_PRESSURE_REPLY
+        ):
+            return best_damage_move.id
+
+        if (
             passive_kind
             and best_damage_move is not None
             and best_damage_move.id != move_id
             and not battle.force_switch
         ):
+            if same_matchup_repeat:
+                if passive_kind == "protect":
+                    if reply_score < self.PROGRESS_NEED_REPLY or same_move_repeat_streak >= 1:
+                        return best_damage_move.id
+                elif passive_kind == "recovery":
+                    if active_hp >= self.PASSIVE_REPEAT_HIGH_HP_MAX or same_move_repeat_streak >= 1:
+                        return best_damage_move.id
+                elif passive_kind == "status":
+                    if stall >= 1 or passive_streak >= 1 or same_move_repeat_streak >= 1:
+                        return best_damage_move.id
             if passive_kind == "protect" and self._should_use_protect(battle, reply_score):
                 if progress_need <= 1 and passive_streak <= 0:
                     pass

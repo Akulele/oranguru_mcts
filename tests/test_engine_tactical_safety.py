@@ -44,6 +44,7 @@ class DummyBattle:
         opponent_active_pokemon,
         available_switches=None,
         side_conditions=None,
+        turn=1,
     ):
         self.available_moves = available_moves
         self.active_pokemon = active_pokemon
@@ -52,6 +53,7 @@ class DummyBattle:
         self.side_conditions = side_conditions or {}
         self.force_switch = False
         self.battle_tag = "test-battle"
+        self.turn = turn
 
     def is_grounded(self, mon):
         return bool(getattr(mon, "grounded", True))
@@ -63,7 +65,13 @@ class TacticalSafetyTests(unittest.TestCase):
         self.engine.MOVE_SAFETY_GUARD = True
         self.engine.TACTICAL_KO_THRESHOLD = 220.0
         self.engine.STATUS_STALL_MAX = 2
+        self.engine.PASSIVE_REPEAT_HIGH_HP_MAX = 0.70
+        self.engine.SETUP_PRESSURE_REPLY = 160.0
+        self.engine.SETUP_PRESSURE_HP_MAX = 0.55
         self.engine._battle_memory = {}
+        self.engine._estimate_best_reply_score = lambda *_: 0.0
+        self.engine._estimate_matchup = lambda *_: 0.0
+        self.engine._side_hazard_pressure = lambda *_: 0.0
 
     def test_invalid_status_is_replaced_by_damage(self):
         active = DummyPokemon(species="volbeat", current_hp_fraction=0.9)
@@ -107,6 +115,76 @@ class TacticalSafetyTests(unittest.TestCase):
         self.engine._stat_estimation = lambda mon, stat: 90 if stat == "atk" else 130
         choice = self.engine._apply_tactical_safety(battle, "strengthsap", active, opponent)
         self.assertEqual(choice, "shadowball")
+
+    def test_repeat_high_hp_recovery_is_replaced(self):
+        active = DummyPokemon(species="blissey", current_hp_fraction=0.92)
+        opponent = DummyPokemon(species="tinglu", current_hp_fraction=0.75)
+        recover = DummyMove("recover", category=MoveCategory.STATUS)
+        moonblast = DummyMove("moonblast", category=MoveCategory.SPECIAL, base_power=95)
+        battle = DummyBattle(
+            available_moves=[recover, moonblast],
+            active_pokemon=active,
+            opponent_active_pokemon=opponent,
+            turn=8,
+        )
+        mem = self.engine._get_battle_memory(battle)
+        mem.update(
+            {
+                "last_action": "move",
+                "last_action_turn": 7,
+                "last_move_id": "recover",
+                "last_active_species": "blissey",
+                "last_opponent_species": "tinglu",
+                "same_move_repeat_streak": 1,
+            }
+        )
+        self.engine._best_damaging_move = lambda *_: (moonblast, 170.0)
+        self.engine._estimate_best_reply_score = lambda *_: 120.0
+        choice = self.engine._apply_tactical_safety(battle, "recover", active, opponent)
+        self.assertEqual(choice, "moonblast")
+
+    def test_repeat_status_same_matchup_is_replaced(self):
+        active = DummyPokemon(species="grimmsnarl", current_hp_fraction=0.85)
+        opponent = DummyPokemon(species="tinglu", current_hp_fraction=0.88, types=[PokemonType.GROUND, PokemonType.DARK])
+        t_wave = DummyMove("thunderwave", category=MoveCategory.STATUS)
+        spirit_break = DummyMove("spiritbreak", category=MoveCategory.PHYSICAL, base_power=75)
+        battle = DummyBattle(
+            available_moves=[t_wave, spirit_break],
+            active_pokemon=active,
+            opponent_active_pokemon=opponent,
+            turn=6,
+        )
+        mem = self.engine._get_battle_memory(battle)
+        mem.update(
+            {
+                "last_action": "move",
+                "last_action_turn": 5,
+                "last_move_id": "thunderwave",
+                "last_active_species": "grimmsnarl",
+                "last_opponent_species": "tinglu",
+                "same_move_repeat_streak": 1,
+                "status_stall_streak": 1,
+            }
+        )
+        self.engine._best_damaging_move = lambda *_: (spirit_break, 150.0)
+        choice = self.engine._apply_tactical_safety(battle, "thunderwave", active, opponent)
+        self.assertEqual(choice, "spiritbreak")
+
+    def test_setup_under_pressure_is_replaced(self):
+        active = DummyPokemon(species="gyarados", current_hp_fraction=0.45)
+        opponent = DummyPokemon(species="raikou", current_hp_fraction=0.80)
+        dance = DummyMove("dragondance", category=MoveCategory.STATUS, boosts={"atk": 1, "spe": 1}, target="self")
+        eq = DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100)
+        battle = DummyBattle(
+            available_moves=[dance, eq],
+            active_pokemon=active,
+            opponent_active_pokemon=opponent,
+            turn=9,
+        )
+        self.engine._best_damaging_move = lambda *_: (eq, 180.0)
+        self.engine._estimate_best_reply_score = lambda *_: 200.0
+        choice = self.engine._apply_tactical_safety(battle, "dragondance", active, opponent)
+        self.assertEqual(choice, "earthquake")
 
     def test_hazard_ko_switch_uses_survivable_switch(self):
         active = DummyPokemon(species="uxie")
