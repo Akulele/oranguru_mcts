@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from collections import Counter, defaultdict
+import json
+from pathlib import Path
+from typing import Iterable
+
+PROJECT_ROOT = Path(__file__).parent.parent
+import sys
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from evaluation.audit_engine_behavior import (
+    _boost,
+    _choice_kind,
+    _choice_label,
+    _hp_frac,
+    _issue_base,
+    _iter_examples,
+    _move_id_from_choice,
+    _move_type,
+    _oracle_side_active,
+    _oracle_side_reserve,
+    _passive_kind,
+    _resolve_inputs,
+    _safe_float,
+    _side_conditions,
+    _status,
+    _status_from_move_entry,
+    _types,
+)
+from src.players.rule_bot import RuleBotPlayer
+from src.utils.damage_calc import get_type_effectiveness, normalize_name
+from src.utils.features import load_moves
+
+
+PRIORITY_WEIGHTS = {
+    "missed_ko": 100,
+    "ignored_safe_recovery": 80,
+    "underused_setup_window": 70,
+    "underused_status_window": 65,
+    "over_attacked_into_bad_trade": 60,
+    "over_switched_negative_matchup": 55,
+    "failed_to_progress_when_behind": 50,
+}
+
+
+def _top_actions(row: dict) -> list[dict]:
+    actions = row.get("top_actions") or []
+    if not isinstance(actions, list):
+        return []
+    return [a for a in actions if isinstance(a, dict) and a.get("choice")]
+
+
+def _score_for_choice(row: dict, choice: str) -> Optional[float]:
+    for action in _top_actions(row):
+        if str(action.get("choice", "") or "") == choice:
+            return _safe_float(action.get("score"), 0.0)
+    return None
+
+
+def _find_alternative(row: dict, predicate) -> Optional[dict]:
+    for action in _top_actions(row):
+        choice = str(action.get("choice", "") or "")
+        if predicate(choice, action):
+            return action
+    return None
+
+
+def _alive_count(fp_oracle_battle: dict, side: str) -> int:
+    mons = [_oracle_side_active(fp_oracle_battle, side), *_oracle_side_reserve(fp_oracle_battle, side)]
+    count = 0
+    for mon in mons:
+        if not isinstance(mon, dict):
+            continue
+        if _hp_frac(mon) > 0.0:
+            count += 1
+    return count
+
+
+def _available_move_ids(row: dict) -> set[str]:
+    out: set[str] = set()
+    for label in row.get("action_labels") or []:
+        if not isinstance(label, str):
+            continue
+        move_id = _move_id_from_choice(label)
+        if move_id:
+            out.add(move_id)
+    for action in _top_actions(row):
+        move_id = _move_id_from_choice(str(action.get("choice", "") or ""))
+        if move_id:
+            out.add(move_id)
+    return out
+
+
+def _has_damaging_option(row: dict, moves_data: dict, opp_types: set[str]) -> bool:
+    for move_id in _available_move_ids(row):
+        entry = moves_data.get(move_id, {}) or {}
+        if normalize_name(entry.get("category", "")) == "status":
+            continue
+        move_type = _move_type(entry)
+        if not move_type:
+            return True
+        try:
+            if get_type_effectiveness(move_type, sorted(opp_types)) > 0.0:
+                return True
+        except Exception:
+            return True
+    return False
+
+
+def _has_setup_option(row: dict, moves_data: dict) -> bool:
+    for move_id in _available_move_ids(row):
+        if _passive_kind(move_id, moves_data) == "setup":
+            return True
+    return False
+
+
+def _has_status_option(row: dict, moves_data: dict, opp_types: set[str], opp_status: str, fp_oracle_battle: dict) -> bool:
+    if opp_status:
+        return False
+    for move_id in _available_move_ids(row):
+        entry = moves_data.get(move_id, {}) or {}
+        status_type = RuleBotPlayer.STATUS_MOVES.get(move_id) or _status_from_move_entry(entry)
+        if not status_type or status_type in {"sap", "taunt", "encore"}:
+            continue
+        if status_type == "poison" and (("steel" in opp_types) or ("poison" in opp_types)):
+            continue
+        if status_type == "burn" and "fire" in opp_types:
+            continue
+        if status_type == "para" and move_id == "thunderwave" and (("ground" in opp_types) or ("electric" in opp_types)):
+            continue
+        return True
+    return False
+
+
+def _has_recovery_option(row: dict, moves_data: dict) -> bool:
+    for move_id in _available_move_ids(row):
+        if _passive_kind(move_id, moves_data) == "recovery":
+            return True
+    return False
+
+
+def _is_damaging_move(choice: str, moves_data: dict) -> bool:
+    move_id = _move_id_from_choice(choice)
+    if not move_id:
+        return False
+    entry = moves_data.get(move_id, {}) or {}
+    return normalize_name(entry.get("category", "")) != "status"
+
+
+def _issue_priority(issue: dict) -> float:
+    base = float(PRIORITY_WEIGHTS.get(issue.get("category", ""), 10))
+    base += float(issue.get("score_gap", 0.0) or 0.0)
+    base += 25.0 * float(issue.get("regret", 0.0) or 0.0)
+    if issue.get("lost_battle"):
+        base += 20.0
+    return round(base, 3)
+
+
+def mine_examples(
+    examples: Iterable[dict],
+    *,
+    moves_data: dict,
+    ko_hp_threshold: float = 0.35,
+    safe_reply_threshold: float = 110.0,
+    punish_reply_threshold: float = 180.0,
+    low_hp_recovery: float = 0.4,
+    min_score_gap: float = 15.0,
+    sample_limit: int = 30,
+) -> dict:
+    rows = [row for row in examples if isinstance(row, dict)]
+    rows.sort(key=lambda r: (str(r.get("battle_id", "") or ""), int(r.get("turn", 0) or 0)))
+
+    issue_counts = Counter()
+    issue_choice_counts = defaultdict(Counter)
+    samples_by_issue: dict[str, list[dict]] = defaultdict(list)
+    battles_seen = set()
+
+    for row in rows:
+        battle_id = str(row.get("battle_id", "") or "")
+        if not battle_id:
+            continue
+        battles_seen.add(battle_id)
+        fp_oracle_battle = row.get("fp_oracle_battle")
+        if not isinstance(fp_oracle_battle, dict):
+            continue
+        choice = _choice_label(row)
+        if not choice:
+            continue
+        base = _issue_base(row, choice, fp_oracle_battle)
+        user_active = _oracle_side_active(fp_oracle_battle, "user")
+        opp_active = _oracle_side_active(fp_oracle_battle, "opponent")
+        if not isinstance(user_active, dict) or not isinstance(opp_active, dict):
+            continue
+        active_hp = _hp_frac(user_active)
+        opp_hp = _hp_frac(opp_active)
+        opp_status = _status(opp_active)
+        opp_types = _types(opp_active)
+        user_alive = _alive_count(fp_oracle_battle, "user")
+        opp_alive = _alive_count(fp_oracle_battle, "opponent")
+        behind = user_alive < opp_alive
+        chosen_kind = _choice_kind(choice)
+        chosen_score = _score_for_choice(row, choice)
+        best_action = _top_actions(row)[0] if _top_actions(row) else None
+        best_choice = str((best_action or {}).get("choice", "") or "")
+        best_score = _safe_float((best_action or {}).get("score"), 0.0) if best_action else 0.0
+        score_gap = max(0.0, best_score - (chosen_score if chosen_score is not None else best_score))
+        reply_score = _safe_float(row.get("best_reply_score"), 0.0)
+        chosen_move_id = _move_id_from_choice(choice)
+        chosen_passive = _passive_kind(chosen_move_id, moves_data)
+        chosen_damaging = _is_damaging_move(choice, moves_data)
+        active_boost_max = max((_boost(user_active, stat) for stat in ["attack", "special-attack", "speed"]), default=0)
+        opp_hazards = _side_conditions(fp_oracle_battle, "opponent")
+
+        def add_issue(category: str, **extra) -> None:
+            issue_counts[category] += 1
+            issue_choice_counts[category][choice] += 1
+            if len(samples_by_issue[category]) >= sample_limit:
+                return
+            sample = dict(base)
+            sample.update(
+                {
+                    "category": category,
+                    "active_hp": round(active_hp, 3),
+                    "opp_hp": round(opp_hp, 3),
+                    "user_alive": user_alive,
+                    "opp_alive": opp_alive,
+                    "behind": behind,
+                    "best_reply_score": round(reply_score, 3),
+                    "best_choice": best_choice,
+                    "best_score": round(best_score, 3),
+                    "chosen_score": None if chosen_score is None else round(chosen_score, 3),
+                    "score_gap": round(score_gap, 3),
+                    "phase": str(row.get("phase", "") or ""),
+                    "lost_battle": bool(row.get("winner") and str(row.get("winner")) != str(row.get("bot_id", row.get("player_name", "")))),
+                }
+            )
+            sample.update(extra)
+            sample["priority"] = _issue_priority(sample)
+            samples_by_issue[category].append(sample)
+
+        if opp_hp <= ko_hp_threshold and not chosen_damaging and _has_damaging_option(row, moves_data, opp_types):
+            add_issue("missed_ko", regret=ko_hp_threshold - opp_hp)
+
+        if chosen_kind == "switch" and not bool(row.get("force_switch")) and active_hp >= 0.45:
+            alt_attack = _find_alternative(
+                row,
+                lambda alt_choice, _a: alt_choice != choice and _is_damaging_move(alt_choice, moves_data),
+            )
+            if alt_attack:
+                alt_score = _safe_float(alt_attack.get("score"), 0.0)
+                gap = alt_score - (chosen_score if chosen_score is not None else alt_score)
+                if gap >= -5.0:
+                    add_issue(
+                        "over_switched_negative_matchup",
+                        alternative=str(alt_attack.get("choice", "") or ""),
+                        alternative_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, gap), 3),
+                    )
+
+        if chosen_damaging and _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle) and opp_hp > 0.45 and reply_score <= safe_reply_threshold:
+            add_issue("underused_status_window")
+
+        if chosen_passive not in {"setup", "recovery"} and not chosen_kind == "switch" and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
+            add_issue("underused_setup_window")
+
+        if chosen_passive != "recovery" and _has_recovery_option(row, moves_data) and active_hp <= low_hp_recovery and reply_score <= safe_reply_threshold and opp_hp > 0.25:
+            add_issue("ignored_safe_recovery", regret=low_hp_recovery - active_hp)
+
+        if chosen_damaging and active_hp <= low_hp_recovery and reply_score >= punish_reply_threshold and (_has_recovery_option(row, moves_data) or chosen_kind == "switch"):
+            add_issue("over_attacked_into_bad_trade")
+
+        hazard_available = any(move_id in RuleBotPlayer.ENTRY_HAZARDS for move_id in _available_move_ids(row))
+        opp_hazard_free = not bool(opp_hazards)
+        if behind and chosen_damaging and opp_hp > 0.55 and reply_score <= safe_reply_threshold and (
+            _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle)
+            or _has_setup_option(row, moves_data)
+            or (hazard_available and opp_hazard_free)
+        ):
+            add_issue("failed_to_progress_when_behind")
+
+    for items in samples_by_issue.values():
+        items.sort(key=_issue_priority, reverse=True)
+
+    summary = {
+        "rows_seen": len(rows),
+        "battles_seen": len(battles_seen),
+        "issue_counts": dict(issue_counts),
+        "issue_top_choices": {category: counts.most_common(15) for category, counts in issue_choice_counts.items()},
+        "samples": dict(samples_by_issue),
+        "config": {
+            "ko_hp_threshold": ko_hp_threshold,
+            "safe_reply_threshold": safe_reply_threshold,
+            "punish_reply_threshold": punish_reply_threshold,
+            "low_hp_recovery": low_hp_recovery,
+            "min_score_gap": min_score_gap,
+        },
+    }
+    return summary
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Mine decision traces for strategic regret buckets.")
+    parser.add_argument("--input", action="append", required=True, help="JSONL/PKL path or glob. Repeatable.")
+    parser.add_argument("--summary-out", default="")
+    parser.add_argument("--ko-hp-threshold", type=float, default=0.35)
+    parser.add_argument("--safe-reply-threshold", type=float, default=110.0)
+    parser.add_argument("--punish-reply-threshold", type=float, default=180.0)
+    parser.add_argument("--low-hp-recovery", type=float, default=0.4)
+    parser.add_argument("--sample-limit", type=int, default=30)
+    args = parser.parse_args()
+
+    paths = _resolve_inputs(args.input)
+    if not paths:
+        raise SystemExit("No input files matched.")
+    rows: list[dict] = []
+    for path in paths:
+        rows.extend(_iter_examples(path))
+    summary = mine_examples(
+        rows,
+        moves_data=load_moves(),
+        ko_hp_threshold=max(0.05, min(1.0, args.ko_hp_threshold)),
+        safe_reply_threshold=max(0.0, args.safe_reply_threshold),
+        punish_reply_threshold=max(0.0, args.punish_reply_threshold),
+        low_hp_recovery=max(0.05, min(1.0, args.low_hp_recovery)),
+        sample_limit=max(1, args.sample_limit),
+    )
+    print(f"Rows seen: {summary['rows_seen']}")
+    print(f"Battles seen: {summary['battles_seen']}")
+    print("Issue counts:")
+    for category, count in sorted(summary["issue_counts"].items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"  {category}: {count}")
+    if summary["issue_counts"]:
+        print("Top issue choices:")
+        for category, items in sorted(summary["issue_top_choices"].items()):
+            if not items:
+                continue
+            head = ", ".join(f"{choice}:{count}" for choice, count in items[:8])
+            print(f"  {category}: {head}")
+    if args.summary_out:
+        out_path = Path(args.summary_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as handle:
+            json.dump(summary, handle, indent=2)
+        print(f"Summary -> {out_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
