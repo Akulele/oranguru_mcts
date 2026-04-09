@@ -311,6 +311,79 @@ def maybe_force_finish_blow_choice(
     return chosen_choice
 
 
+def maybe_take_setup_window_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        return chosen_choice
+    if chosen_choice.startswith("switch ") or not self._is_damaging_move_choice(battle, chosen_choice):
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        return chosen_choice
+
+    active_hp = active.current_hp_fraction or 0.0
+    if active_hp < self.SETUP_WINDOW_MIN_HP:
+        return chosen_choice
+
+    reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    if reply_score > self.SETUP_WINDOW_MAX_REPLY:
+        return chosen_choice
+
+    opp_hp = opponent.current_hp_fraction or 0.0
+    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    if best_damage_score >= ko_threshold:
+        return chosen_choice
+
+    chosen_weight = 0.0
+    for choice, weight in ordered:
+        if choice == chosen_choice:
+            chosen_weight = float(weight or 0.0)
+            break
+
+    best_setup_choice = ""
+    best_setup_weight = 0.0
+    best_setup_heur = 0.0
+    for choice, weight in ordered:
+        if choice.startswith("switch "):
+            continue
+        move_id = normalize_name(choice.replace("-tera", ""))
+        selected_move = None
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                selected_move = move
+                break
+        if selected_move is None:
+            continue
+        boosts = getattr(selected_move, "boosts", None) or {}
+        if not boosts or not selected_move.target or "self" not in str(selected_move.target).lower():
+            continue
+        if not self._should_setup_move(selected_move, active, opponent):
+            continue
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        if heur <= best_setup_heur:
+            continue
+        best_setup_choice = choice
+        best_setup_weight = float(weight or 0.0)
+        best_setup_heur = heur
+
+    if not best_setup_choice:
+        return chosen_choice
+
+    chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+    if best_setup_heur < chosen_heur + self.SETUP_WINDOW_MIN_HEUR_GAIN:
+        return chosen_choice
+    if best_setup_weight < chosen_weight * self.SETUP_WINDOW_MIN_POLICY_RATIO:
+        return chosen_choice
+    return best_setup_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -373,6 +446,14 @@ def select_move_from_results(
     def _return_choice(chosen_choice: str, path: str) -> str:
         if chosen_choice:
             adjusted_choice = self._maybe_force_finish_blow_choice(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "rerank" if path == "mcts" else path
+            adjusted_choice = self._maybe_take_setup_window_choice(
                 battle,
                 ordered,
                 chosen_choice,

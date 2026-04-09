@@ -51,7 +51,8 @@ def _review_blurb(row: dict) -> str:
     if category == "underused_status_window":
         return f"{active} into {opp}: used {choice} despite an open status window; verify if spreading status improved the position."
     if category == "over_switched_negative_matchup":
-        return f"{active} into {opp}: switched out with live board presence; compare against {best or 'best attack'} (gap {gap:.1f})."
+        alternative = str(row.get("alternative", "") or best or "best attack")
+        return f"{active} into {opp}: switched out with live board presence; compare against {alternative} (gap {gap:.1f})."
     if category == "over_attacked_into_bad_trade":
         return f"{active} into {opp}: attacked from a fragile position under strong reply pressure; review safer line."
     if category == "failed_to_progress_when_behind":

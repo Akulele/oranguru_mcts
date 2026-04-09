@@ -49,6 +49,35 @@ class OranguruDecisionTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "earthquake")
 
+    def test_setup_window_guard_prefers_setup_when_safe(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.SETUP_WINDOW_MIN_HP = 0.65
+        engine.SETUP_WINDOW_MAX_REPLY = 110.0
+        engine.SETUP_WINDOW_MIN_POLICY_RATIO = 0.65
+        engine.SETUP_WINDOW_MIN_HEUR_GAIN = 15.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine._estimate_best_reply_score = lambda *_args: 40.0
+        engine._estimate_best_damage_score = lambda *_args: 60.0
+        engine._heuristic_action_score = lambda _battle, choice: 90.0 if choice == "calmmind" else 40.0
+        engine._should_setup_move = lambda move, active, opponent: move.id == "calmmind"
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon = DummyPokemon(0.8)
+        battle.available_moves = [
+            DummyMove("calmmind", category=MoveCategory.STATUS, base_power=0),
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+        ]
+        battle.available_moves[0].boosts = {"spa": 1}
+        battle.available_moves[0].target = "self"
+
+        adjusted = engine._maybe_take_setup_window_choice(
+            battle,
+            [("earthquake", 60.0), ("calmmind", 45.0)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "calmmind")
+
     def test_negative_matchup_switch_guard_prefers_nearby_damage(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine._heuristic_action_score = lambda _battle, choice: 25.0 if choice.startswith("switch ") else 80.0

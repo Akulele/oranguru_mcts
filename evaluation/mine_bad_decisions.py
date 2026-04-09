@@ -286,6 +286,8 @@ def mine_examples(
                         "over_switched_negative_matchup",
                         alternative=str(alt_attack.get("choice", "") or ""),
                         alternative_score=round(alt_score, 3),
+                        best_choice=str(alt_attack.get("choice", "") or ""),
+                        best_score=round(alt_score, 3),
                         score_gap=round(max(0.0, gap), 3),
                     )
 

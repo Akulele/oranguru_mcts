@@ -249,6 +249,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
     )
     SETUP_PRESSURE_REPLY = float(os.getenv("ORANGURU_SETUP_PRESSURE_REPLY", "160.0"))
     SETUP_PRESSURE_HP_MAX = float(os.getenv("ORANGURU_SETUP_PRESSURE_HP_MAX", "0.55"))
+    SETUP_WINDOW_MIN_HP = float(os.getenv("ORANGURU_SETUP_WINDOW_MIN_HP", "0.65"))
+    SETUP_WINDOW_MAX_REPLY = float(os.getenv("ORANGURU_SETUP_WINDOW_MAX_REPLY", "110.0"))
+    SETUP_WINDOW_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SETUP_WINDOW_MIN_POLICY_RATIO", "0.65"))
+    SETUP_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_SETUP_WINDOW_MIN_HEUR_GAIN", "15.0"))
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -991,6 +995,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _heuristic_action_score = oranguru_decision.heuristic_action_score
     _adaptive_choice_risk_penalty = oranguru_decision.adaptive_choice_risk_penalty
     _maybe_force_finish_blow_choice = oranguru_decision.maybe_force_finish_blow_choice
+    _maybe_take_setup_window_choice = oranguru_decision.maybe_take_setup_window_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
 
     def _adaptive_rerank_choice(
