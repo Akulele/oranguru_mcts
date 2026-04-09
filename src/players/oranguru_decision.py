@@ -226,6 +226,46 @@ def adaptive_rerank_choice(
     return winner["choice"]
 
 
+def maybe_reduce_negative_matchup_switch(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    if not chosen_choice or not chosen_choice.startswith("switch ") or getattr(battle, "force_switch", False):
+        return chosen_choice
+
+    switch_weight = 0.0
+    for choice, weight in ordered:
+        if choice == chosen_choice:
+            switch_weight = float(weight or 0.0)
+            break
+
+    best_move_choice = ""
+    best_move_weight = 0.0
+    for choice, weight in ordered:
+        if choice.startswith("switch "):
+            continue
+        if not self._is_damaging_move_choice(battle, choice):
+            continue
+        best_move_choice = choice
+        best_move_weight = float(weight or 0.0)
+        break
+
+    if not best_move_choice:
+        return chosen_choice
+
+    switch_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+    move_heur = float(self._heuristic_action_score(battle, best_move_choice) or 0.0)
+    switch_risk = float(self._adaptive_choice_risk_penalty(battle, chosen_choice) or 0.0)
+
+    if best_move_weight >= switch_weight * 0.85 and move_heur >= switch_heur + 15.0:
+        return best_move_choice
+    if switch_risk >= 45.0 and best_move_weight >= switch_weight * 0.70 and move_heur > 0.0:
+        return best_move_choice
+    return chosen_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -287,6 +327,14 @@ def select_move_from_results(
 
     def _return_choice(chosen_choice: str, path: str) -> str:
         if chosen_choice:
+            adjusted_choice = self._maybe_reduce_negative_matchup_switch(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "rerank" if path == "mcts" else path
             self._diag_record_choice(
                 battle,
                 ordered,

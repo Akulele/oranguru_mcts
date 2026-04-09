@@ -42,7 +42,8 @@ def _review_blurb(row: dict) -> str:
     opp = str(row.get("opponent_species", "") or "")
     gap = float(row.get("score_gap", 0.0) or 0.0)
     if category == "missed_ko":
-        return f"{active} into {opp}: chose {choice} with opponent low; review available KO line{_alt(best)}."
+        alternative = str(row.get("alternative", "") or best)
+        return f"{active} into {opp}: chose {choice} with opponent low; review KO line{_alt(alternative)}."
     if category == "ignored_safe_recovery":
         return f"{active} into {opp}: skipped recovery at low HP; review whether {choice} exposed an avoidable trade."
     if category == "underused_setup_window":

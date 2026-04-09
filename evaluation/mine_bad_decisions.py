@@ -96,19 +96,35 @@ def _available_move_ids(row: dict) -> set[str]:
 
 
 def _has_damaging_option(row: dict, moves_data: dict, opp_types: set[str]) -> bool:
-    for move_id in _available_move_ids(row):
+    return _best_damaging_alternative(row, moves_data, opp_types) is not None
+
+
+def _best_damaging_alternative(row: dict, moves_data: dict, opp_types: set[str], exclude_choice: str = "") -> dict | None:
+    top_actions = _top_actions(row)
+    candidates = top_actions if top_actions else [{"choice": label, "score": 0.0} for label in row.get("action_labels") or [] if isinstance(label, str)]
+    best = None
+    best_score = float("-inf")
+    for action in candidates:
+        choice = str(action.get("choice", "") or "")
+        if not choice or choice == exclude_choice or choice.startswith("switch "):
+            continue
+        move_id = _move_id_from_choice(choice)
+        if not move_id:
+            continue
         entry = moves_data.get(move_id, {}) or {}
         if normalize_name(entry.get("category", "")) == "status":
             continue
         move_type = _move_type(entry)
-        if not move_type:
-            return True
         try:
-            if get_type_effectiveness(move_type, sorted(opp_types)) > 0.0:
-                return True
+            if move_type and get_type_effectiveness(move_type, sorted(opp_types)) <= 0.0:
+                continue
         except Exception:
-            return True
-    return False
+            pass
+        score = _safe_float(action.get("score"), 0.0)
+        if best is None or score > best_score:
+            best = {"choice": choice, "score": score}
+            best_score = score
+    return best
 
 
 def _has_setup_option(row: dict, moves_data: dict) -> bool:
@@ -242,8 +258,20 @@ def mine_examples(
             sample["priority"] = _issue_priority(sample)
             samples_by_issue[category].append(sample)
 
-        if opp_hp <= ko_hp_threshold and not chosen_damaging and _has_damaging_option(row, moves_data, opp_types):
-            add_issue("missed_ko", regret=ko_hp_threshold - opp_hp)
+        if opp_hp <= ko_hp_threshold and not chosen_damaging:
+            ko_alt = _best_damaging_alternative(row, moves_data, opp_types, exclude_choice=choice)
+            if ko_alt is not None:
+                alt_choice = str(ko_alt.get("choice", "") or "")
+                alt_score = _safe_float(ko_alt.get("score"), 0.0)
+                add_issue(
+                    "missed_ko",
+                    regret=ko_hp_threshold - opp_hp,
+                    alternative=alt_choice,
+                    alternative_score=round(alt_score, 3),
+                    best_choice=alt_choice,
+                    best_score=round(alt_score, 3),
+                    score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                )
 
         if chosen_kind == "switch" and not bool(row.get("force_switch")) and active_hp >= 0.45:
             alt_attack = _find_alternative(

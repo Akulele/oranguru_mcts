@@ -79,6 +79,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         pack = build_review_pack(summary, limit=5)
         self.assertEqual(pack[0]["category"], "missed_ko")
         self.assertIn("KO", pack[0]["review_blurb"])
+        self.assertIn("tackle", pack[0]["review_blurb"])
         losses_only = build_review_pack(summary, limit=5, losses_only=True)
         self.assertEqual(len(losses_only), 1)
         self.assertEqual(losses_only[0]["category"], "missed_ko")

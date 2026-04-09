@@ -990,6 +990,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _apply_tactical_safety = oranguru_tactical.apply_tactical_safety
     _heuristic_action_score = oranguru_decision.heuristic_action_score
     _adaptive_choice_risk_penalty = oranguru_decision.adaptive_choice_risk_penalty
+    _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
 
     def _adaptive_rerank_choice(
         self,
