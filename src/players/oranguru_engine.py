@@ -934,7 +934,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         )
 
     _candidate_randombattle_sets = oranguru_state.candidate_randombattle_sets
-    _extract_last_opponent_move = oranguru_state.extract_last_opponent_move
+    _extract_last_opponent_move = oranguru_worlds.extract_last_opponent_move
 
     def _sample_set_for_species(
         self,
@@ -943,7 +943,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
         mon: Optional[Pokemon] = None,
         rng: Optional[random.Random] = None,
     ) -> Optional[dict]:
-        return oranguru_state.sample_set_for_species(self, species, battle, mon=mon, rng=rng)
+        return oranguru_worlds.sample_set_for_species(self, species, battle, mon=mon, rng=rng)
 
     def _sample_unknown_opponents(
         self,
@@ -952,10 +952,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
         count: int,
         rng: Optional[random.Random] = None,
     ) -> List[FPPokemon]:
-        return oranguru_state.sample_unknown_opponents(self, battle, taken, count, rng=rng)
+        return oranguru_worlds.sample_unknown_opponents(self, battle, taken, count, rng=rng)
 
     def _build_fp_battle(self, battle: Battle, seed: int, fill_opponent_sets: bool = False) -> FPBattle:
-        return oranguru_state.build_fp_battle(
+        return oranguru_worlds.build_fp_battle(
             self, battle, seed, fill_opponent_sets=fill_opponent_sets
         )
 

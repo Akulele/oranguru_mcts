@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from poke_env.battle import Battle, Pokemon, SideCondition, Field
 from poke_env.battle.effect import Effect
@@ -14,7 +13,7 @@ from src.players import oranguru_worlds
 from src.utils.damage_calc import normalize_name
 
 import constants
-from fp.battle import Battle as FPBattle, Battler, Pokemon as FPPokemon, StatRange
+from fp.battle import Battler, Pokemon as FPPokemon, StatRange
 from data import all_move_json as FP_MOVE_JSON
 
 
@@ -521,33 +520,3 @@ def candidate_randombattle_sets(self, opponent: Pokemon, battle: Battle) -> List
     return oranguru_belief.candidate_randombattle_sets(self, opponent, battle)
 
 
-def extract_last_opponent_move(self, battle: Battle) -> Optional[Tuple[str, str, int]]:
-    return oranguru_worlds.extract_last_opponent_move(self, battle)
-
-
-def sample_set_for_species(
-    self,
-    species: str,
-    battle: Battle,
-    mon: Optional[Pokemon] = None,
-    rng: Optional[random.Random] = None,
-) -> Optional[dict]:
-    return oranguru_worlds.sample_set_for_species(self, species, battle, mon=mon, rng=rng)
-
-
-def sample_unknown_opponents(
-    self,
-    battle: Battle,
-    taken: set,
-    count: int,
-    rng: Optional[random.Random] = None,
-) -> List[FPPokemon]:
-    return oranguru_worlds.sample_unknown_opponents(self, battle, taken, count, rng=rng)
-
-
-def build_fp_battle(self, battle: Battle, seed: int, fill_opponent_sets: bool = False) -> FPBattle:
-    return oranguru_worlds.build_fp_battle(self, battle, seed, fill_opponent_sets=fill_opponent_sets)
-
-
-def fp_move_id(self, move) -> str:
-    return oranguru_worlds.fp_move_id(None, move)
