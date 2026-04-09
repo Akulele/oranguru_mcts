@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from src.players import oranguru_state
+from src.players.oranguru_engine import OranguruEnginePlayer
 import constants
 
 
@@ -28,6 +29,10 @@ class OranguruStateTests(unittest.TestCase):
         )
         pressure = oranguru_state.side_hazard_pressure(SimpleNamespace(), battle)
         self.assertAlmostEqual(pressure, 0.125 + (1.0 / 6.0) + 0.08)
+
+    def test_engine_fp_move_id_binding(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        self.assertEqual(engine._fp_move_id(DummyMove("Thunderbolt")), "thunderbolt")
 
     def test_sleep_clause_banned_choices_bans_sleep_move_and_tera_variant(self):
         engine = SimpleNamespace(

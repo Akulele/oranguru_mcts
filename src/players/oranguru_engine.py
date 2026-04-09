@@ -959,7 +959,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self, battle, seed, fill_opponent_sets=fill_opponent_sets
         )
 
-    _fp_move_id = staticmethod(oranguru_worlds.fp_move_id)
+    _fp_move_id = oranguru_worlds.fp_move_id
 
     def _best_damaging_move(self, battle: Battle, active: Pokemon, opponent: Pokemon):
         best_move = None
