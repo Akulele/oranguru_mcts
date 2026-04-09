@@ -8,6 +8,7 @@ Set credentials via environment variables:
 """
 
 import asyncio
+import getpass
 import json
 import logging
 import os
@@ -37,6 +38,14 @@ from evaluation.test_rulebot import test_rulebot
 from training.config import RLConfig
 from src.utils.features import load_moves, EnhancedFeatureBuilder
 from src.utils.damage_calc import normalize_name
+
+
+def prompt_account_credentials() -> tuple[str, str]:
+    username = input("Showdown username: ").strip()
+    password = getpass.getpass("Showdown password: ").strip()
+    if not username or not password:
+        raise ValueError("username/password prompt was empty")
+    return username, password
 
 
 class LadderDataCollector:
@@ -1651,6 +1660,8 @@ if __name__ == "__main__":
                         help="Use only the first N accounts from --accounts-file (0 = all)")
     parser.add_argument("--account-name", action="append", default=[],
                         help="Account username(s) to use from --accounts-file (repeatable, comma-separated)")
+    parser.add_argument("--prompt-login", action="store_true",
+                        help="Prompt interactively for one Showdown username/password instead of using env vars or --accounts-file")
     parser.add_argument("--auto-reconnect", action="store_true",
                         help="Retry laddering on websocket disconnects")
     parser.add_argument("--max-retries", type=int, default=2,
@@ -1704,8 +1715,71 @@ if __name__ == "__main__":
                 account_names.append(name)
     if account_names and not args.accounts_file:
         print("⚠️  --account-name is ignored without --accounts-file")
+    if args.prompt_login and args.accounts_file:
+        print("⚠️  --prompt-login ignores --accounts-file and --account-name")
 
     async def _run():
+        if args.prompt_login:
+            try:
+                username, password = prompt_account_credentials()
+            except ValueError as exc:
+                print(f"❌ {exc}")
+                return 1
+            return await ladder_rulebot(
+                args.battles,
+                args.format,
+                args.max_concurrent,
+                args.verbose,
+                args.pre_eval,
+                args.pre_eval_battles,
+                args.log_decisions,
+                args.decision_slow_ms,
+                args.log_level,
+                open_timeout,
+                ping_interval,
+                ping_timeout,
+                (args.start_timer and not args.no_start_timer),
+                args.player,
+                args.checkpoint,
+                args.device,
+                args.decision_log,
+                args.decision_log_every,
+                args.decision_log_topk,
+                args.decision_log_max,
+                args.policy_temperature,
+                args.sample_actions,
+                args.switch_mass_min,
+                args.switch_mass_warn,
+                args.rl_disable_biases,
+                args.collect_data,
+                args.wins_only,
+                args.data_output,
+                args.min_turns,
+                args.min_actions,
+                min_rating,
+                min_player_rating,
+                min_opponent_rating,
+                args.skip_forfeit,
+                max_illegal_rate,
+                min_win_remaining,
+                max_opp_remaining,
+                args.win_weight,
+                args.loss_weight,
+                args.tag_prefix,
+                progress_every,
+                username=username,
+                password=password,
+                auto_reconnect=args.auto_reconnect,
+                max_retries=args.max_retries,
+                retry_wait_s=args.retry_wait,
+                rejoin_active=args.rejoin_active,
+                login_timeout_s=login_timeout_s,
+                chat_message=args.chat_message,
+                challenge_opponents=challenge_opponents,
+                challenge_battles=challenge_battles,
+                snapshot_log=snapshot_log,
+                snapshot_every=snapshot_every,
+            )
         if args.accounts_file:
             accounts = load_accounts_from_file(args.accounts_file)
             if account_names:
