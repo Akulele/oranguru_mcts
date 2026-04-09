@@ -399,48 +399,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._search_trace_builder = None
         self._search_trace_builder_failed = False
 
-    @staticmethod
-    def _search_trace_token_hash(token: str) -> float:
-        return oranguru_trace.search_trace_token_hash(token)
-
-    @classmethod
-    def _search_trace_species_hash(cls, species: str) -> float:
-        return oranguru_trace.search_trace_species_hash(cls, species)
-
-    def _init_search_trace_builder(self):
-        return oranguru_trace.init_search_trace_builder(self)
-
-    def _load_search_prior_family_model(self, checkpoint_path: str, device_name: str):
-        return oranguru_models.load_search_prior_family_model(self, checkpoint_path, device_name)
-
-    @staticmethod
-    def _resolve_model_checkpoint(path_str: str) -> Path:
-        return oranguru_models.resolve_model_checkpoint(None, path_str)
-
-    @staticmethod
-    def _resolve_model_device(device_name: str, torch_module) -> str:
-        return oranguru_models.resolve_model_device(None, device_name, torch_module)
-
-    def _init_rl_prior(self) -> bool:
-        return oranguru_models.init_rl_prior(self)
-
-    def _init_search_prior(self) -> bool:
-        return oranguru_models.init_search_prior(self)
-
-    def _init_switch_prior(self) -> bool:
-        return oranguru_models.init_switch_prior(self)
-
-    def _init_passive_breaker(self) -> bool:
-        return oranguru_models.init_passive_breaker(self)
-
-    def _init_tera_pruner(self) -> bool:
-        return oranguru_models.init_tera_pruner(self)
-
-    def _init_world_ranker(self) -> bool:
-        return oranguru_models.init_world_ranker(self)
-
-    def _init_leaf_value(self) -> bool:
-        return oranguru_models.init_leaf_value(self)
+    _search_trace_token_hash = staticmethod(oranguru_trace.search_trace_token_hash)
+    _search_trace_species_hash = oranguru_trace.search_trace_species_hash
+    _init_search_trace_builder = oranguru_trace.init_search_trace_builder
+    _load_search_prior_family_model = oranguru_models.load_search_prior_family_model
+    _resolve_model_checkpoint = oranguru_models.resolve_model_checkpoint
+    _resolve_model_device = oranguru_models.resolve_model_device
+    _init_rl_prior = oranguru_models.init_rl_prior
+    _init_search_prior = oranguru_models.init_search_prior
+    _init_switch_prior = oranguru_models.init_switch_prior
+    _init_passive_breaker = oranguru_models.init_passive_breaker
+    _init_tera_pruner = oranguru_models.init_tera_pruner
+    _init_world_ranker = oranguru_models.init_world_ranker
+    _init_leaf_value = oranguru_models.init_leaf_value
 
     def _build_rl_action_mask_and_maps(
         self, battle: Battle
@@ -505,20 +476,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return idx
         return None
 
-    def _rl_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
-        return oranguru_models.rl_choice_priors(self, battle, choices)
-
-    def _search_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
-        return oranguru_models.search_choice_priors(self, battle, choices)
-
-    def _switch_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
-        return oranguru_models.switch_choice_priors(self, battle, choices)
-
-    def _passive_break_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
-        return oranguru_models.passive_break_choice_priors(self, battle, choices)
-
-    def _tera_choice_priors(self, battle: Battle, choices: List[str]) -> Optional[List[float]]:
-        return oranguru_models.tera_choice_priors(self, battle, choices)
+    _rl_choice_priors = oranguru_models.rl_choice_priors
+    _search_choice_priors = oranguru_models.search_choice_priors
+    _switch_choice_priors = oranguru_models.switch_choice_priors
+    _passive_break_choice_priors = oranguru_models.passive_break_choice_priors
+    _tera_choice_priors = oranguru_models.tera_choice_priors
 
     def _apply_switch_prior_prune(
         self,
@@ -747,37 +709,16 @@ class OranguruEnginePlayer(RuleBotPlayer):
         _record("triggered")
         return True
 
-    def get_mcts_stats(self) -> Dict[str, float]:
-        return oranguru_diag.get_mcts_stats(self)
+    get_mcts_stats = oranguru_diag.get_mcts_stats
 
-    def _build_search_trace_action_features(
-        self,
-        battle: Battle,
-        mask: List[bool],
-    ) -> List[List[float]]:
-        return oranguru_trace.build_search_trace_action_features(self, battle, mask)
-
-    def _search_trace_phase(self, battle: Battle) -> str:
-        return oranguru_trace.search_trace_phase(self, battle)
-
-    @staticmethod
-    def _search_trace_status_code(status: object) -> float:
-        return oranguru_trace.search_trace_status_code(None, status)
-
-    def _build_world_rank_features(self, fp_battle: FPBattle) -> List[float]:
-        return oranguru_worlds.build_world_rank_features(self, fp_battle)
-
-    def _build_world_plausibility_features(self, fp_battle: FPBattle) -> List[float]:
-        return oranguru_worlds.build_world_plausibility_features(self, fp_battle)
-
-    def _is_low_uncertainty_turn(self, battle: Battle) -> bool:
-        return oranguru_worlds.is_low_uncertainty_turn(self, battle)
-
-    def _is_endgame_turn(self, battle: Battle) -> bool:
-        return oranguru_worlds.is_endgame_turn(self, battle)
-
-    def _world_ranker_turn_allowed(self, battle: Battle) -> bool:
-        return oranguru_worlds.world_ranker_turn_allowed(self, battle)
+    _build_search_trace_action_features = oranguru_trace.build_search_trace_action_features
+    _search_trace_phase = oranguru_trace.search_trace_phase
+    _search_trace_status_code = oranguru_trace.search_trace_status_code
+    _build_world_rank_features = oranguru_worlds.build_world_rank_features
+    _build_world_plausibility_features = oranguru_worlds.build_world_plausibility_features
+    _is_low_uncertainty_turn = oranguru_worlds.is_low_uncertainty_turn
+    _is_endgame_turn = oranguru_worlds.is_endgame_turn
+    _world_ranker_turn_allowed = oranguru_worlds.world_ranker_turn_allowed
 
     def _build_world_ranker_input_features(
         self,
@@ -839,8 +780,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             max(-1.0, min(1.0, float(best_reply_score))),
         ]
 
-    def _predict_leaf_value(self, battle: Battle) -> Optional[float]:
-        return oranguru_models.predict_leaf_value(self, battle)
+    _predict_leaf_value = oranguru_models.predict_leaf_value
 
     def _should_trigger_leaf_value_escalation(
         self,
@@ -859,58 +799,16 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return False
         return abs(pred) <= max(0.0, min(1.0, self.LEAF_VALUE_TRIGGER_ABS_MAX))
 
-    def _rank_and_trim_worlds(
-        self,
-        battle: Battle,
-        fp_battles: List[FPBattle],
-        weights: List[float],
-    ) -> tuple[List[FPBattle], List[float]]:
-        return oranguru_worlds.rank_and_trim_worlds(self, battle, fp_battles, weights)
-
-    def _build_world_candidate_summary(
-        self,
-        battle: Battle,
-        fp_battle: FPBattle,
-        sample_weight: float,
-        result,
-        state_str: str = "",
-    ) -> dict:
-        return oranguru_worlds.build_world_candidate_summary(
-            self, battle, fp_battle, sample_weight, result, state_str=state_str
-        )
-
-    def _build_search_trace_action_labels(
-        self,
-        battle: Battle,
-        mask: List[bool],
-    ) -> List[str]:
-        return oranguru_trace.build_search_trace_action_labels(self, battle, mask)
-
-    @staticmethod
-    def _serialize_fp_last_used_move(move: LastUsedMove) -> dict:
-        return oranguru_trace.serialize_fp_last_used_move(move)
-
-    @staticmethod
-    def _serialize_fp_move(move) -> dict:
-        return oranguru_trace.serialize_fp_move(move)
-
-    @staticmethod
-    def _serialize_fp_pokemon(mon: Optional[FPPokemon]) -> Optional[dict]:
-        return oranguru_trace.serialize_fp_pokemon(mon)
-
-    @classmethod
-    def _serialize_fp_battler(cls, battler: Battler) -> dict:
-        return oranguru_trace.serialize_fp_battler(cls, battler)
-
-    @classmethod
-    def _serialize_fp_battle(cls, battle: FPBattle) -> dict:
-        return oranguru_trace.serialize_fp_battle(cls, battle)
-
-    def _apply_world_budget_controls(self, battle: Battle, sample_states: int) -> int:
-        return oranguru_worlds.apply_world_budget_controls(self, battle, sample_states)
-
-    def _search_trace_choice_kind(self, battle: Battle, choice: str) -> str:
-        return oranguru_trace.search_trace_choice_kind(self, battle, choice)
+    _rank_and_trim_worlds = oranguru_worlds.rank_and_trim_worlds
+    _build_world_candidate_summary = oranguru_worlds.build_world_candidate_summary
+    _build_search_trace_action_labels = oranguru_trace.build_search_trace_action_labels
+    _serialize_fp_last_used_move = staticmethod(oranguru_trace.serialize_fp_last_used_move)
+    _serialize_fp_move = staticmethod(oranguru_trace.serialize_fp_move)
+    _serialize_fp_pokemon = staticmethod(oranguru_trace.serialize_fp_pokemon)
+    _serialize_fp_battler = oranguru_trace.serialize_fp_battler
+    _serialize_fp_battle = oranguru_trace.serialize_fp_battle
+    _apply_world_budget_controls = oranguru_worlds.apply_world_budget_controls
+    _search_trace_choice_kind = oranguru_trace.search_trace_choice_kind
 
     def _append_search_trace_example(
         self,
@@ -933,11 +831,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             world_candidates=world_candidates,
         )
 
-    def _flush_finished_search_traces(self) -> None:
-        return oranguru_trace.flush_finished_search_traces(self)
-
-    def _diag_record_adaptive_reason(self, reason: str) -> None:
-        return oranguru_diag.diag_record_adaptive_reason(self, reason)
+    _flush_finished_search_traces = oranguru_trace.flush_finished_search_traces
+    _diag_record_adaptive_reason = oranguru_diag.diag_record_adaptive_reason
 
     def _diag_record_choice(
         self,
@@ -952,8 +847,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self, battle, ordered, chosen, confidence, threshold, path
         )
 
-    def _flush_finished_battle_diags(self) -> None:
-        return oranguru_diag.flush_finished_battle_diags(self)
+    _flush_finished_battle_diags = oranguru_diag.flush_finished_battle_diags
 
     def _get_mcts_pool(self, desired_workers: int) -> Optional[ProcessPoolExecutor]:
         if desired_workers <= 1:
@@ -984,89 +878,34 @@ class OranguruEnginePlayer(RuleBotPlayer):
         except Exception:
             pass
 
-    def _status_to_fp(self, status) -> Optional[str]:
-        return oranguru_state.status_to_fp(self, status)
-
-    def _weather_turns_remaining(self, battle: Battle) -> int:
-        return oranguru_memory.weather_turns_remaining(self, battle)
-
-    def _terrain_turns_remaining(self, battle: Battle) -> int:
-        return oranguru_memory.terrain_turns_remaining(self, battle)
-
-    def _is_trapped(self, mon: Optional[Pokemon]) -> bool:
-        return oranguru_state.is_trapped(self, mon)
-
-    def _boosts_to_fp(self, boosts: Dict[str, int]) -> Dict[str, int]:
-        return oranguru_state.boosts_to_fp(self, boosts)
-
-    def _fill_moves_from_set(self, fp_mon: FPPokemon, set_info: dict, known_moves: set):
-        return oranguru_state.fill_moves_from_set(self, fp_mon, set_info, known_moves)
-
-    def _poke_env_to_fp(self, mon: Pokemon, battle: Battle, set_info: Optional[dict]) -> FPPokemon:
-        return oranguru_state.poke_env_to_fp(self, mon, battle, set_info)
-
-    def _map_side_conditions(self, src: dict, dest: dict) -> None:
-        return oranguru_state.map_side_conditions(self, src, dest)
-
-    def _map_weather(self, battle: Battle) -> Optional[str]:
-        return oranguru_state.map_weather(self, battle)
-
-    def _map_terrain(self, battle: Battle) -> Optional[str]:
-        return oranguru_state.map_terrain(self, battle)
-
-    def _clear_invalid_encore(self, battler: Battler) -> None:
-        return oranguru_state.clear_invalid_encore(self, battler)
-
-    def _sleep_clause_active(self, battle: Battle) -> bool:
-        return oranguru_state.sleep_clause_active(self, battle)
-
-    def _opponent_has_sleeping_mon(self, battle: Battle) -> bool:
-        return oranguru_state.opponent_has_sleeping_mon(self, battle)
-
-    def _sleep_clause_blocked(self, battle: Battle) -> bool:
-        return oranguru_state.sleep_clause_blocked(self, battle)
-
-    def _move_inflicts_sleep(self, move) -> bool:
-        return oranguru_state.move_inflicts_sleep(self, move)
-
-    def _fp_move_inflicts_sleep(self, move_id: str) -> bool:
-        return oranguru_state.fp_move_inflicts_sleep(self, move_id)
-
-    def _sleep_clause_banned_choices(self, battle: Battle) -> set:
-        return oranguru_state.sleep_clause_banned_choices(self, battle)
-
-    def _apply_opponent_item_flags(self, fp_mon: FPPokemon, battle: Battle) -> None:
-        return oranguru_state.apply_opponent_item_flags(self, fp_mon, battle)
-
-    def _apply_opponent_ability_flags(self, fp_mon: FPPokemon, battle: Battle) -> None:
-        return oranguru_state.apply_opponent_ability_flags(self, fp_mon, battle)
-
-    def _apply_known_opponent_moves(self, fp_mon: FPPokemon, battle: Battle) -> None:
-        return oranguru_state.apply_known_opponent_moves(self, fp_mon, battle)
-
-    def _apply_opponent_switch_memory(self, fp_mon: FPPokemon, battle: Battle) -> None:
-        return oranguru_state.apply_opponent_switch_memory(self, fp_mon, battle)
-
-    def _apply_speed_bounds(self, fp_mon: FPPokemon, battle: Battle) -> None:
-        return oranguru_state.apply_speed_bounds(self, fp_mon, battle)
-
-    def _damage_belief_has_unmodeled_state(self, battle: Battle) -> bool:
-        return oranguru_belief.damage_belief_has_unmodeled_state(self, battle)
-
-    def _damage_belief_observations(self, battle: Battle, species: str) -> List[dict]:
-        return oranguru_belief.damage_belief_observations(self, battle, species)
-
-    def _side_hazard_pressure(self, battle: Battle) -> float:
-        return oranguru_state.side_hazard_pressure(self, battle)
-
-    def _opponent_progress_markers(self, battle: Battle, opponent: Optional[Pokemon]) -> dict:
-        return oranguru_state.opponent_progress_markers(self, battle, opponent)
-
-    def _resolve_passive_progress(self, battle: Battle) -> None:
-        return oranguru_state.resolve_passive_progress(self, battle)
-
-    def _passive_choice_kind(self, move) -> str:
-        return oranguru_state.passive_choice_kind(self, move)
+    _status_to_fp = oranguru_state.status_to_fp
+    _weather_turns_remaining = oranguru_memory.weather_turns_remaining
+    _terrain_turns_remaining = oranguru_memory.terrain_turns_remaining
+    _is_trapped = oranguru_state.is_trapped
+    _boosts_to_fp = oranguru_state.boosts_to_fp
+    _fill_moves_from_set = oranguru_state.fill_moves_from_set
+    _poke_env_to_fp = oranguru_state.poke_env_to_fp
+    _map_side_conditions = oranguru_state.map_side_conditions
+    _map_weather = oranguru_state.map_weather
+    _map_terrain = oranguru_state.map_terrain
+    _clear_invalid_encore = oranguru_state.clear_invalid_encore
+    _sleep_clause_active = oranguru_state.sleep_clause_active
+    _opponent_has_sleeping_mon = oranguru_state.opponent_has_sleeping_mon
+    _sleep_clause_blocked = oranguru_state.sleep_clause_blocked
+    _move_inflicts_sleep = oranguru_state.move_inflicts_sleep
+    _fp_move_inflicts_sleep = oranguru_state.fp_move_inflicts_sleep
+    _sleep_clause_banned_choices = oranguru_state.sleep_clause_banned_choices
+    _apply_opponent_item_flags = oranguru_state.apply_opponent_item_flags
+    _apply_opponent_ability_flags = oranguru_state.apply_opponent_ability_flags
+    _apply_known_opponent_moves = oranguru_state.apply_known_opponent_moves
+    _apply_opponent_switch_memory = oranguru_state.apply_opponent_switch_memory
+    _apply_speed_bounds = oranguru_state.apply_speed_bounds
+    _damage_belief_has_unmodeled_state = oranguru_belief.damage_belief_has_unmodeled_state
+    _damage_belief_observations = oranguru_belief.damage_belief_observations
+    _side_hazard_pressure = oranguru_state.side_hazard_pressure
+    _opponent_progress_markers = oranguru_state.opponent_progress_markers
+    _resolve_passive_progress = oranguru_state.resolve_passive_progress
+    _passive_choice_kind = oranguru_state.passive_choice_kind
 
     def _progress_need_score(
         self,
@@ -1077,21 +916,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> int:
         return oranguru_state.progress_need_score(self, battle, active, opponent, best_damage_score)
 
-    def _record_last_action(self, battle: Battle, order) -> None:
-        return oranguru_memory.record_last_action(self, battle, order)
-
-    def _update_damage_observation(self, battle: Battle) -> None:
-        return oranguru_memory.update_damage_observation(self, battle)
-
-    @staticmethod
-    def _parse_hp_fraction(hp_str: str) -> Optional[float]:
-        return oranguru_memory.parse_hp_fraction(hp_str)
-
-    def _ensure_randbats_sets(self, battle: Battle) -> str:
-        return oranguru_state.ensure_randbats_sets(self, battle)
-
-    def _sanitize_randbats_moves(self) -> None:
-        return oranguru_state.sanitize_randbats_moves(self)
+    _record_last_action = oranguru_memory.record_last_action
+    _update_damage_observation = oranguru_memory.update_damage_observation
+    _parse_hp_fraction = staticmethod(oranguru_memory.parse_hp_fraction)
+    _ensure_randbats_sets = oranguru_state.ensure_randbats_sets
+    _sanitize_randbats_moves = oranguru_state.sanitize_randbats_moves
 
     def _belief_weight_for_set(
         self,
@@ -1104,11 +933,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self, fp_mon, set_info, battle, apply_damage=apply_damage
         )
 
-    def _candidate_randombattle_sets(self, opponent: Pokemon, battle: Battle) -> List[Tuple[dict, float]]:
-        return oranguru_state.candidate_randombattle_sets(self, opponent, battle)
-
-    def _extract_last_opponent_move(self, battle: Battle) -> Optional[Tuple[str, str, int]]:
-        return oranguru_state.extract_last_opponent_move(self, battle)
+    _candidate_randombattle_sets = oranguru_state.candidate_randombattle_sets
+    _extract_last_opponent_move = oranguru_state.extract_last_opponent_move
 
     def _sample_set_for_species(
         self,
@@ -1133,9 +959,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
             self, battle, seed, fill_opponent_sets=fill_opponent_sets
         )
 
-    @staticmethod
-    def _fp_move_id(move) -> str:
-        return oranguru_state.fp_move_id(None, move)
+    _fp_move_id = staticmethod(oranguru_worlds.fp_move_id)
 
     def _best_damaging_move(self, battle: Battle, active: Pokemon, opponent: Pokemon):
         best_move = None
@@ -1152,8 +976,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 best_move = move
         return best_move, best_score
 
-    def _switch_faints_to_entry_hazards(self, battle: Battle, mon: Pokemon) -> bool:
-        return oranguru_tactical.switch_faints_to_entry_hazards(self, battle, mon)
+    _switch_faints_to_entry_hazards = oranguru_tactical.switch_faints_to_entry_hazards
 
     def _status_choice_is_obviously_bad(
         self,
@@ -1164,14 +987,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> bool:
         return oranguru_tactical.status_choice_is_obviously_bad(self, battle, move, active, opponent)
 
-    def _apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, opponent: Pokemon) -> str:
-        return oranguru_tactical.apply_tactical_safety(self, battle, choice, active, opponent)
-
-    def _heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
-        return oranguru_decision.heuristic_action_score(self, battle, choice)
-
-    def _adaptive_choice_risk_penalty(self, battle: Battle, choice: str) -> float:
-        return oranguru_decision.adaptive_choice_risk_penalty(self, battle, choice)
+    _apply_tactical_safety = oranguru_tactical.apply_tactical_safety
+    _heuristic_action_score = oranguru_decision.heuristic_action_score
+    _adaptive_choice_risk_penalty = oranguru_decision.adaptive_choice_risk_penalty
 
     def _adaptive_rerank_choice(
         self,
@@ -1181,50 +999,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ) -> str:
         return oranguru_decision.adaptive_rerank_choice(self, battle, ordered, topk)
 
-    def _aggregate_policy_from_results(
-        self,
-        results: List[Tuple[object, float]],
-        banned_choices: Optional[set] = None,
-    ) -> Tuple[List[Tuple[str, float]], float, float, float]:
-        return oranguru_decision.aggregate_policy_from_results(self, results, banned_choices=banned_choices)
+    _aggregate_policy_from_results = oranguru_decision.aggregate_policy_from_results
+    _collect_mcts_results = oranguru_worlds.collect_mcts_results
+    _select_move_from_results = oranguru_decision.select_move_from_results
+    _is_damaging_move_choice = oranguru_decision.is_damaging_move_choice
 
-    def _collect_mcts_results(
-        self,
-        battle: Battle,
-        sample_states: int,
-        search_time_ms: int,
-        base_fp_battle: Optional[FPBattle] = None,
-    ) -> Tuple[List[Tuple[object, float]], List[dict]]:
-        return oranguru_worlds.collect_mcts_results(
-            self,
-            battle,
-            sample_states,
-            search_time_ms,
-            base_fp_battle=base_fp_battle,
-        )
-
-    def _select_move_from_results(
-        self,
-        results: List[Tuple[object, float]],
-        battle: Battle,
-        banned_choices: Optional[set] = None,
-        world_candidates: Optional[List[dict]] = None,
-    ) -> str:
-        return oranguru_decision.select_move_from_results(
-            self,
-            results,
-            battle,
-            banned_choices=banned_choices,
-            world_candidates=world_candidates,
-        )
-
-    def _is_damaging_move_choice(self, battle: Battle, choice: str) -> bool:
-        return oranguru_decision.is_damaging_move_choice(self, battle, choice)
-
-    def _choose_adaptive_fallback_order(
-        self, battle: Battle, active: Pokemon, opponent: Pokemon
-    ):
-        return oranguru_decision.choose_adaptive_fallback_order(self, battle, active, opponent)
+    _choose_adaptive_fallback_order = oranguru_decision.choose_adaptive_fallback_order
 
     def choose_move(self, battle: AbstractBattle):
         return oranguru_searchflow.choose_move(self, battle)
