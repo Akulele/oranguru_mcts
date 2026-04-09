@@ -266,6 +266,51 @@ def maybe_reduce_negative_matchup_switch(
     return chosen_choice
 
 
+def maybe_force_finish_blow_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        return chosen_choice
+    if self._is_damaging_move_choice(battle, chosen_choice):
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        return chosen_choice
+
+    opp_hp = opponent.current_hp_fraction or 0.0
+    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    if best_damage_score < ko_threshold:
+        return chosen_choice
+
+    chosen_weight = 0.0
+    best_damage_choice = ""
+    best_damage_weight = 0.0
+    for choice, weight in ordered:
+        if choice == chosen_choice:
+            chosen_weight = float(weight or 0.0)
+        if choice.startswith("switch "):
+            continue
+        if not self._is_damaging_move_choice(battle, choice):
+            continue
+        best_damage_choice = choice
+        best_damage_weight = float(weight or 0.0)
+        break
+
+    if not best_damage_choice:
+        return chosen_choice
+    if chosen_choice.startswith("switch "):
+        return best_damage_choice
+    if best_damage_weight >= chosen_weight * 0.50:
+        return best_damage_choice
+    return chosen_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -327,6 +372,14 @@ def select_move_from_results(
 
     def _return_choice(chosen_choice: str, path: str) -> str:
         if chosen_choice:
+            adjusted_choice = self._maybe_force_finish_blow_choice(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "rerank" if path == "mcts" else path
             adjusted_choice = self._maybe_reduce_negative_matchup_switch(
                 battle,
                 ordered,

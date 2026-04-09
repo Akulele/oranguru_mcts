@@ -30,6 +30,25 @@ class DummyBattle:
 
 
 class OranguruDecisionTests(unittest.TestCase):
+    def test_finish_blow_guard_prefers_damage_over_passive_choice(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine._estimate_best_damage_score = lambda *_args: 120.0
+        battle = DummyBattle()
+        battle.opponent_active_pokemon = DummyPokemon(0.2)
+        battle.available_moves = [
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("protect", category=MoveCategory.STATUS),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("protect", 60.0), ("earthquake", 45.0)],
+            "protect",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+
     def test_negative_matchup_switch_guard_prefers_nearby_damage(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine._heuristic_action_score = lambda _battle, choice: 25.0 if choice.startswith("switch ") else 80.0
