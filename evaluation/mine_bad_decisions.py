@@ -364,26 +364,37 @@ def mine_examples(
         if chosen_damaging and _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle) and opp_hp > 0.45 and reply_score <= safe_reply_threshold:
             add_issue("underused_status_window")
 
-        if chosen_passive not in {"setup", "recovery"} and not chosen_kind == "switch" and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
+        if chosen_damaging and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
             setup_alt = _best_setup_alternative(row, moves_data, exclude_choice=choice)
-            extra = {}
             if setup_alt is not None:
                 alt_choice = str(setup_alt.get("choice", "") or "")
                 alt_score = _safe_float(setup_alt.get("score", setup_alt.get("weight")), 0.0)
                 alt_heur = _heuristic_for_choice(row, alt_choice)
                 choice_heur = _heuristic_for_choice(row, choice)
-                extra.update(
-                    {
-                        "alternative": alt_choice,
-                        "alternative_score": round(alt_score, 3),
-                        "alternative_heuristic_score": None if alt_heur is None else round(alt_heur, 3),
-                        "chosen_heuristic_score": None if choice_heur is None else round(choice_heur, 3),
-                        "best_choice": alt_choice,
-                        "best_score": round(alt_score, 3),
-                        "score_gap": round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
-                    }
-                )
-            add_issue("underused_setup_window", **extra)
+                alt_move_id = _move_id_from_choice(alt_choice)
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
+                if alt_move_id and alt_move_id != chosen_move_id and alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    should_flag_setup = (policy_ratio >= 0.65 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.20 and heur_delta >= 15.0
+                    )
+                else:
+                    should_flag_setup = bool(alt_move_id and alt_move_id != chosen_move_id)
+                if should_flag_setup:
+                    add_issue(
+                        "underused_setup_window",
+                        alternative=alt_choice,
+                        alternative_score=round(alt_score, 3),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        policy_ratio=round(policy_ratio, 3),
+                        best_choice=alt_choice,
+                        best_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    )
 
         if chosen_passive != "recovery" and _has_recovery_option(row, moves_data) and active_hp <= low_hp_recovery and reply_score <= safe_reply_threshold and opp_hp > 0.25:
             add_issue("ignored_safe_recovery", regret=low_hp_recovery - active_hp)

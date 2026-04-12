@@ -10,6 +10,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
             "tackle": {"category": "Physical", "type": "Normal"},
             "thunderwave": {"category": "Status", "type": "Electric", "status": "par"},
             "calmmind": {"category": "Status", "type": "Psychic", "target": "self", "boosts": {"spa": 1, "spd": 1}},
+            "protect": {"category": "Status", "type": "Normal"},
             "recover": {"category": "Status", "type": "Normal"},
             "dragondance": {"category": "Status", "type": "Dragon", "target": "self", "boosts": {"atk": 1, "spe": 1}},
         }
@@ -99,6 +100,44 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         pack = build_review_pack(summary, limit=5)
         setup_row = next(row for row in pack if row["category"] == "underused_setup_window")
         self.assertIn("dragondance", setup_row["review_blurb"])
+
+    def test_setup_window_requires_supported_setup_alternative(self):
+        def row(battle_id, choice, setup_weight, attack_heur, setup_heur):
+            return {
+                "battle_id": battle_id,
+                "turn": 11,
+                "chosen_choice": choice,
+                "top_actions": [
+                    {"choice": choice, "weight": 80.0, "score": 80.0, "heuristic_score": attack_heur},
+                    {"choice": "dragondance", "weight": setup_weight, "score": setup_weight, "heuristic_score": setup_heur},
+                ],
+                "action_labels": [choice, "dragondance"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "best_reply_score": 60.0,
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Dragonite", "hp": 90, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Scizor", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Blissey", "hp": 90, "max_hp": 100, "types": ["Normal"], "boosts": {}},
+                        "reserve": [{"name": "Corviknight", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("protect-choice", "protect", setup_weight=80.0, attack_heur=0.0, setup_heur=120.0),
+                row("low-policy", "tackle", setup_weight=10.0, attack_heur=0.0, setup_heur=120.0),
+                row("no-heur-regret", "tackle", setup_weight=80.0, attack_heur=10.0, setup_heur=10.0),
+                row("regret", "tackle", setup_weight=30.0, attack_heur=0.0, setup_heur=20.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["underused_setup_window"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
 
     def test_over_switch_requires_heuristic_regret_when_available(self):
         def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):
