@@ -100,6 +100,41 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         setup_row = next(row for row in pack if row["category"] == "underused_setup_window")
         self.assertIn("dragondance", setup_row["review_blurb"])
 
+    def test_over_switch_requires_heuristic_regret_when_available(self):
+        def row(battle_id, switch_heur, attack_heur):
+            return {
+                "battle_id": battle_id,
+                "turn": 1,
+                "chosen_choice": "switch skarmory",
+                "top_actions": [
+                    {"choice": "switch skarmory", "weight": 80.0, "score": 80.0, "heuristic_score": switch_heur, "risk_penalty": 0.0},
+                    {"choice": "tackle", "weight": 79.0, "score": 79.0, "heuristic_score": attack_heur, "risk_penalty": 0.0},
+                ],
+                "action_labels": ["tackle", "switch skarmory"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Pikachu", "hp": 80, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Skarmory", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Starmie", "hp": 80, "max_hp": 100, "types": ["Water"], "boosts": {}},
+                        "reserve": [{"name": "Zapdos", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("no-regret", switch_heur=2.5, attack_heur=2.0),
+                row("regret", switch_heur=1.0, attack_heur=3.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["over_switched_negative_matchup"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+
     def test_build_review_pack_sorts_by_priority(self):
         summary = {
             "samples": {

@@ -318,11 +318,17 @@ def mine_examples(
             if alt_attack:
                 alt_score = _safe_float(alt_attack.get("score", alt_attack.get("weight")), 0.0)
                 gap = alt_score - (chosen_score if chosen_score is not None else alt_score)
-                if gap >= -5.0:
-                    alt_choice = str(alt_attack.get("choice", "") or "")
-                    alt_heur = _heuristic_for_choice(row, alt_choice)
-                    choice_heur = _heuristic_for_choice(row, choice)
-                    choice_risk = _risk_for_choice(row, choice)
+                alt_choice = str(alt_attack.get("choice", "") or "")
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
+                choice_risk = _risk_for_choice(row, choice)
+                if alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    risk = choice_risk if choice_risk is not None else 0.0
+                    should_flag_switch = heur_delta >= 1.0 or (risk >= 20.0 and heur_delta >= -0.5)
+                else:
+                    should_flag_switch = gap >= -5.0
+                if should_flag_switch:
                     add_issue(
                         "over_switched_negative_matchup",
                         alternative=alt_choice,
