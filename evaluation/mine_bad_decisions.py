@@ -237,6 +237,38 @@ def _best_recovery_alternative(row: dict, moves_data: dict, exclude_choice: str 
     return best
 
 
+def _best_progress_alternative(
+    row: dict,
+    moves_data: dict,
+    opp_types: set[str],
+    opp_status: str,
+    opp_hazard_free: bool,
+    exclude_choice: str = "",
+) -> dict | None:
+    top_actions = _top_actions(row)
+    candidates = top_actions if top_actions else [{"choice": label, "score": 0.0} for label in row.get("action_labels") or [] if isinstance(label, str)]
+    best = None
+    best_score = float("-inf")
+    for action in candidates:
+        choice = str(action.get("choice", "") or "")
+        if not choice or choice == exclude_choice or choice.startswith("switch "):
+            continue
+        move_id = _move_id_from_choice(choice)
+        if _is_status_candidate(move_id, moves_data, opp_types, opp_status):
+            kind = "status"
+        elif _passive_kind(move_id, moves_data) == "setup":
+            kind = "setup"
+        elif opp_hazard_free and move_id in RuleBotPlayer.ENTRY_HAZARDS:
+            kind = "hazard"
+        else:
+            continue
+        score = _safe_float(action.get("score", action.get("weight")), 0.0)
+        if best is None or score > best_score:
+            best = {"choice": choice, "score": score, "progress_kind": kind}
+            best_score = score
+    return best
+
+
 def _is_damaging_move(choice: str, moves_data: dict) -> bool:
     move_id = _move_id_from_choice(choice)
     if not move_id:
@@ -511,7 +543,36 @@ def mine_examples(
             or _has_setup_option(row, moves_data)
             or (hazard_available and opp_hazard_free)
         ):
-            add_issue("failed_to_progress_when_behind")
+            progress_alt = _best_progress_alternative(row, moves_data, opp_types, opp_status, opp_hazard_free, exclude_choice=choice)
+            if progress_alt is not None:
+                alt_choice = str(progress_alt.get("choice", "") or "")
+                alt_score = _safe_float(progress_alt.get("score", progress_alt.get("weight")), 0.0)
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
+                if alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    should_flag_progress = (policy_ratio >= 0.65 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.30 and heur_delta >= 10.0
+                    )
+                else:
+                    should_flag_progress = True
+                if should_flag_progress:
+                    add_issue(
+                        "failed_to_progress_when_behind",
+                        alternative=alt_choice,
+                        alternative_score=round(alt_score, 3),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        policy_ratio=round(policy_ratio, 3),
+                        progress_kind=str(progress_alt.get("progress_kind", "") or ""),
+                        best_choice=alt_choice,
+                        best_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    )
 
     for items in samples_by_issue.values():
         items.sort(key=_issue_priority, reverse=True)

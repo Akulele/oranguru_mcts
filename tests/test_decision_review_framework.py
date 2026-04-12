@@ -13,6 +13,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
             "calmmind": {"category": "Status", "type": "Psychic", "target": "self", "boosts": {"spa": 1, "spd": 1}},
             "protect": {"category": "Status", "type": "Normal"},
             "recover": {"category": "Status", "type": "Normal"},
+            "stealthrock": {"category": "Status", "type": "Rock"},
             "dragondance": {"category": "Status", "type": "Dragon", "target": "self", "boosts": {"atk": 1, "spe": 1}},
         }
 
@@ -215,6 +216,45 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         samples = summary["samples"]["ignored_safe_recovery"]
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
         self.assertEqual(samples[0]["alternative"], "recover")
+
+    def test_failed_progress_requires_supported_progress_alternative(self):
+        def row(battle_id, progress_weight, choice_heur, progress_heur):
+            return {
+                "battle_id": battle_id,
+                "turn": 12,
+                "chosen_choice": "tackle",
+                "top_actions": [
+                    {"choice": "tackle", "weight": 80.0, "score": 80.0, "heuristic_score": choice_heur},
+                    {"choice": "calmmind", "weight": progress_weight, "score": progress_weight, "heuristic_score": progress_heur},
+                ],
+                "action_labels": ["tackle", "calmmind"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "best_reply_score": 60.0,
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Mew", "hp": 90, "max_hp": 100, "boosts": {}},
+                        "reserve": [],
+                    },
+                    "opponent": {
+                        "active": {"name": "Blissey", "hp": 90, "max_hp": 100, "types": ["Normal"], "boosts": {}},
+                        "reserve": [{"name": "Corviknight", "hp": 100, "max_hp": 100}, {"name": "Rotom", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("low-policy", progress_weight=10.0, choice_heur=0.0, progress_heur=120.0),
+                row("no-heur-regret", progress_weight=80.0, choice_heur=10.0, progress_heur=10.0),
+                row("regret", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["failed_to_progress_when_behind"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+        self.assertEqual(samples[0]["alternative"], "calmmind")
+        self.assertEqual(samples[0]["progress_kind"], "setup")
 
     def test_over_switch_requires_heuristic_regret_when_available(self):
         def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):

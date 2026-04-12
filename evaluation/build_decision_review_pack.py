@@ -65,7 +65,10 @@ def _review_blurb(row: dict) -> str:
     if category == "over_attacked_into_bad_trade":
         return f"{active} into {opp}: attacked from a fragile position under strong reply pressure; review safer line."
     if category == "failed_to_progress_when_behind":
-        return f"{active} into {opp}: behind on board but chose {choice}; review if status/setup/hazards created better comeback equity."
+        alternative = str(row.get("alternative", "") or best or "progress")
+        progress_kind = str(row.get("progress_kind", "") or "progress")
+        detail = _detail_suffix(row)
+        return f"{active} into {opp}: behind on board but chose {choice}; review {progress_kind} line like {alternative}{detail}."
     return f"{active} into {opp}: review {choice}."
 
 
