@@ -11,6 +11,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
             "thunderwave": {"category": "Status", "type": "Electric", "status": "par"},
             "calmmind": {"category": "Status", "type": "Psychic", "target": "self", "boosts": {"spa": 1, "spd": 1}},
             "recover": {"category": "Status", "type": "Normal"},
+            "dragondance": {"category": "Status", "type": "Dragon", "target": "self", "boosts": {"atk": 1, "spe": 1}},
         }
 
     def test_mine_examples_flags_strategic_buckets(self):
@@ -64,6 +65,40 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         summary = mine_examples(rows, moves_data=self.moves_data)
         self.assertGreaterEqual(summary["issue_counts"].get("missed_ko", 0), 1)
         self.assertGreaterEqual(summary["issue_counts"].get("ignored_safe_recovery", 0), 1)
+
+    def test_setup_window_records_setup_alternative(self):
+        rows = [
+            {
+                "battle_id": "b3",
+                "turn": 11,
+                "chosen_choice": "tackle",
+                "top_actions": [
+                    {"choice": "tackle", "weight": 72.0, "heuristic_score": 50.0},
+                    {"choice": "dragondance", "weight": 80.0, "heuristic_score": 90.0},
+                ],
+                "action_labels": ["tackle", "dragondance"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "best_reply_score": 60.0,
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Dragonite", "hp": 90, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Scizor", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Blissey", "hp": 90, "max_hp": 100, "types": ["Normal"], "boosts": {}},
+                        "reserve": [{"name": "Corviknight", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+        ]
+        summary = mine_examples(rows, moves_data=self.moves_data)
+        sample = summary["samples"]["underused_setup_window"][0]
+        self.assertEqual(sample["alternative"], "dragondance")
+        self.assertEqual(sample["alternative_heuristic_score"], 90.0)
+        pack = build_review_pack(summary, limit=5)
+        setup_row = next(row for row in pack if row["category"] == "underused_setup_window")
+        self.assertIn("dragondance", setup_row["review_blurb"])
 
     def test_build_review_pack_sorts_by_priority(self):
         summary = {

@@ -258,10 +258,16 @@ def maybe_reduce_negative_matchup_switch(
     switch_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
     move_heur = float(self._heuristic_action_score(battle, best_move_choice) or 0.0)
     switch_risk = float(self._adaptive_choice_risk_penalty(battle, chosen_choice) or 0.0)
+    if switch_weight <= 0.0:
+        weight_ratio = 1.0 if best_move_weight > 0.0 else 0.0
+    else:
+        weight_ratio = best_move_weight / max(switch_weight, 1e-6)
 
-    if best_move_weight >= switch_weight * 0.85 and move_heur >= switch_heur + 15.0:
+    if weight_ratio >= 0.75 and move_heur >= switch_heur + 10.0:
         return best_move_choice
-    if switch_risk >= 45.0 and best_move_weight >= switch_weight * 0.70 and move_heur > 0.0:
+    if weight_ratio >= 0.95 and move_heur >= switch_heur - 5.0 and move_heur > 0.0:
+        return best_move_choice
+    if switch_risk >= 35.0 and weight_ratio >= 0.60 and move_heur >= max(0.0, switch_heur - 10.0):
         return best_move_choice
     return chosen_choice
 
@@ -288,25 +294,39 @@ def maybe_force_finish_blow_choice(
     if best_damage_score < ko_threshold:
         return chosen_choice
 
-    chosen_weight = 0.0
     best_damage_choice = ""
-    best_damage_weight = 0.0
+    best_damage_heur = 0.0
     for choice, weight in ordered:
-        if choice == chosen_choice:
-            chosen_weight = float(weight or 0.0)
         if choice.startswith("switch "):
             continue
         if not self._is_damaging_move_choice(battle, choice):
             continue
-        best_damage_choice = choice
-        best_damage_weight = float(weight or 0.0)
-        break
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        if not best_damage_choice or heur > best_damage_heur:
+            best_damage_choice = choice
+            best_damage_heur = heur
+
+    if not best_damage_choice:
+        for move in battle.available_moves or []:
+            try:
+                if move.category == MoveCategory.STATUS:
+                    continue
+            except Exception:
+                continue
+            candidate = normalize_name(getattr(move, "id", ""))
+            if not candidate:
+                continue
+            heur = float(self._heuristic_action_score(battle, candidate) or 0.0)
+            if not best_damage_choice or heur > best_damage_heur:
+                best_damage_choice = candidate
+                best_damage_heur = heur
 
     if not best_damage_choice:
         return chosen_choice
     if chosen_choice.startswith("switch "):
         return best_damage_choice
-    if best_damage_weight >= chosen_weight * 0.50:
+    chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+    if best_damage_heur > 0.0 and best_damage_heur + 5.0 >= chosen_heur:
         return best_damage_choice
     return chosen_choice
 

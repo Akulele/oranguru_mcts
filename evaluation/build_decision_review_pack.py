@@ -47,12 +47,14 @@ def _review_blurb(row: dict) -> str:
     if category == "ignored_safe_recovery":
         return f"{active} into {opp}: skipped recovery at low HP; review whether {choice} exposed an avoidable trade."
     if category == "underused_setup_window":
-        return f"{active} into {opp}: attacked instead of converting a safe setup window; check if {best or 'setup'} was the better win-condition line."
+        alternative = str(row.get("alternative", "") or best or "setup")
+        return f"{active} into {opp}: attacked instead of converting a safe setup window; review setup line like {alternative}."
     if category == "underused_status_window":
         return f"{active} into {opp}: used {choice} despite an open status window; verify if spreading status improved the position."
     if category == "over_switched_negative_matchup":
         alternative = str(row.get("alternative", "") or best or "best attack")
-        return f"{active} into {opp}: switched out with live board presence; compare against {alternative} (gap {gap:.1f})."
+        heur = _heuristic_suffix(row)
+        return f"{active} into {opp}: switched out with live board presence; compare against {alternative} (gap {gap:.1f}{heur})."
     if category == "over_attacked_into_bad_trade":
         return f"{active} into {opp}: attacked from a fragile position under strong reply pressure; review safer line."
     if category == "failed_to_progress_when_behind":
@@ -62,6 +64,17 @@ def _review_blurb(row: dict) -> str:
 
 def _alt(best: str) -> str:
     return f" like {best}" if best else ""
+
+
+def _heuristic_suffix(row: dict) -> str:
+    chosen = row.get("chosen_heuristic_score")
+    alt = row.get("alternative_heuristic_score")
+    if chosen is None or alt is None:
+        return ""
+    try:
+        return f", heur {float(chosen):.1f}->{float(alt):.1f}"
+    except Exception:
+        return ""
 
 
 def main() -> int:

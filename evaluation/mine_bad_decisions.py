@@ -57,7 +57,21 @@ def _top_actions(row: dict) -> list[dict]:
 def _score_for_choice(row: dict, choice: str) -> Optional[float]:
     for action in _top_actions(row):
         if str(action.get("choice", "") or "") == choice:
-            return _safe_float(action.get("score"), 0.0)
+            return _safe_float(action.get("score", action.get("weight")), 0.0)
+    return None
+
+
+def _heuristic_for_choice(row: dict, choice: str) -> Optional[float]:
+    for action in _top_actions(row):
+        if str(action.get("choice", "") or "") == choice and action.get("heuristic_score") is not None:
+            return _safe_float(action.get("heuristic_score"), 0.0)
+    return None
+
+
+def _risk_for_choice(row: dict, choice: str) -> Optional[float]:
+    for action in _top_actions(row):
+        if str(action.get("choice", "") or "") == choice and action.get("risk_penalty") is not None:
+            return _safe_float(action.get("risk_penalty"), 0.0)
     return None
 
 
@@ -120,7 +134,7 @@ def _best_damaging_alternative(row: dict, moves_data: dict, opp_types: set[str],
                 continue
         except Exception:
             pass
-        score = _safe_float(action.get("score"), 0.0)
+        score = _safe_float(action.get("score", action.get("weight")), 0.0)
         if best is None or score > best_score:
             best = {"choice": choice, "score": score}
             best_score = score
@@ -132,6 +146,25 @@ def _has_setup_option(row: dict, moves_data: dict) -> bool:
         if _passive_kind(move_id, moves_data) == "setup":
             return True
     return False
+
+
+def _best_setup_alternative(row: dict, moves_data: dict, exclude_choice: str = "") -> dict | None:
+    top_actions = _top_actions(row)
+    candidates = top_actions if top_actions else [{"choice": label, "score": 0.0} for label in row.get("action_labels") or [] if isinstance(label, str)]
+    best = None
+    best_score = float("-inf")
+    for action in candidates:
+        choice = str(action.get("choice", "") or "")
+        if not choice or choice == exclude_choice or choice.startswith("switch "):
+            continue
+        move_id = _move_id_from_choice(choice)
+        if not move_id or _passive_kind(move_id, moves_data) != "setup":
+            continue
+        score = _safe_float(action.get("score", action.get("weight")), 0.0)
+        if best is None or score > best_score:
+            best = {"choice": choice, "score": score}
+            best_score = score
+    return best
 
 
 def _has_status_option(row: dict, moves_data: dict, opp_types: set[str], opp_status: str, fp_oracle_battle: dict) -> bool:
@@ -222,7 +255,7 @@ def mine_examples(
         chosen_score = _score_for_choice(row, choice)
         best_action = _top_actions(row)[0] if _top_actions(row) else None
         best_choice = str((best_action or {}).get("choice", "") or "")
-        best_score = _safe_float((best_action or {}).get("score"), 0.0) if best_action else 0.0
+        best_score = _safe_float((best_action or {}).get("score", (best_action or {}).get("weight")), 0.0) if best_action else 0.0
         score_gap = max(0.0, best_score - (chosen_score if chosen_score is not None else best_score))
         reply_score = _safe_float(row.get("best_reply_score"), 0.0)
         chosen_move_id = _move_id_from_choice(choice)
@@ -262,12 +295,16 @@ def mine_examples(
             ko_alt = _best_damaging_alternative(row, moves_data, opp_types, exclude_choice=choice)
             if ko_alt is not None:
                 alt_choice = str(ko_alt.get("choice", "") or "")
-                alt_score = _safe_float(ko_alt.get("score"), 0.0)
+                alt_score = _safe_float(ko_alt.get("score", ko_alt.get("weight")), 0.0)
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
                 add_issue(
                     "missed_ko",
                     regret=ko_hp_threshold - opp_hp,
                     alternative=alt_choice,
                     alternative_score=round(alt_score, 3),
+                    alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                    chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
                     best_choice=alt_choice,
                     best_score=round(alt_score, 3),
                     score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
@@ -279,14 +316,21 @@ def mine_examples(
                 lambda alt_choice, _a: alt_choice != choice and _is_damaging_move(alt_choice, moves_data),
             )
             if alt_attack:
-                alt_score = _safe_float(alt_attack.get("score"), 0.0)
+                alt_score = _safe_float(alt_attack.get("score", alt_attack.get("weight")), 0.0)
                 gap = alt_score - (chosen_score if chosen_score is not None else alt_score)
                 if gap >= -5.0:
+                    alt_choice = str(alt_attack.get("choice", "") or "")
+                    alt_heur = _heuristic_for_choice(row, alt_choice)
+                    choice_heur = _heuristic_for_choice(row, choice)
+                    choice_risk = _risk_for_choice(row, choice)
                     add_issue(
                         "over_switched_negative_matchup",
-                        alternative=str(alt_attack.get("choice", "") or ""),
+                        alternative=alt_choice,
                         alternative_score=round(alt_score, 3),
-                        best_choice=str(alt_attack.get("choice", "") or ""),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        chosen_risk_penalty=None if choice_risk is None else round(choice_risk, 3),
+                        best_choice=alt_choice,
                         best_score=round(alt_score, 3),
                         score_gap=round(max(0.0, gap), 3),
                     )
@@ -295,7 +339,25 @@ def mine_examples(
             add_issue("underused_status_window")
 
         if chosen_passive not in {"setup", "recovery"} and not chosen_kind == "switch" and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
-            add_issue("underused_setup_window")
+            setup_alt = _best_setup_alternative(row, moves_data, exclude_choice=choice)
+            extra = {}
+            if setup_alt is not None:
+                alt_choice = str(setup_alt.get("choice", "") or "")
+                alt_score = _safe_float(setup_alt.get("score", setup_alt.get("weight")), 0.0)
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
+                extra.update(
+                    {
+                        "alternative": alt_choice,
+                        "alternative_score": round(alt_score, 3),
+                        "alternative_heuristic_score": None if alt_heur is None else round(alt_heur, 3),
+                        "chosen_heuristic_score": None if choice_heur is None else round(choice_heur, 3),
+                        "best_choice": alt_choice,
+                        "best_score": round(alt_score, 3),
+                        "score_gap": round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    }
+                )
+            add_issue("underused_setup_window", **extra)
 
         if chosen_passive != "recovery" and _has_recovery_option(row, moves_data) and active_hp <= low_hp_recovery and reply_score <= safe_reply_threshold and opp_hp > 0.25:
             add_issue("ignored_safe_recovery", regret=low_hp_recovery - active_hp)

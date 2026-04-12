@@ -409,11 +409,22 @@ def append_search_trace_example(
     top_actions = []
     for choice, weight in ordered[:5]:
         choice_idx = self._choice_to_rl_action_idx(choice, mask, move_map, switch_map)
+        try:
+            heuristic_score = self._heuristic_action_score(battle, choice)
+        except Exception:
+            heuristic_score = None
+        try:
+            risk_penalty = self._adaptive_choice_risk_penalty(battle, choice)
+        except Exception:
+            risk_penalty = None
         top_actions.append(
             {
                 "choice": choice,
                 "choice_idx": int(choice_idx) if choice_idx is not None else None,
                 "weight": float(weight),
+                "score": float(weight),
+                "heuristic_score": None if heuristic_score is None else float(heuristic_score),
+                "risk_penalty": None if risk_penalty is None else float(risk_penalty),
                 "kind": self._search_trace_choice_kind(battle, choice),
             }
         )
