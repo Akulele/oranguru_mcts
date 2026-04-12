@@ -136,6 +136,42 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         samples = summary["samples"]["over_switched_negative_matchup"]
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
 
+    def test_missed_ko_requires_policy_and_heuristic_support_when_available(self):
+        def row(battle_id, choice, chosen_heur, attack_heur, attack_weight=70.0):
+            return {
+                "battle_id": battle_id,
+                "turn": 1,
+                "chosen_choice": choice,
+                "top_actions": [
+                    {"choice": choice, "weight": 80.0, "score": 80.0, "heuristic_score": chosen_heur},
+                    {"choice": "tackle", "weight": attack_weight, "score": attack_weight, "heuristic_score": attack_heur},
+                ],
+                "action_labels": [choice, "tackle"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Pikachu", "hp": 80, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Skarmory", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Starmie", "hp": 20, "max_hp": 100, "types": ["Water"], "boosts": {}},
+                        "reserve": [{"name": "Zapdos", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("defensive-no-regret", "recover", chosen_heur=90.0, attack_heur=3.0),
+                row("low-policy", "thunderwave", chosen_heur=0.0, attack_heur=8.0, attack_weight=10.0),
+                row("regret", "thunderwave", chosen_heur=0.0, attack_heur=3.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["missed_ko"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+
     def test_build_review_pack_sorts_by_priority(self):
         summary = {
             "samples": {

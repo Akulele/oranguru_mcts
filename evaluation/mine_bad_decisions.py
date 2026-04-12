@@ -298,17 +298,30 @@ def mine_examples(
                 alt_score = _safe_float(ko_alt.get("score", ko_alt.get("weight")), 0.0)
                 alt_heur = _heuristic_for_choice(row, alt_choice)
                 choice_heur = _heuristic_for_choice(row, choice)
-                add_issue(
-                    "missed_ko",
-                    regret=ko_hp_threshold - opp_hp,
-                    alternative=alt_choice,
-                    alternative_score=round(alt_score, 3),
-                    alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
-                    chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
-                    best_choice=alt_choice,
-                    best_score=round(alt_score, 3),
-                    score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
-                )
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
+                if alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    should_flag_ko = (policy_ratio >= 0.70 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.40 and heur_delta >= 3.0
+                    )
+                else:
+                    should_flag_ko = True
+                if should_flag_ko:
+                    add_issue(
+                        "missed_ko",
+                        regret=ko_hp_threshold - opp_hp,
+                        alternative=alt_choice,
+                        alternative_score=round(alt_score, 3),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        policy_ratio=round(policy_ratio, 3),
+                        best_choice=alt_choice,
+                        best_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    )
 
         if chosen_kind == "switch" and not bool(row.get("force_switch")) and active_hp >= 0.45:
             alt_attack = _find_alternative(
