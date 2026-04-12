@@ -54,7 +54,8 @@ def _review_blurb(row: dict) -> str:
     if category == "over_switched_negative_matchup":
         alternative = str(row.get("alternative", "") or best or "best attack")
         heur = _heuristic_suffix(row)
-        return f"{active} into {opp}: switched out with live board presence; compare against {alternative} (gap {gap:.1f}{heur})."
+        policy = _policy_suffix(row)
+        return f"{active} into {opp}: switched out with live board presence; compare against {alternative} (gap {gap:.1f}{policy}{heur})."
     if category == "over_attacked_into_bad_trade":
         return f"{active} into {opp}: attacked from a fragile position under strong reply pressure; review safer line."
     if category == "failed_to_progress_when_behind":
@@ -73,6 +74,17 @@ def _heuristic_suffix(row: dict) -> str:
         return ""
     try:
         return f", heur {float(chosen):.1f}->{float(alt):.1f}"
+    except Exception:
+        return ""
+
+
+def _policy_suffix(row: dict) -> str:
+    chosen = row.get("chosen_score")
+    alt = row.get("alternative_score")
+    if chosen is None or alt is None:
+        return ""
+    try:
+        return f", policy {float(chosen):.3f}->{float(alt):.3f}"
     except Exception:
         return ""
 

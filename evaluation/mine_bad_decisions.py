@@ -322,10 +322,16 @@ def mine_examples(
                 alt_heur = _heuristic_for_choice(row, alt_choice)
                 choice_heur = _heuristic_for_choice(row, choice)
                 choice_risk = _risk_for_choice(row, choice)
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
                 if alt_heur is not None and choice_heur is not None:
                     heur_delta = alt_heur - choice_heur
                     risk = choice_risk if choice_risk is not None else 0.0
-                    should_flag_switch = heur_delta >= 1.0 or (risk >= 20.0 and heur_delta >= -0.5)
+                    should_flag_switch = (policy_ratio >= 0.70 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.60 and risk >= 20.0 and heur_delta >= -0.5
+                    )
                 else:
                     should_flag_switch = gap >= -5.0
                 if should_flag_switch:
@@ -336,6 +342,7 @@ def mine_examples(
                         alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
                         chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
                         chosen_risk_penalty=None if choice_risk is None else round(choice_risk, 3),
+                        policy_ratio=round(policy_ratio, 3),
                         best_choice=alt_choice,
                         best_score=round(alt_score, 3),
                         score_gap=round(max(0.0, gap), 3),

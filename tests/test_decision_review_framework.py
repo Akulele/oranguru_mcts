@@ -101,14 +101,14 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.assertIn("dragondance", setup_row["review_blurb"])
 
     def test_over_switch_requires_heuristic_regret_when_available(self):
-        def row(battle_id, switch_heur, attack_heur):
+        def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):
             return {
                 "battle_id": battle_id,
                 "turn": 1,
                 "chosen_choice": "switch skarmory",
                 "top_actions": [
                     {"choice": "switch skarmory", "weight": 80.0, "score": 80.0, "heuristic_score": switch_heur, "risk_penalty": 0.0},
-                    {"choice": "tackle", "weight": 79.0, "score": 79.0, "heuristic_score": attack_heur, "risk_penalty": 0.0},
+                    {"choice": "tackle", "weight": attack_weight, "score": attack_weight, "heuristic_score": attack_heur, "risk_penalty": 0.0},
                 ],
                 "action_labels": ["tackle", "switch skarmory"],
                 "winner": "opp",
@@ -128,6 +128,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         summary = mine_examples(
             [
                 row("no-regret", switch_heur=2.5, attack_heur=2.0),
+                row("low-policy", switch_heur=1.0, attack_heur=8.0, attack_weight=10.0),
                 row("regret", switch_heur=1.0, attack_heur=3.0),
             ],
             moves_data=self.moves_data,
