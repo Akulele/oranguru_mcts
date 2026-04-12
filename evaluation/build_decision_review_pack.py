@@ -43,12 +43,14 @@ def _review_blurb(row: dict) -> str:
     gap = float(row.get("score_gap", 0.0) or 0.0)
     if category == "missed_ko":
         alternative = str(row.get("alternative", "") or best)
-        return f"{active} into {opp}: chose {choice} with opponent low; review KO line{_alt(alternative)}."
+        detail = _detail_suffix(row)
+        return f"{active} into {opp}: chose {choice} with opponent low; review KO line{_alt(alternative)}{detail}."
     if category == "ignored_safe_recovery":
         return f"{active} into {opp}: skipped recovery at low HP; review whether {choice} exposed an avoidable trade."
     if category == "underused_setup_window":
         alternative = str(row.get("alternative", "") or best or "setup")
-        return f"{active} into {opp}: attacked instead of converting a safe setup window; review setup line like {alternative}."
+        detail = _detail_suffix(row)
+        return f"{active} into {opp}: attacked instead of converting a safe setup window; review setup line like {alternative}{detail}."
     if category == "underused_status_window":
         return f"{active} into {opp}: used {choice} despite an open status window; verify if spreading status improved the position."
     if category == "over_switched_negative_matchup":
@@ -65,6 +67,17 @@ def _review_blurb(row: dict) -> str:
 
 def _alt(best: str) -> str:
     return f" like {best}" if best else ""
+
+
+def _detail_suffix(row: dict) -> str:
+    parts = []
+    policy = _policy_suffix(row).lstrip(", ")
+    heur = _heuristic_suffix(row).lstrip(", ")
+    if policy:
+        parts.append(policy)
+    if heur:
+        parts.append(heur)
+    return f" ({', '.join(parts)})" if parts else ""
 
 
 def _heuristic_suffix(row: dict) -> str:
