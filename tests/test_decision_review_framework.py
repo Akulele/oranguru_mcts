@@ -178,6 +178,44 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
         self.assertEqual(samples[0]["alternative"], "willowisp")
 
+    def test_safe_recovery_requires_supported_recovery_alternative(self):
+        def row(battle_id, recovery_weight, choice_heur, recovery_heur):
+            return {
+                "battle_id": battle_id,
+                "turn": 7,
+                "chosen_choice": "tackle",
+                "top_actions": [
+                    {"choice": "tackle", "weight": 80.0, "score": 80.0, "heuristic_score": choice_heur},
+                    {"choice": "recover", "weight": recovery_weight, "score": recovery_weight, "heuristic_score": recovery_heur},
+                ],
+                "action_labels": ["tackle", "recover"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "best_reply_score": 50.0,
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Slowbro", "hp": 30, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Chansey", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Garchomp", "hp": 80, "max_hp": 100, "types": ["Dragon", "Ground"], "boosts": {}},
+                        "reserve": [{"name": "Skarmory", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("low-policy", recovery_weight=10.0, choice_heur=0.0, recovery_heur=120.0),
+                row("no-heur-regret", recovery_weight=80.0, choice_heur=10.0, recovery_heur=10.0),
+                row("regret", recovery_weight=30.0, choice_heur=0.0, recovery_heur=20.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["ignored_safe_recovery"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+        self.assertEqual(samples[0]["alternative"], "recover")
+
     def test_over_switch_requires_heuristic_regret_when_available(self):
         def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):
             return {

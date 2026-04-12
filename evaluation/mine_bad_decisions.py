@@ -218,6 +218,25 @@ def _has_recovery_option(row: dict, moves_data: dict) -> bool:
     return False
 
 
+def _best_recovery_alternative(row: dict, moves_data: dict, exclude_choice: str = "") -> dict | None:
+    top_actions = _top_actions(row)
+    candidates = top_actions if top_actions else [{"choice": label, "score": 0.0} for label in row.get("action_labels") or [] if isinstance(label, str)]
+    best = None
+    best_score = float("-inf")
+    for action in candidates:
+        choice = str(action.get("choice", "") or "")
+        if not choice or choice == exclude_choice or choice.startswith("switch "):
+            continue
+        move_id = _move_id_from_choice(choice)
+        if _passive_kind(move_id, moves_data) != "recovery":
+            continue
+        score = _safe_float(action.get("score", action.get("weight")), 0.0)
+        if best is None or score > best_score:
+            best = {"choice": choice, "score": score}
+            best_score = score
+    return best
+
+
 def _is_damaging_move(choice: str, moves_data: dict) -> bool:
     move_id = _move_id_from_choice(choice)
     if not move_id:
@@ -451,7 +470,36 @@ def mine_examples(
                     )
 
         if chosen_passive != "recovery" and _has_recovery_option(row, moves_data) and active_hp <= low_hp_recovery and reply_score <= safe_reply_threshold and opp_hp > 0.25:
-            add_issue("ignored_safe_recovery", regret=low_hp_recovery - active_hp)
+            recovery_alt = _best_recovery_alternative(row, moves_data, exclude_choice=choice)
+            if recovery_alt is not None:
+                alt_choice = str(recovery_alt.get("choice", "") or "")
+                alt_score = _safe_float(recovery_alt.get("score", recovery_alt.get("weight")), 0.0)
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
+                if alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    should_flag_recovery = (policy_ratio >= 0.65 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.30 and heur_delta >= 10.0
+                    )
+                else:
+                    should_flag_recovery = True
+                if should_flag_recovery:
+                    add_issue(
+                        "ignored_safe_recovery",
+                        regret=low_hp_recovery - active_hp,
+                        alternative=alt_choice,
+                        alternative_score=round(alt_score, 3),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        policy_ratio=round(policy_ratio, 3),
+                        best_choice=alt_choice,
+                        best_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    )
 
         if chosen_damaging and active_hp <= low_hp_recovery and reply_score >= punish_reply_threshold and (_has_recovery_option(row, moves_data) or chosen_kind == "switch"):
             add_issue("over_attacked_into_bad_trade")

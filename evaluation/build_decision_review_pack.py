@@ -46,7 +46,9 @@ def _review_blurb(row: dict) -> str:
         detail = _detail_suffix(row)
         return f"{active} into {opp}: chose {choice} with opponent low; review KO line{_alt(alternative)}{detail}."
     if category == "ignored_safe_recovery":
-        return f"{active} into {opp}: skipped recovery at low HP; review whether {choice} exposed an avoidable trade."
+        alternative = str(row.get("alternative", "") or best or "recovery")
+        detail = _detail_suffix(row)
+        return f"{active} into {opp}: skipped recovery at low HP; review recovery line like {alternative}{detail}."
     if category == "underused_setup_window":
         alternative = str(row.get("alternative", "") or best or "setup")
         detail = _detail_suffix(row)
