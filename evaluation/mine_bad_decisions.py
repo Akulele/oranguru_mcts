@@ -167,22 +167,48 @@ def _best_setup_alternative(row: dict, moves_data: dict, exclude_choice: str = "
     return best
 
 
+def _is_status_candidate(move_id: str, moves_data: dict, opp_types: set[str], opp_status: str) -> bool:
+    if not move_id or opp_status:
+        return False
+    entry = moves_data.get(move_id, {}) or {}
+    status_type = RuleBotPlayer.STATUS_MOVES.get(move_id) or _status_from_move_entry(entry)
+    if not status_type or status_type in {"sap", "taunt", "encore"}:
+        return False
+    if status_type == "poison" and (("steel" in opp_types) or ("poison" in opp_types)):
+        return False
+    if status_type == "burn" and "fire" in opp_types:
+        return False
+    if status_type == "para" and move_id == "thunderwave" and (("ground" in opp_types) or ("electric" in opp_types)):
+        return False
+    return True
+
+
 def _has_status_option(row: dict, moves_data: dict, opp_types: set[str], opp_status: str, fp_oracle_battle: dict) -> bool:
     if opp_status:
         return False
     for move_id in _available_move_ids(row):
-        entry = moves_data.get(move_id, {}) or {}
-        status_type = RuleBotPlayer.STATUS_MOVES.get(move_id) or _status_from_move_entry(entry)
-        if not status_type or status_type in {"sap", "taunt", "encore"}:
-            continue
-        if status_type == "poison" and (("steel" in opp_types) or ("poison" in opp_types)):
-            continue
-        if status_type == "burn" and "fire" in opp_types:
-            continue
-        if status_type == "para" and move_id == "thunderwave" and (("ground" in opp_types) or ("electric" in opp_types)):
-            continue
-        return True
+        if _is_status_candidate(move_id, moves_data, opp_types, opp_status):
+            return True
     return False
+
+
+def _best_status_alternative(row: dict, moves_data: dict, opp_types: set[str], opp_status: str, exclude_choice: str = "") -> dict | None:
+    top_actions = _top_actions(row)
+    candidates = top_actions if top_actions else [{"choice": label, "score": 0.0} for label in row.get("action_labels") or [] if isinstance(label, str)]
+    best = None
+    best_score = float("-inf")
+    for action in candidates:
+        choice = str(action.get("choice", "") or "")
+        if not choice or choice == exclude_choice or choice.startswith("switch "):
+            continue
+        move_id = _move_id_from_choice(choice)
+        if not _is_status_candidate(move_id, moves_data, opp_types, opp_status):
+            continue
+        score = _safe_float(action.get("score", action.get("weight")), 0.0)
+        if best is None or score > best_score:
+            best = {"choice": choice, "score": score}
+            best_score = score
+    return best
 
 
 def _has_recovery_option(row: dict, moves_data: dict) -> bool:
@@ -362,7 +388,35 @@ def mine_examples(
                     )
 
         if chosen_damaging and _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle) and opp_hp > 0.45 and reply_score <= safe_reply_threshold:
-            add_issue("underused_status_window")
+            status_alt = _best_status_alternative(row, moves_data, opp_types, opp_status, exclude_choice=choice)
+            if status_alt is not None:
+                alt_choice = str(status_alt.get("choice", "") or "")
+                alt_score = _safe_float(status_alt.get("score", status_alt.get("weight")), 0.0)
+                alt_heur = _heuristic_for_choice(row, alt_choice)
+                choice_heur = _heuristic_for_choice(row, choice)
+                if chosen_score is not None and chosen_score > 0.0:
+                    policy_ratio = alt_score / max(chosen_score, 1e-6)
+                else:
+                    policy_ratio = 1.0 if alt_score > 0.0 else 0.0
+                if alt_heur is not None and choice_heur is not None:
+                    heur_delta = alt_heur - choice_heur
+                    should_flag_status = (policy_ratio >= 0.65 and heur_delta >= 1.0) or (
+                        policy_ratio >= 0.30 and heur_delta >= 10.0
+                    )
+                else:
+                    should_flag_status = True
+                if should_flag_status:
+                    add_issue(
+                        "underused_status_window",
+                        alternative=alt_choice,
+                        alternative_score=round(alt_score, 3),
+                        alternative_heuristic_score=None if alt_heur is None else round(alt_heur, 3),
+                        chosen_heuristic_score=None if choice_heur is None else round(choice_heur, 3),
+                        policy_ratio=round(policy_ratio, 3),
+                        best_choice=alt_choice,
+                        best_score=round(alt_score, 3),
+                        score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                    )
 
         if chosen_damaging and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
             setup_alt = _best_setup_alternative(row, moves_data, exclude_choice=choice)

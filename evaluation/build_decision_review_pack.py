@@ -52,7 +52,9 @@ def _review_blurb(row: dict) -> str:
         detail = _detail_suffix(row)
         return f"{active} into {opp}: attacked instead of converting a safe setup window; review setup line like {alternative}{detail}."
     if category == "underused_status_window":
-        return f"{active} into {opp}: used {choice} despite an open status window; verify if spreading status improved the position."
+        alternative = str(row.get("alternative", "") or best or "status")
+        detail = _detail_suffix(row)
+        return f"{active} into {opp}: used {choice} despite an open status window; review status line like {alternative}{detail}."
     if category == "over_switched_negative_matchup":
         alternative = str(row.get("alternative", "") or best or "best attack")
         heur = _heuristic_suffix(row)

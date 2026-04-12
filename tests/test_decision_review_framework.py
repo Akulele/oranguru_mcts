@@ -9,6 +9,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.moves_data = {
             "tackle": {"category": "Physical", "type": "Normal"},
             "thunderwave": {"category": "Status", "type": "Electric", "status": "par"},
+            "willowisp": {"category": "Status", "type": "Fire", "status": "brn"},
             "calmmind": {"category": "Status", "type": "Psychic", "target": "self", "boosts": {"spa": 1, "spd": 1}},
             "protect": {"category": "Status", "type": "Normal"},
             "recover": {"category": "Status", "type": "Normal"},
@@ -138,6 +139,44 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         )
         samples = summary["samples"]["underused_setup_window"]
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+
+    def test_status_window_records_supported_status_alternative(self):
+        def row(battle_id, status_weight, attack_heur, status_heur):
+            return {
+                "battle_id": battle_id,
+                "turn": 11,
+                "chosen_choice": "tackle",
+                "top_actions": [
+                    {"choice": "tackle", "weight": 80.0, "score": 80.0, "heuristic_score": attack_heur},
+                    {"choice": "willowisp", "weight": status_weight, "score": status_weight, "heuristic_score": status_heur},
+                ],
+                "action_labels": ["tackle", "willowisp"],
+                "winner": "opp",
+                "bot_id": "bot",
+                "best_reply_score": 60.0,
+                "fp_oracle_battle": {
+                    "user": {
+                        "active": {"name": "Rotom", "hp": 90, "max_hp": 100, "boosts": {}},
+                        "reserve": [{"name": "Scizor", "hp": 100, "max_hp": 100}],
+                    },
+                    "opponent": {
+                        "active": {"name": "Tauros", "hp": 90, "max_hp": 100, "types": ["Normal"], "boosts": {}},
+                        "reserve": [{"name": "Corviknight", "hp": 100, "max_hp": 100}],
+                    },
+                },
+            }
+
+        summary = mine_examples(
+            [
+                row("low-policy", status_weight=10.0, attack_heur=0.0, status_heur=120.0),
+                row("no-heur-regret", status_weight=80.0, attack_heur=10.0, status_heur=10.0),
+                row("regret", status_weight=30.0, attack_heur=0.0, status_heur=20.0),
+            ],
+            moves_data=self.moves_data,
+        )
+        samples = summary["samples"]["underused_status_window"]
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+        self.assertEqual(samples[0]["alternative"], "willowisp")
 
     def test_over_switch_requires_heuristic_regret_when_available(self):
         def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):
