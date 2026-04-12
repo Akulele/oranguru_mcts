@@ -400,7 +400,9 @@ def maybe_take_setup_window_choice(
     if best_setup_heur < chosen_heur + self.SETUP_WINDOW_MIN_HEUR_GAIN:
         return chosen_choice
     if best_setup_weight < chosen_weight * self.SETUP_WINDOW_MIN_POLICY_RATIO:
-        return chosen_choice
+        high_gain = best_setup_heur >= chosen_heur + self.SETUP_WINDOW_HIGH_HEUR_GAIN
+        if not high_gain or best_setup_weight < chosen_weight * self.SETUP_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO:
+            return chosen_choice
     return best_setup_choice
 
 
