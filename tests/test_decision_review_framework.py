@@ -93,9 +93,11 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                         "reserve": [{"name": "Corviknight", "hp": 100, "max_hp": 100}],
                     },
                 },
+                "setup_window": {"reason": "policy_ratio"},
             }
         ]
         summary = mine_examples(rows, moves_data=self.moves_data)
+        self.assertEqual(summary["setup_window_reasons"], {"policy_ratio": 1})
         sample = summary["samples"]["underused_setup_window"][0]
         self.assertEqual(sample["alternative"], "dragondance")
         self.assertEqual(sample["alternative_heuristic_score"], 90.0)

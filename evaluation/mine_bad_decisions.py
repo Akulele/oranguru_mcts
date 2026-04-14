@@ -302,10 +302,18 @@ def mine_examples(
 
     issue_counts = Counter()
     issue_choice_counts = defaultdict(Counter)
+    setup_window_reasons = Counter()
+    setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
     battles_seen = set()
 
     for row in rows:
+        setup_window = row.get("setup_window")
+        if isinstance(setup_window, dict):
+            setup_window_rows += 1
+            reason = str(setup_window.get("reason", "") or "")
+            if reason:
+                setup_window_reasons[reason] += 1
         battle_id = str(row.get("battle_id", "") or "")
         if not battle_id:
             continue
@@ -582,6 +590,8 @@ def mine_examples(
         "battles_seen": len(battles_seen),
         "issue_counts": dict(issue_counts),
         "issue_top_choices": {category: counts.most_common(15) for category, counts in issue_choice_counts.items()},
+        "setup_window_reasons": dict(setup_window_reasons),
+        "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
         "config": {
             "ko_hp_threshold": ko_hp_threshold,
@@ -632,6 +642,17 @@ def main() -> int:
                 continue
             head = ", ".join(f"{choice}:{count}" for choice, count in items[:8])
             print(f"  {category}: {head}")
+    if summary.get("setup_window_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["setup_window_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Setup window reasons: {head}")
+    else:
+        print(f"Setup window reasons: none ({int(summary.get('setup_window_rows', 0) or 0)} diagnostic rows)")
     if args.summary_out:
         out_path = Path(args.summary_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
