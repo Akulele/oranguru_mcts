@@ -302,12 +302,21 @@ def mine_examples(
 
     issue_counts = Counter()
     issue_choice_counts = defaultdict(Counter)
+    finish_blow_reasons = Counter()
+    finish_blow_rows = 0
+    missed_ko_finish_reasons = Counter()
     setup_window_reasons = Counter()
     setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
     battles_seen = set()
 
     for row in rows:
+        finish_blow = row.get("finish_blow")
+        if isinstance(finish_blow, dict):
+            finish_blow_rows += 1
+            reason = str(finish_blow.get("reason", "") or "")
+            if reason:
+                finish_blow_reasons[reason] += 1
         setup_window = row.get("setup_window")
         if isinstance(setup_window, dict):
             setup_window_rows += 1
@@ -395,6 +404,12 @@ def mine_examples(
                 else:
                     should_flag_ko = True
                 if should_flag_ko:
+                    finish_reason = ""
+                    finish_blow = row.get("finish_blow")
+                    if isinstance(finish_blow, dict):
+                        finish_reason = str(finish_blow.get("reason", "") or "")
+                        if finish_reason:
+                            missed_ko_finish_reasons[finish_reason] += 1
                     add_issue(
                         "missed_ko",
                         regret=ko_hp_threshold - opp_hp,
@@ -406,6 +421,7 @@ def mine_examples(
                         best_choice=alt_choice,
                         best_score=round(alt_score, 3),
                         score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
+                        finish_blow_reason=finish_reason,
                     )
 
         if chosen_kind == "switch" and not bool(row.get("force_switch")) and active_hp >= 0.45:
@@ -590,6 +606,9 @@ def mine_examples(
         "battles_seen": len(battles_seen),
         "issue_counts": dict(issue_counts),
         "issue_top_choices": {category: counts.most_common(15) for category, counts in issue_choice_counts.items()},
+        "finish_blow_reasons": dict(finish_blow_reasons),
+        "finish_blow_rows": finish_blow_rows,
+        "missed_ko_finish_reasons": dict(missed_ko_finish_reasons),
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
@@ -653,6 +672,28 @@ def main() -> int:
         print(f"Setup window reasons: {head}")
     else:
         print(f"Setup window reasons: none ({int(summary.get('setup_window_rows', 0) or 0)} diagnostic rows)")
+    if summary.get("finish_blow_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["finish_blow_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Finish blow reasons: {head}")
+    else:
+        print(f"Finish blow reasons: none ({int(summary.get('finish_blow_rows', 0) or 0)} diagnostic rows)")
+    if summary.get("missed_ko_finish_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["missed_ko_finish_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Missed KO finish reasons: {head}")
+    else:
+        print("Missed KO finish reasons: none")
     if args.summary_out:
         out_path = Path(args.summary_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)

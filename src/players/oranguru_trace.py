@@ -440,6 +440,9 @@ def append_search_trace_example(
     )
     mem = self._get_battle_memory(battle)
     examples = mem.setdefault("search_trace_examples", [])
+    finish_blow = mem.get("finish_blow_last") if isinstance(mem, dict) else None
+    if not isinstance(finish_blow, dict):
+        finish_blow = None
     setup_window = mem.get("setup_window_last") if isinstance(mem, dict) else None
     if not isinstance(setup_window, dict):
         setup_window = None
@@ -483,6 +486,7 @@ def append_search_trace_example(
             "phase": phase,
             "state_value_features": state_value_features,
             "world_candidates": list(world_candidates or []),
+            "finish_blow": finish_blow,
             "setup_window": setup_window,
             "fp_oracle_battle": fp_oracle_battle,
         }

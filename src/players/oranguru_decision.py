@@ -278,20 +278,44 @@ def maybe_force_finish_blow_choice(
     ordered: List[Tuple[str, float]],
     chosen_choice: str,
 ) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["finish_blow_last"] = payload
+
     if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("forced_or_empty")
         return chosen_choice
     if self._is_damaging_move_choice(battle, chosen_choice):
+        _record("chosen_damaging")
         return chosen_choice
 
     active = battle.active_pokemon
     opponent = battle.opponent_active_pokemon
     if active is None or opponent is None:
+        _record("missing_active")
         return chosen_choice
 
     opp_hp = opponent.current_hp_fraction or 0.0
     best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
     ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
     if best_damage_score < ko_threshold:
+        _record(
+            "no_ko_window",
+            active_hp=float(active.current_hp_fraction or 0.0),
+            opp_hp=float(opp_hp),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+        )
         return chosen_choice
 
     best_damage_choice = ""
@@ -322,12 +346,48 @@ def maybe_force_finish_blow_choice(
                 best_damage_heur = heur
 
     if not best_damage_choice:
+        _record(
+            "no_damage_choice",
+            active_hp=float(active.current_hp_fraction or 0.0),
+            opp_hp=float(opp_hp),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+        )
         return chosen_choice
     if chosen_choice.startswith("switch "):
+        _record(
+            "take_switch_finish",
+            active_hp=float(active.current_hp_fraction or 0.0),
+            opp_hp=float(opp_hp),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+            finish_choice=best_damage_choice,
+            finish_heuristic=float(best_damage_heur),
+        )
         return best_damage_choice
     chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
     if best_damage_heur > 0.0 and best_damage_heur + 5.0 >= chosen_heur:
+        _record(
+            "take_passive_finish",
+            active_hp=float(active.current_hp_fraction or 0.0),
+            opp_hp=float(opp_hp),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+            finish_choice=best_damage_choice,
+            finish_heuristic=float(best_damage_heur),
+            chosen_heuristic=float(chosen_heur),
+        )
         return best_damage_choice
+    _record(
+        "passive_heuristic_guard",
+        active_hp=float(active.current_hp_fraction or 0.0),
+        opp_hp=float(opp_hp),
+        best_damage_score=float(best_damage_score),
+        ko_threshold=float(ko_threshold),
+        finish_choice=best_damage_choice,
+        finish_heuristic=float(best_damage_heur),
+        chosen_heuristic=float(chosen_heur),
+    )
     return chosen_choice
 
 

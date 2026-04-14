@@ -28,6 +28,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                     {"choice": "tackle", "score": 70.0},
                 ],
                 "action_labels": ["thunderwave", "tackle"],
+                "finish_blow": {"reason": "no_ko_window"},
                 "winner": "opp",
                 "bot_id": "bot",
                 "fp_oracle_battle": {
@@ -68,6 +69,8 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         summary = mine_examples(rows, moves_data=self.moves_data)
         self.assertGreaterEqual(summary["issue_counts"].get("missed_ko", 0), 1)
         self.assertGreaterEqual(summary["issue_counts"].get("ignored_safe_recovery", 0), 1)
+        self.assertEqual(summary["finish_blow_reasons"], {"no_ko_window": 1})
+        self.assertEqual(summary["missed_ko_finish_reasons"], {"no_ko_window": 1})
 
     def test_setup_window_records_setup_alternative(self):
         rows = [
