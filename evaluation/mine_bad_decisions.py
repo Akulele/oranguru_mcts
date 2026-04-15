@@ -304,7 +304,9 @@ def mine_examples(
     issue_choice_counts = defaultdict(Counter)
     finish_blow_reasons = Counter()
     finish_blow_rows = 0
+    finish_blow_stale_reasons = Counter()
     missed_ko_finish_reasons = Counter()
+    missed_ko_finish_stale_reasons = Counter()
     setup_window_reasons = Counter()
     setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
@@ -317,6 +319,10 @@ def mine_examples(
             reason = str(finish_blow.get("reason", "") or "")
             if reason:
                 finish_blow_reasons[reason] += 1
+            diag_choice = str(finish_blow.get("chosen_choice", "") or "")
+            final_choice = str(row.get("chosen_choice", "") or "")
+            if reason and diag_choice and final_choice and diag_choice != final_choice:
+                finish_blow_stale_reasons[reason] += 1
         setup_window = row.get("setup_window")
         if isinstance(setup_window, dict):
             setup_window_rows += 1
@@ -410,6 +416,10 @@ def mine_examples(
                         finish_reason = str(finish_blow.get("reason", "") or "")
                         if finish_reason:
                             missed_ko_finish_reasons[finish_reason] += 1
+                        diag_choice = str(finish_blow.get("chosen_choice", "") or "")
+                        final_choice = str(row.get("chosen_choice", "") or "")
+                        if finish_reason and diag_choice and final_choice and diag_choice != final_choice:
+                            missed_ko_finish_stale_reasons[finish_reason] += 1
                     add_issue(
                         "missed_ko",
                         regret=ko_hp_threshold - opp_hp,
@@ -608,7 +618,9 @@ def mine_examples(
         "issue_top_choices": {category: counts.most_common(15) for category, counts in issue_choice_counts.items()},
         "finish_blow_reasons": dict(finish_blow_reasons),
         "finish_blow_rows": finish_blow_rows,
+        "finish_blow_stale_reasons": dict(finish_blow_stale_reasons),
         "missed_ko_finish_reasons": dict(missed_ko_finish_reasons),
+        "missed_ko_finish_stale_reasons": dict(missed_ko_finish_stale_reasons),
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
@@ -694,6 +706,28 @@ def main() -> int:
         print(f"Missed KO finish reasons: {head}")
     else:
         print("Missed KO finish reasons: none")
+    if summary.get("finish_blow_stale_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["finish_blow_stale_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Stale finish reasons: {head}")
+    else:
+        print("Stale finish reasons: none")
+    if summary.get("missed_ko_finish_stale_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["missed_ko_finish_stale_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Missed KO stale finish reasons: {head}")
+    else:
+        print("Missed KO stale finish reasons: none")
     if args.summary_out:
         out_path = Path(args.summary_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
