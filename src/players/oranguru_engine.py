@@ -255,6 +255,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SETUP_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_SETUP_WINDOW_MIN_HEUR_GAIN", "15.0"))
     SETUP_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SETUP_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", "0.20"))
     SETUP_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_SETUP_WINDOW_HIGH_HEUR_GAIN", "60.0"))
+    RECOVERY_WINDOW_MAX_HP = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MAX_HP", "0.40"))
+    RECOVERY_WINDOW_MAX_REPLY = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MAX_REPLY", "110.0"))
+    RECOVERY_WINDOW_MIN_OPP_HP = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MIN_OPP_HP", "0.25"))
+    RECOVERY_WINDOW_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MIN_POLICY_RATIO", "0.65"))
+    RECOVERY_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_RECOVERY_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", "0.30"))
+    RECOVERY_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MIN_HEUR_GAIN", "1.0"))
+    RECOVERY_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_RECOVERY_WINDOW_HIGH_HEUR_GAIN", "10.0"))
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -998,6 +1005,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _adaptive_choice_risk_penalty = oranguru_decision.adaptive_choice_risk_penalty
     _maybe_force_finish_blow_choice = oranguru_decision.maybe_force_finish_blow_choice
     _maybe_take_setup_window_choice = oranguru_decision.maybe_take_setup_window_choice
+    _maybe_take_safe_recovery_choice = oranguru_decision.maybe_take_safe_recovery_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
 
     def _adaptive_rerank_choice(

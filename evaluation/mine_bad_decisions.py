@@ -329,6 +329,8 @@ def mine_examples(
     missed_ko_finish_reasons = Counter()
     missed_ko_finish_stale_reasons = Counter()
     missed_ko_finish_ratios: list[float] = []
+    recovery_window_reasons = Counter()
+    recovery_window_rows = 0
     setup_window_reasons = Counter()
     setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
@@ -351,6 +353,12 @@ def mine_examples(
             reason = str(setup_window.get("reason", "") or "")
             if reason:
                 setup_window_reasons[reason] += 1
+        recovery_window = row.get("recovery_window")
+        if isinstance(recovery_window, dict):
+            recovery_window_rows += 1
+            reason = str(recovery_window.get("reason", "") or "")
+            if reason:
+                recovery_window_reasons[reason] += 1
         battle_id = str(row.get("battle_id", "") or "")
         if not battle_id:
             continue
@@ -661,6 +669,8 @@ def mine_examples(
         "missed_ko_finish_reasons": dict(missed_ko_finish_reasons),
         "missed_ko_finish_stale_reasons": dict(missed_ko_finish_stale_reasons),
         "missed_ko_finish_ratio_stats": _ratio_stats(missed_ko_finish_ratios),
+        "recovery_window_reasons": dict(recovery_window_reasons),
+        "recovery_window_rows": recovery_window_rows,
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
@@ -727,6 +737,17 @@ def main() -> int:
         print(f"Setup window reasons: {head}")
     else:
         print(f"Setup window reasons: none ({int(summary.get('setup_window_rows', 0) or 0)} diagnostic rows)")
+    if summary.get("recovery_window_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["recovery_window_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Recovery window reasons: {head}")
+    else:
+        print(f"Recovery window reasons: none ({int(summary.get('recovery_window_rows', 0) or 0)} diagnostic rows)")
     if summary.get("finish_blow_reasons"):
         head = ", ".join(
             f"{reason}:{count}"
