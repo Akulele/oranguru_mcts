@@ -856,11 +856,13 @@ def is_damaging_move_choice(self, battle: Battle, choice: str) -> bool:
         category = getattr(move, "category", None)
         base_power = float(getattr(move, "base_power", 0) or 0)
         damage_attr = getattr(move, "damage", None)
-        return bool(
-            base_power > 0
-            or damage_attr is not None
-            or (category is not None and category != MoveCategory.STATUS)
-        )
+        if category == MoveCategory.STATUS:
+            return False
+        if base_power > 0:
+            return True
+        if category is not None and category != MoveCategory.STATUS:
+            return True
+        return bool(damage_attr not in (None, 0, "0", False))
     return False
 
 

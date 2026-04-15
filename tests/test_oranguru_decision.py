@@ -11,6 +11,7 @@ class DummyMove:
         self.id = move_id
         self.category = category
         self.base_power = base_power
+        self.damage = None
 
 
 class DummyPokemon:
@@ -58,6 +59,15 @@ class OranguruDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(adjusted, "earthquake")
+
+    def test_status_move_with_zero_damage_metadata_is_not_damaging(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        battle = DummyBattle()
+        move = DummyMove("stealthrock", category=MoveCategory.STATUS, base_power=0)
+        move.damage = 0
+        battle.available_moves = [move]
+
+        self.assertFalse(engine._is_damaging_move_choice(battle, "stealthrock"))
 
     def test_finish_blow_guard_ignores_low_policy_when_ko_exists(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
