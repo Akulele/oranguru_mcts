@@ -298,7 +298,15 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
 
     def test_missed_ko_requires_policy_and_heuristic_support_when_available(self):
-        def row(battle_id, choice, chosen_heur, attack_heur, attack_weight=70.0):
+        def row(battle_id, choice, chosen_heur, attack_heur, attack_weight=70.0, finish_ratio=None):
+            finish_blow = None
+            if finish_ratio is not None:
+                finish_blow = {
+                    "reason": "no_ko_window",
+                    "chosen_choice": choice,
+                    "best_damage_score": finish_ratio * 100.0,
+                    "ko_threshold": 100.0,
+                }
             return {
                 "battle_id": battle_id,
                 "turn": 1,
@@ -308,6 +316,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                     {"choice": "tackle", "weight": attack_weight, "score": attack_weight, "heuristic_score": attack_heur},
                 ],
                 "action_labels": [choice, "tackle"],
+                **({"finish_blow": finish_blow} if finish_blow is not None else {}),
                 "winner": "opp",
                 "bot_id": "bot",
                 "fp_oracle_battle": {
@@ -327,11 +336,13 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 row("defensive-no-regret", "recover", chosen_heur=90.0, attack_heur=3.0),
                 row("low-policy", "thunderwave", chosen_heur=0.0, attack_heur=8.0, attack_weight=10.0),
                 row("regret", "thunderwave", chosen_heur=0.0, attack_heur=3.0),
+                row("runtime-no-ko", "thunderwave", chosen_heur=0.0, attack_heur=8.0, finish_ratio=0.5),
+                row("runtime-near-ko", "thunderwave", chosen_heur=0.0, attack_heur=8.0, finish_ratio=0.8),
             ],
             moves_data=self.moves_data,
         )
         samples = summary["samples"]["missed_ko"]
-        self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
+        self.assertEqual([sample["battle_id"] for sample in samples], ["regret", "runtime-near-ko"])
 
     def test_build_review_pack_sorts_by_priority(self):
         summary = {

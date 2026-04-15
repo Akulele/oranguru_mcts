@@ -311,6 +311,7 @@ def mine_examples(
     *,
     moves_data: dict,
     ko_hp_threshold: float = 0.35,
+    missed_ko_min_finish_ratio: float = 0.75,
     safe_reply_threshold: float = 110.0,
     punish_reply_threshold: float = 180.0,
     low_hp_recovery: float = 0.4,
@@ -449,6 +450,12 @@ def mine_examples(
                         if finish_ko_threshold > 0.0:
                             finish_ko_ratio = finish_best_damage / finish_ko_threshold
                             missed_ko_finish_ratios.append(finish_ko_ratio)
+                    if (
+                        finish_reason == "no_ko_window"
+                        and finish_ko_ratio is not None
+                        and finish_ko_ratio < missed_ko_min_finish_ratio
+                    ):
+                        continue
                     add_issue(
                         "missed_ko",
                         regret=ko_hp_threshold - opp_hp,
@@ -659,6 +666,7 @@ def mine_examples(
         "samples": dict(samples_by_issue),
         "config": {
             "ko_hp_threshold": ko_hp_threshold,
+            "missed_ko_min_finish_ratio": missed_ko_min_finish_ratio,
             "safe_reply_threshold": safe_reply_threshold,
             "punish_reply_threshold": punish_reply_threshold,
             "low_hp_recovery": low_hp_recovery,
@@ -673,6 +681,7 @@ def main() -> int:
     parser.add_argument("--input", action="append", required=True, help="JSONL/PKL path or glob. Repeatable.")
     parser.add_argument("--summary-out", default="")
     parser.add_argument("--ko-hp-threshold", type=float, default=0.35)
+    parser.add_argument("--missed-ko-min-finish-ratio", type=float, default=0.75)
     parser.add_argument("--safe-reply-threshold", type=float, default=110.0)
     parser.add_argument("--punish-reply-threshold", type=float, default=180.0)
     parser.add_argument("--low-hp-recovery", type=float, default=0.4)
@@ -689,6 +698,7 @@ def main() -> int:
         rows,
         moves_data=load_moves(),
         ko_hp_threshold=max(0.05, min(1.0, args.ko_hp_threshold)),
+        missed_ko_min_finish_ratio=max(0.0, args.missed_ko_min_finish_ratio),
         safe_reply_threshold=max(0.0, args.safe_reply_threshold),
         punish_reply_threshold=max(0.0, args.punish_reply_threshold),
         low_hp_recovery=max(0.05, min(1.0, args.low_hp_recovery)),
