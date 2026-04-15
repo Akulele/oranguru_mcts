@@ -36,7 +36,7 @@ class SafeRecoveryWindowTests(unittest.TestCase):
         engine.RECOVERY_WINDOW_MAX_REPLY = 110.0
         engine.RECOVERY_WINDOW_MIN_OPP_HP = 0.25
         engine.RECOVERY_WINDOW_MIN_POLICY_RATIO = 0.65
-        engine.RECOVERY_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.30
+        engine.RECOVERY_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.45
         engine.RECOVERY_WINDOW_MIN_HEUR_GAIN = 1.0
         engine.RECOVERY_WINDOW_HIGH_HEUR_GAIN = 10.0
         engine.TACTICAL_KO_THRESHOLD = 220.0
@@ -57,12 +57,26 @@ class SafeRecoveryWindowTests(unittest.TestCase):
 
         adjusted = engine._maybe_take_safe_recovery_choice(
             battle,
-            [("earthquake", 80.0), ("recover", 30.0)],
+            [("earthquake", 80.0), ("recover", 40.0)],
             "earthquake",
         )
 
         self.assertEqual(adjusted, "recover")
         self.assertEqual(mem["recovery_window_last"]["reason"], "take_recovery")
+
+    def test_rejects_high_gain_recovery_with_weak_policy_support(self):
+        engine, battle = self._engine()
+        mem = {}
+        engine._get_battle_memory = lambda _battle: mem
+
+        adjusted = engine._maybe_take_safe_recovery_choice(
+            battle,
+            [("earthquake", 80.0), ("recover", 30.0)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(mem["recovery_window_last"]["reason"], "policy_ratio")
 
     def test_rejects_recovery_when_reply_is_unsafe(self):
         engine, battle = self._engine(reply_score=160.0)
