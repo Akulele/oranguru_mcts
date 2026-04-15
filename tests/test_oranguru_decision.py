@@ -146,6 +146,54 @@ class OranguruDecisionTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "earthquake")
 
+    def test_negative_matchup_switch_guard_matches_live_presence_audit(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.SWITCH_GUARD_MIN_ACTIVE_HP = 0.45
+        engine.SWITCH_GUARD_POLICY_RATIO = 0.70
+        engine.SWITCH_GUARD_HEUR_GAIN = 1.0
+        engine.SWITCH_GUARD_RISK_POLICY_RATIO = 0.60
+        engine.SWITCH_GUARD_RISK_MIN_RISK = 20.0
+        engine.SWITCH_GUARD_RISK_HEUR_FLOOR = -0.5
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._heuristic_action_score = lambda _battle, choice: 10.0 if choice.startswith("switch ") else 12.0
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 0.0
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 100.0), ("earthquake", 72.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(memory["switch_guard_last"]["reason"], "take_live_attack")
+
+    def test_negative_matchup_switch_guard_allows_low_hp_escape(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.SWITCH_GUARD_MIN_ACTIVE_HP = 0.45
+        engine.SWITCH_GUARD_POLICY_RATIO = 0.70
+        engine.SWITCH_GUARD_HEUR_GAIN = 1.0
+        engine.SWITCH_GUARD_RISK_POLICY_RATIO = 0.60
+        engine.SWITCH_GUARD_RISK_MIN_RISK = 20.0
+        engine.SWITCH_GUARD_RISK_HEUR_FLOOR = -0.5
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._heuristic_action_score = lambda _battle, choice: 10.0 if choice.startswith("switch ") else 30.0
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 0.0
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.2)
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 100.0), ("earthquake", 90.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "switch skarmory")
+        self.assertEqual(memory["switch_guard_last"]["reason"], "low_active_hp")
+
     def test_final_finish_pass_overrides_late_setup_rerank(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine._mcts_stats = {"deterministic_decisions": 0, "stochastic_decisions": 0}

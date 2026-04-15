@@ -274,6 +274,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 "action_labels": ["tackle", "switch skarmory"],
                 "winner": "opp",
                 "bot_id": "bot",
+                "switch_guard": {"reason": "policy_or_heuristic"},
                 "fp_oracle_battle": {
                     "user": {
                         "active": {"name": "Pikachu", "hp": 80, "max_hp": 100, "boosts": {}},
@@ -294,6 +295,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
             ],
             moves_data=self.moves_data,
         )
+        self.assertEqual(summary["switch_guard_reasons"], {"policy_or_heuristic": 3})
         samples = summary["samples"]["over_switched_negative_matchup"]
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
 

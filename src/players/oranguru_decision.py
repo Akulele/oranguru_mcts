@@ -232,8 +232,30 @@ def maybe_reduce_negative_matchup_switch(
     ordered: List[Tuple[str, float]],
     chosen_choice: str,
 ) -> str:
-    if not chosen_choice or not chosen_choice.startswith("switch ") or getattr(battle, "force_switch", False):
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["switch_guard_last"] = payload
+
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("forced_or_empty")
         return chosen_choice
+    if not chosen_choice.startswith("switch "):
+        _record("not_switch")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    active_hp = (active.current_hp_fraction or 0.0) if active is not None else 0.0
 
     switch_weight = 0.0
     for choice, weight in ordered:
@@ -253,6 +275,11 @@ def maybe_reduce_negative_matchup_switch(
         break
 
     if not best_move_choice:
+        _record(
+            "no_attack_candidate",
+            active_hp=float(active_hp),
+            switch_weight=float(switch_weight),
+        )
         return chosen_choice
 
     switch_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
@@ -263,12 +290,65 @@ def maybe_reduce_negative_matchup_switch(
     else:
         weight_ratio = best_move_weight / max(switch_weight, 1e-6)
 
+    def _details(**extra) -> dict:
+        payload = {
+            "active_hp": float(active_hp),
+            "attack_choice": best_move_choice,
+            "switch_weight": float(switch_weight),
+            "attack_weight": float(best_move_weight),
+            "policy_ratio": float(weight_ratio),
+            "switch_heuristic": float(switch_heur),
+            "attack_heuristic": float(move_heur),
+            "heuristic_delta": float(move_heur - switch_heur),
+            "switch_risk": float(switch_risk),
+        }
+        if opponent is not None:
+            payload["opp_hp"] = float(opponent.current_hp_fraction or 0.0)
+        payload.update(extra)
+        return payload
+
+    min_active_hp = float(getattr(self, "SWITCH_GUARD_MIN_ACTIVE_HP", 0.45))
+    if active_hp < min_active_hp:
+        _record("low_active_hp", **_details(min_active_hp=min_active_hp))
+        return chosen_choice
+
+    heur_delta = move_heur - switch_heur
+    policy_ratio = float(getattr(self, "SWITCH_GUARD_POLICY_RATIO", 0.70))
+    min_heur_gain = float(getattr(self, "SWITCH_GUARD_HEUR_GAIN", 1.0))
+    if weight_ratio >= policy_ratio and heur_delta >= min_heur_gain:
+        _record(
+            "take_live_attack",
+            **_details(min_policy_ratio=policy_ratio, min_heur_gain=min_heur_gain),
+        )
+        return best_move_choice
+
+    risk_policy_ratio = float(getattr(self, "SWITCH_GUARD_RISK_POLICY_RATIO", 0.60))
+    risk_min_risk = float(getattr(self, "SWITCH_GUARD_RISK_MIN_RISK", 20.0))
+    risk_heur_floor = float(getattr(self, "SWITCH_GUARD_RISK_HEUR_FLOOR", -0.5))
+    if switch_risk >= risk_min_risk and weight_ratio >= risk_policy_ratio and heur_delta >= risk_heur_floor:
+        _record(
+            "take_risk_attack",
+            **_details(
+                min_policy_ratio=risk_policy_ratio,
+                min_switch_risk=risk_min_risk,
+                min_heur_gain=risk_heur_floor,
+            ),
+        )
+        return best_move_choice
+
     if weight_ratio >= 0.75 and move_heur >= switch_heur + 10.0:
+        _record("take_legacy_attack", **_details(min_policy_ratio=0.75, min_heur_gain=10.0))
         return best_move_choice
     if weight_ratio >= 0.95 and move_heur >= switch_heur - 5.0 and move_heur > 0.0:
+        _record("take_legacy_near_tie_attack", **_details(min_policy_ratio=0.95, min_heur_gain=-5.0))
         return best_move_choice
     if switch_risk >= 35.0 and weight_ratio >= 0.60 and move_heur >= max(0.0, switch_heur - 10.0):
+        _record("take_legacy_risk_attack", **_details(min_policy_ratio=0.60, min_switch_risk=35.0))
         return best_move_choice
+    _record(
+        "policy_or_heuristic",
+        **_details(min_policy_ratio=policy_ratio, min_heur_gain=min_heur_gain),
+    )
     return chosen_choice
 
 
