@@ -286,6 +286,26 @@ def _issue_priority(issue: dict) -> float:
     return round(base, 3)
 
 
+def _ratio_stats(values: list[float]) -> dict:
+    cleaned = sorted(v for v in values if isinstance(v, (int, float)) and v >= 0.0)
+    if not cleaned:
+        return {}
+
+    def q(frac: float) -> float:
+        idx = min(len(cleaned) - 1, max(0, int(round((len(cleaned) - 1) * frac))))
+        return round(float(cleaned[idx]), 3)
+
+    return {
+        "n": len(cleaned),
+        "p50": q(0.50),
+        "p75": q(0.75),
+        "p90": q(0.90),
+        "max": round(float(cleaned[-1]), 3),
+        "near_075": sum(1 for v in cleaned if v >= 0.75),
+        "near_090": sum(1 for v in cleaned if v >= 0.90),
+    }
+
+
 def mine_examples(
     examples: Iterable[dict],
     *,
@@ -307,6 +327,7 @@ def mine_examples(
     finish_blow_stale_reasons = Counter()
     missed_ko_finish_reasons = Counter()
     missed_ko_finish_stale_reasons = Counter()
+    missed_ko_finish_ratios: list[float] = []
     setup_window_reasons = Counter()
     setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
@@ -411,6 +432,9 @@ def mine_examples(
                     should_flag_ko = True
                 if should_flag_ko:
                     finish_reason = ""
+                    finish_best_damage = None
+                    finish_ko_threshold = None
+                    finish_ko_ratio = None
                     finish_blow = row.get("finish_blow")
                     if isinstance(finish_blow, dict):
                         finish_reason = str(finish_blow.get("reason", "") or "")
@@ -420,6 +444,11 @@ def mine_examples(
                         final_choice = str(row.get("chosen_choice", "") or "")
                         if finish_reason and diag_choice and final_choice and diag_choice != final_choice:
                             missed_ko_finish_stale_reasons[finish_reason] += 1
+                        finish_best_damage = _safe_float(finish_blow.get("best_damage_score"), 0.0)
+                        finish_ko_threshold = _safe_float(finish_blow.get("ko_threshold"), 0.0)
+                        if finish_ko_threshold > 0.0:
+                            finish_ko_ratio = finish_best_damage / finish_ko_threshold
+                            missed_ko_finish_ratios.append(finish_ko_ratio)
                     add_issue(
                         "missed_ko",
                         regret=ko_hp_threshold - opp_hp,
@@ -432,6 +461,9 @@ def mine_examples(
                         best_score=round(alt_score, 3),
                         score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
                         finish_blow_reason=finish_reason,
+                        finish_best_damage_score=None if finish_best_damage is None else round(finish_best_damage, 3),
+                        finish_ko_threshold=None if finish_ko_threshold is None else round(finish_ko_threshold, 3),
+                        finish_ko_ratio=None if finish_ko_ratio is None else round(finish_ko_ratio, 3),
                     )
 
         if chosen_kind == "switch" and not bool(row.get("force_switch")) and active_hp >= 0.45:
@@ -621,6 +653,7 @@ def mine_examples(
         "finish_blow_stale_reasons": dict(finish_blow_stale_reasons),
         "missed_ko_finish_reasons": dict(missed_ko_finish_reasons),
         "missed_ko_finish_stale_reasons": dict(missed_ko_finish_stale_reasons),
+        "missed_ko_finish_ratio_stats": _ratio_stats(missed_ko_finish_ratios),
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
@@ -728,6 +761,20 @@ def main() -> int:
         print(f"Missed KO stale finish reasons: {head}")
     else:
         print("Missed KO stale finish reasons: none")
+    if summary.get("missed_ko_finish_ratio_stats"):
+        stats = summary["missed_ko_finish_ratio_stats"]
+        print(
+            "Missed KO finish ratio best/threshold: "
+            f"n={stats.get('n', 0)} "
+            f"p50={stats.get('p50', 0.0)} "
+            f"p75={stats.get('p75', 0.0)} "
+            f"p90={stats.get('p90', 0.0)} "
+            f"max={stats.get('max', 0.0)} "
+            f">=0.75={stats.get('near_075', 0)} "
+            f">=0.90={stats.get('near_090', 0)}"
+        )
+    else:
+        print("Missed KO finish ratio best/threshold: none")
     if args.summary_out:
         out_path = Path(args.summary_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
