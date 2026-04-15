@@ -29,11 +29,21 @@ class DummyBattle:
         self.opponent_active_pokemon = DummyPokemon(0.8)
 
 
+class DummyResult:
+    def __init__(self, choices):
+        self.total_visits = sum(visits for _, visits in choices) or 1
+        self.side_one = [
+            SimpleNamespace(move_choice=choice, visits=visits)
+            for choice, visits in choices
+        ]
+
+
 class OranguruDecisionTests(unittest.TestCase):
     def test_finish_blow_guard_prefers_damage_over_passive_choice(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.TACTICAL_KO_THRESHOLD = 220.0
         engine._estimate_best_damage_score = lambda *_args: 120.0
+        engine._heuristic_action_score = lambda _battle, choice: 90.0 if choice == "earthquake" else 10.0
         battle = DummyBattle()
         battle.opponent_active_pokemon = DummyPokemon(0.2)
         battle.available_moves = [
@@ -45,6 +55,26 @@ class OranguruDecisionTests(unittest.TestCase):
             battle,
             [("protect", 60.0), ("earthquake", 45.0)],
             "protect",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+
+    def test_finish_blow_guard_ignores_low_policy_when_ko_exists(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine._estimate_best_damage_score = lambda *_args: 120.0
+        engine._heuristic_action_score = lambda _battle, choice: 95.0 if choice == "earthquake" else 15.0
+        battle = DummyBattle()
+        battle.opponent_active_pokemon = DummyPokemon(0.2)
+        battle.available_moves = [
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("roost", category=MoveCategory.STATUS),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("roost", 90.0), ("earthquake", 5.0)],
+            "roost",
         )
 
         self.assertEqual(adjusted, "earthquake")
@@ -91,6 +121,46 @@ class OranguruDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(adjusted, "earthquake")
+
+    def test_negative_matchup_switch_guard_breaks_near_tie_for_damage(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine._heuristic_action_score = lambda _battle, choice: 25.0 if choice.startswith("switch ") else 30.0
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 10.0 if choice.startswith("switch ") else 0.0
+        battle = DummyBattle()
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 60.0), ("earthquake", 59.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+
+    def test_final_finish_pass_overrides_late_setup_rerank(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine._mcts_stats = {"deterministic_decisions": 0, "stochastic_decisions": 0}
+        engine.MCTS_DETERMINISTIC = True
+        engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        engine.MCTS_CONFIDENCE_THRESHOLD = 0.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine._get_battle_memory = lambda _battle: {}
+        engine._diag_record_choice = lambda *_args, **_kwargs: None
+        engine._append_search_trace_example = lambda *_args, **_kwargs: None
+        engine._maybe_take_setup_window_choice = lambda _battle, _ordered, _choice: "calmmind"
+        engine._maybe_reduce_negative_matchup_switch = lambda _battle, _ordered, choice: choice
+        engine._estimate_best_damage_score = lambda *_args: 120.0
+        engine._heuristic_action_score = lambda _battle, choice: 100.0 if choice == "calmmind" else 90.0
+        battle = DummyBattle()
+        battle.opponent_active_pokemon = DummyPokemon(0.2)
+        battle.available_moves = [
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("calmmind", category=MoveCategory.STATUS, base_power=0),
+        ]
+        results = [(DummyResult([("earthquake", 60.0), ("calmmind", 30.0)]), 1.0)]
+
+        choice = engine._select_move_from_results(results, battle)
+
+        self.assertEqual(choice, "earthquake")
 
 
 if __name__ == "__main__":

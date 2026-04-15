@@ -366,7 +366,7 @@ def maybe_force_finish_blow_choice(
         )
         return best_damage_choice
     chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
-    if best_damage_heur > 0.0 and best_damage_heur + 5.0 >= chosen_heur:
+    if best_damage_heur > 0.0:
         _record(
             "take_passive_finish",
             active_hp=float(active.current_hp_fraction or 0.0),
@@ -630,6 +630,14 @@ def select_move_from_results(
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
             adjusted_choice = self._maybe_reduce_negative_matchup_switch(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "rerank" if path == "mcts" else path
+            adjusted_choice = self._maybe_force_finish_blow_choice(
                 battle,
                 ordered,
                 chosen_choice,
