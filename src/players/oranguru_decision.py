@@ -401,10 +401,17 @@ def maybe_take_progress_when_behind_choice(
         for mon in (getattr(battle, "opponent_team", {}) or {}).values()
         if mon is not None and not getattr(mon, "fainted", False)
     )
+    revealed_opp_fainted = sum(
+        1
+        for mon in (getattr(battle, "opponent_team", {}) or {}).values()
+        if mon is not None and getattr(mon, "fainted", False)
+    )
+    # Unrevealed random-battle opponents are still alive; matching RuleBot's
+    # convention avoids treating most early/midgame boards as "not behind".
+    inferred_opp_alive = max(opp_alive, 6 - revealed_opp_fainted)
     if my_alive <= 0:
         my_alive = 1 + len([sw for sw in (battle.available_switches or []) if not getattr(sw, "fainted", False)])
-    if opp_alive <= 0:
-        opp_alive = 1
+    opp_alive = max(1, inferred_opp_alive)
     if my_alive >= opp_alive:
         _record("not_behind", active_hp=float(active_hp), my_alive=int(my_alive), opp_alive=int(opp_alive))
         return chosen_choice

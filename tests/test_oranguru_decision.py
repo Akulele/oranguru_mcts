@@ -244,13 +244,66 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(memory["progress_window_last"]["reason"], "take_progress")
         self.assertEqual(memory["progress_window_last"]["progress_kind"], "setup")
 
+    def test_progress_window_counts_unrevealed_opponents_alive(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.PROGRESS_WINDOW_MIN_ACTIVE_HP = 0.50
+        engine.PROGRESS_WINDOW_MIN_OPP_HP = 0.55
+        engine.PROGRESS_WINDOW_MAX_REPLY = 110.0
+        engine.PROGRESS_WINDOW_MIN_POLICY_RATIO = 0.65
+        engine.PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.30
+        engine.PROGRESS_WINDOW_MIN_HEUR_GAIN = 1.0
+        engine.PROGRESS_WINDOW_HIGH_HEUR_GAIN = 10.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._estimate_best_reply_score = lambda *_args: 60.0
+        engine._estimate_best_damage_score = lambda *_args: 40.0
+        engine._heuristic_action_score = lambda _battle, choice: 30.0 if choice == "calmmind" else 10.0
+        engine._should_setup_move = lambda move, _active, _opponent: move.id == "calmmind"
+        engine._is_recovery_move = lambda _move: False
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._should_use_status_move = lambda *_args: 0.0
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon = DummyPokemon(0.9)
+        battle.team = {
+            "active": battle.active_pokemon,
+            "bench1": DummyPokemon(1.0),
+            "bench2": DummyPokemon(1.0),
+            "bench3": DummyPokemon(1.0),
+            "bench4": DummyPokemon(1.0),
+        }
+        battle.opponent_team = {"active": battle.opponent_active_pokemon}
+        battle.available_moves = [
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("calmmind", category=MoveCategory.STATUS, base_power=0),
+        ]
+        battle.available_moves[1].boosts = {"spa": 1}
+        battle.available_moves[1].target = "self"
+
+        adjusted = engine._maybe_take_progress_when_behind_choice(
+            battle,
+            [("earthquake", 80.0), ("calmmind", 30.0)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "calmmind")
+        self.assertEqual(memory["progress_window_last"]["opp_alive"], 6)
+
     def test_progress_window_requires_being_behind(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.PROGRESS_WINDOW_MIN_ACTIVE_HP = 0.50
         memory = {}
         engine._get_battle_memory = lambda _battle: memory
         battle = DummyBattle()
-        battle.team = {"active": battle.active_pokemon, "bench": DummyPokemon(1.0)}
+        battle.team = {
+            "active": battle.active_pokemon,
+            "bench1": DummyPokemon(1.0),
+            "bench2": DummyPokemon(1.0),
+            "bench3": DummyPokemon(1.0),
+            "bench4": DummyPokemon(1.0),
+            "bench5": DummyPokemon(1.0),
+        }
         battle.opponent_team = {"active": battle.opponent_active_pokemon}
 
         adjusted = engine._maybe_take_progress_when_behind_choice(
