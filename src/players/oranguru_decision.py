@@ -990,6 +990,12 @@ def maybe_take_safe_recovery_choice(
         if high_gain
         else self.RECOVERY_WINDOW_MIN_POLICY_RATIO
     )
+    critical_hp = active_hp <= float(getattr(self, "RECOVERY_WINDOW_CRITICAL_HP", 0.30))
+    if critical_hp and high_gain:
+        min_ratio = min(
+            float(min_ratio),
+            float(getattr(self, "RECOVERY_WINDOW_CRITICAL_MIN_POLICY_RATIO", min_ratio)),
+        )
     if best_recovery_weight < chosen_weight * min_ratio:
         _record(
             "policy_ratio",
@@ -1002,6 +1008,7 @@ def maybe_take_safe_recovery_choice(
             chosen_heuristic=float(chosen_heur),
             recovery_heuristic=float(best_recovery_heur),
             high_gain=bool(high_gain),
+            critical_hp=bool(critical_hp),
             min_policy_ratio=float(min_ratio),
         )
         return chosen_choice
@@ -1019,6 +1026,7 @@ def maybe_take_safe_recovery_choice(
         chosen_heuristic=float(chosen_heur),
         recovery_heuristic=float(best_recovery_heur),
         high_gain=bool(high_gain),
+        critical_hp=bool(critical_hp),
     )
     return best_recovery_choice
 
