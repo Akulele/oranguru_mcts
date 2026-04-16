@@ -452,6 +452,9 @@ def append_search_trace_example(
     switch_guard = mem.get("switch_guard_last") if isinstance(mem, dict) else None
     if not isinstance(switch_guard, dict):
         switch_guard = None
+    progress_window = mem.get("progress_window_last") if isinstance(mem, dict) else None
+    if not isinstance(progress_window, dict):
+        progress_window = None
     fp_oracle_battle = None
     if self.SEARCH_TRACE_INCLUDE_FP_ORACLE:
         try:
@@ -496,6 +499,7 @@ def append_search_trace_example(
             "recovery_window": recovery_window,
             "setup_window": setup_window,
             "switch_guard": switch_guard,
+            "progress_window": progress_window,
             "fp_oracle_battle": fp_oracle_battle,
         }
     )

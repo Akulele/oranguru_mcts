@@ -268,6 +268,13 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SWITCH_GUARD_RISK_POLICY_RATIO = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_POLICY_RATIO", "0.60"))
     SWITCH_GUARD_RISK_MIN_RISK = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_MIN_RISK", "20.0"))
     SWITCH_GUARD_RISK_HEUR_FLOOR = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_HEUR_FLOOR", "-0.5"))
+    PROGRESS_WINDOW_MIN_ACTIVE_HP = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_ACTIVE_HP", "0.50"))
+    PROGRESS_WINDOW_MIN_OPP_HP = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_OPP_HP", "0.55"))
+    PROGRESS_WINDOW_MAX_REPLY = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MAX_REPLY", "110.0"))
+    PROGRESS_WINDOW_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_POLICY_RATIO", "0.65"))
+    PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", "0.30"))
+    PROGRESS_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_HEUR_GAIN", "1.0"))
+    PROGRESS_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_HEUR_GAIN", "10.0"))
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -1012,6 +1019,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_force_finish_blow_choice = oranguru_decision.maybe_force_finish_blow_choice
     _maybe_take_setup_window_choice = oranguru_decision.maybe_take_setup_window_choice
     _maybe_take_safe_recovery_choice = oranguru_decision.maybe_take_safe_recovery_choice
+    _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
 
     def _adaptive_rerank_choice(

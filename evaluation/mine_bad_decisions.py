@@ -333,6 +333,8 @@ def mine_examples(
     recovery_window_rows = 0
     switch_guard_reasons = Counter()
     switch_guard_rows = 0
+    progress_window_reasons = Counter()
+    progress_window_rows = 0
     setup_window_reasons = Counter()
     setup_window_rows = 0
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
@@ -367,6 +369,12 @@ def mine_examples(
             reason = str(switch_guard.get("reason", "") or "")
             if reason:
                 switch_guard_reasons[reason] += 1
+        progress_window = row.get("progress_window")
+        if isinstance(progress_window, dict):
+            progress_window_rows += 1
+            reason = str(progress_window.get("reason", "") or "")
+            if reason:
+                progress_window_reasons[reason] += 1
         battle_id = str(row.get("battle_id", "") or "")
         if not battle_id:
             continue
@@ -681,6 +689,8 @@ def mine_examples(
         "recovery_window_rows": recovery_window_rows,
         "switch_guard_reasons": dict(switch_guard_reasons),
         "switch_guard_rows": switch_guard_rows,
+        "progress_window_reasons": dict(progress_window_reasons),
+        "progress_window_rows": progress_window_rows,
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
         "samples": dict(samples_by_issue),
@@ -769,6 +779,17 @@ def main() -> int:
         print(f"Switch guard reasons: {head}")
     else:
         print(f"Switch guard reasons: none ({int(summary.get('switch_guard_rows', 0) or 0)} diagnostic rows)")
+    if summary.get("progress_window_reasons"):
+        head = ", ".join(
+            f"{reason}:{count}"
+            for reason, count in sorted(
+                summary["progress_window_reasons"].items(),
+                key=lambda kv: (-kv[1], kv[0]),
+            )[:12]
+        )
+        print(f"Progress window reasons: {head}")
+    else:
+        print(f"Progress window reasons: none ({int(summary.get('progress_window_rows', 0) or 0)} diagnostic rows)")
     if summary.get("finish_blow_reasons"):
         head = ", ".join(
             f"{reason}:{count}"

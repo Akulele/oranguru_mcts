@@ -352,6 +352,227 @@ def maybe_reduce_negative_matchup_switch(
     return chosen_choice
 
 
+def maybe_take_progress_when_behind_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["progress_window_last"] = payload
+
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("forced_or_empty")
+        return chosen_choice
+    if chosen_choice.startswith("switch ") or not self._is_damaging_move_choice(battle, chosen_choice):
+        _record("not_damaging_choice")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    active_hp = active.current_hp_fraction or 0.0
+    min_active_hp = float(getattr(self, "PROGRESS_WINDOW_MIN_ACTIVE_HP", 0.50))
+    if active_hp < min_active_hp:
+        _record("low_hp", active_hp=float(active_hp), min_hp=min_active_hp)
+        return chosen_choice
+
+    my_alive = sum(
+        1
+        for mon in (getattr(battle, "team", {}) or {}).values()
+        if mon is not None and not getattr(mon, "fainted", False)
+    )
+    opp_alive = sum(
+        1
+        for mon in (getattr(battle, "opponent_team", {}) or {}).values()
+        if mon is not None and not getattr(mon, "fainted", False)
+    )
+    if my_alive <= 0:
+        my_alive = 1 + len([sw for sw in (battle.available_switches or []) if not getattr(sw, "fainted", False)])
+    if opp_alive <= 0:
+        opp_alive = 1
+    if my_alive >= opp_alive:
+        _record("not_behind", active_hp=float(active_hp), my_alive=int(my_alive), opp_alive=int(opp_alive))
+        return chosen_choice
+
+    opp_hp = opponent.current_hp_fraction or 0.0
+    min_opp_hp = float(getattr(self, "PROGRESS_WINDOW_MIN_OPP_HP", 0.55))
+    if opp_hp <= min_opp_hp:
+        _record("opponent_low", active_hp=float(active_hp), opp_hp=float(opp_hp), min_opp_hp=min_opp_hp)
+        return chosen_choice
+
+    reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    max_reply = float(getattr(self, "PROGRESS_WINDOW_MAX_REPLY", 110.0))
+    if reply_score > max_reply:
+        _record(
+            "unsafe_reply",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            max_reply=max_reply,
+        )
+        return chosen_choice
+
+    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    if best_damage_score >= ko_threshold:
+        _record(
+            "ko_guard",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+        )
+        return chosen_choice
+
+    chosen_weight = 0.0
+    for choice, weight in ordered:
+        if choice == chosen_choice:
+            chosen_weight = float(weight or 0.0)
+            break
+    chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+
+    best_progress_choice = ""
+    best_progress_weight = 0.0
+    best_progress_heur = 0.0
+    best_progress_kind = ""
+    opp_side_conditions = getattr(battle, "opponent_side_conditions", {}) or {}
+    for choice, weight in ordered:
+        if choice == chosen_choice or choice.startswith("switch "):
+            continue
+        move_id = normalize_name(choice.replace("-tera", ""))
+        selected_move = None
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                selected_move = move
+                break
+        if selected_move is None:
+            continue
+
+        progress_kind = ""
+        hazard_condition = self.ENTRY_HAZARDS.get(move_id)
+        if hazard_condition is not None and hazard_condition not in opp_side_conditions and opp_alive >= 3:
+            progress_kind = "hazard"
+        else:
+            boosts = getattr(selected_move, "boosts", None) or {}
+            is_self_setup = bool(boosts) and selected_move.target and "self" in str(selected_move.target).lower()
+            if is_self_setup and self._should_setup_move(selected_move, active, opponent):
+                progress_kind = "setup"
+            else:
+                try:
+                    is_status = selected_move.category == MoveCategory.STATUS
+                except Exception:
+                    is_status = False
+                if (
+                    is_status
+                    and not self._is_recovery_move(selected_move)
+                    and selected_move.id not in self.PROTECT_MOVES
+                    and not self._status_choice_is_obviously_bad(battle, selected_move, active, opponent)
+                    and float(self._should_use_status_move(selected_move, active, opponent, battle) or 0.0) > 0.0
+                ):
+                    progress_kind = "status"
+        if not progress_kind:
+            continue
+
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        if heur <= best_progress_heur:
+            continue
+        best_progress_choice = choice
+        best_progress_weight = float(weight or 0.0)
+        best_progress_heur = heur
+        best_progress_kind = progress_kind
+
+    if not best_progress_choice:
+        _record(
+            "no_progress_candidate",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+
+    heur_gain = best_progress_heur - chosen_heur
+    min_heur_gain = float(getattr(self, "PROGRESS_WINDOW_MIN_HEUR_GAIN", 1.0))
+    if heur_gain < min_heur_gain:
+        _record(
+            "heuristic_gain",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+            progress_choice=best_progress_choice,
+            progress_weight=float(best_progress_weight),
+            progress_kind=best_progress_kind,
+            chosen_heuristic=float(chosen_heur),
+            progress_heuristic=float(best_progress_heur),
+            min_heur_gain=min_heur_gain,
+        )
+        return chosen_choice
+
+    high_heur_gain = float(getattr(self, "PROGRESS_WINDOW_HIGH_HEUR_GAIN", 10.0))
+    high_gain = heur_gain >= high_heur_gain
+    min_ratio = (
+        float(getattr(self, "PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", 0.30))
+        if high_gain
+        else float(getattr(self, "PROGRESS_WINDOW_MIN_POLICY_RATIO", 0.65))
+    )
+    if best_progress_weight < chosen_weight * min_ratio:
+        _record(
+            "policy_ratio",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+            progress_choice=best_progress_choice,
+            progress_weight=float(best_progress_weight),
+            progress_kind=best_progress_kind,
+            chosen_heuristic=float(chosen_heur),
+            progress_heuristic=float(best_progress_heur),
+            high_gain=bool(high_gain),
+            min_policy_ratio=float(min_ratio),
+        )
+        return chosen_choice
+
+    _record(
+        "take_progress",
+        active_hp=float(active_hp),
+        opp_hp=float(opp_hp),
+        my_alive=int(my_alive),
+        opp_alive=int(opp_alive),
+        reply_score=float(reply_score),
+        chosen_weight=float(chosen_weight),
+        progress_choice=best_progress_choice,
+        progress_weight=float(best_progress_weight),
+        progress_kind=best_progress_kind,
+        chosen_heuristic=float(chosen_heur),
+        progress_heuristic=float(best_progress_heur),
+        high_gain=bool(high_gain),
+    )
+    return best_progress_choice
+
+
 def maybe_force_finish_blow_choice(
     self,
     battle: Battle,
@@ -873,6 +1094,14 @@ def select_move_from_results(
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
             adjusted_choice = self._maybe_take_safe_recovery_choice(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "rerank" if path == "mcts" else path
+            adjusted_choice = self._maybe_take_progress_when_behind_choice(
                 battle,
                 ordered,
                 chosen_choice,
