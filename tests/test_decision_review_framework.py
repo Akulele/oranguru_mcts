@@ -236,6 +236,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 "winner": "opp",
                 "bot_id": "bot",
                 "best_reply_score": 60.0,
+                "progress_window": {"reason": "policy_ratio", "chosen_choice": "tackle"},
                 "fp_oracle_battle": {
                     "user": {
                         "active": {"name": "Mew", "hp": 90, "max_hp": 100, "boosts": {}},
@@ -260,6 +261,9 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.assertEqual([sample["battle_id"] for sample in samples], ["regret"])
         self.assertEqual(samples[0]["alternative"], "calmmind")
         self.assertEqual(samples[0]["progress_kind"], "setup")
+        self.assertEqual(summary["issue_window_reasons"]["failed_to_progress_when_behind"], {"policy_ratio": 1})
+        self.assertEqual(samples[0]["runtime_window"], "progress_window")
+        self.assertEqual(samples[0]["runtime_window_reason"], "policy_ratio")
 
     def test_over_switch_requires_heuristic_regret_when_available(self):
         def row(battle_id, switch_heur, attack_heur, attack_weight=79.0):

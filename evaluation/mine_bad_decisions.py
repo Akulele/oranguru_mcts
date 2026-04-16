@@ -337,6 +337,7 @@ def mine_examples(
     progress_window_rows = 0
     setup_window_reasons = Counter()
     setup_window_rows = 0
+    issue_window_reasons = defaultdict(Counter)
     samples_by_issue: dict[str, list[dict]] = defaultdict(list)
     battles_seen = set()
 
@@ -410,9 +411,30 @@ def mine_examples(
         active_boost_max = max((_boost(user_active, stat) for stat in ["attack", "special-attack", "speed"]), default=0)
         opp_hazards = _side_conditions(fp_oracle_battle, "opponent")
 
+        def issue_window_diag(category: str) -> tuple[str, str, str]:
+            window_by_category = {
+                "missed_ko": "finish_blow",
+                "underused_setup_window": "setup_window",
+                "ignored_safe_recovery": "recovery_window",
+                "over_switched_negative_matchup": "switch_guard",
+                "failed_to_progress_when_behind": "progress_window",
+            }
+            window_name = window_by_category.get(category, "")
+            if not window_name:
+                return "", "", ""
+            diagnostic = row.get(window_name)
+            if not isinstance(diagnostic, dict):
+                return window_name, "missing", ""
+            reason = str(diagnostic.get("reason", "") or "missing")
+            diag_choice = str(diagnostic.get("chosen_choice", "") or "")
+            return window_name, reason, diag_choice
+
         def add_issue(category: str, **extra) -> None:
             issue_counts[category] += 1
             issue_choice_counts[category][choice] += 1
+            runtime_window, runtime_reason, runtime_choice = issue_window_diag(category)
+            if runtime_window:
+                issue_window_reasons[category][runtime_reason] += 1
             if len(samples_by_issue[category]) >= sample_limit:
                 return
             sample = dict(base)
@@ -433,6 +455,14 @@ def mine_examples(
                     "lost_battle": bool(row.get("winner") and str(row.get("winner")) != str(row.get("bot_id", row.get("player_name", "")))),
                 }
             )
+            if runtime_window:
+                sample.update(
+                    {
+                        "runtime_window": runtime_window,
+                        "runtime_window_reason": runtime_reason,
+                        "runtime_window_choice": runtime_choice,
+                    }
+                )
             sample.update(extra)
             sample["priority"] = _issue_priority(sample)
             samples_by_issue[category].append(sample)
@@ -693,6 +723,7 @@ def mine_examples(
         "progress_window_rows": progress_window_rows,
         "setup_window_reasons": dict(setup_window_reasons),
         "setup_window_rows": setup_window_rows,
+        "issue_window_reasons": {category: dict(counts) for category, counts in issue_window_reasons.items()},
         "samples": dict(samples_by_issue),
         "config": {
             "ko_hp_threshold": ko_hp_threshold,
@@ -745,6 +776,16 @@ def main() -> int:
             if not items:
                 continue
             head = ", ".join(f"{choice}:{count}" for choice, count in items[:8])
+            print(f"  {category}: {head}")
+    if summary.get("issue_window_reasons"):
+        print("Issue window reasons:")
+        for category, counts in sorted(summary["issue_window_reasons"].items()):
+            if not counts:
+                continue
+            head = ", ".join(
+                f"{reason}:{count}"
+                for reason, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+            )
             print(f"  {category}: {head}")
     if summary.get("setup_window_reasons"):
         head = ", ".join(
