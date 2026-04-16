@@ -315,6 +315,7 @@ def mine_examples(
     safe_reply_threshold: float = 110.0,
     punish_reply_threshold: float = 180.0,
     low_hp_recovery: float = 0.4,
+    min_progress_active_hp: float = 0.50,
     min_score_gap: float = 15.0,
     sample_limit: int = 30,
 ) -> dict:
@@ -665,7 +666,7 @@ def mine_examples(
 
         hazard_available = any(move_id in RuleBotPlayer.ENTRY_HAZARDS for move_id in _available_move_ids(row))
         opp_hazard_free = not bool(opp_hazards)
-        if behind and chosen_damaging and opp_hp > 0.55 and reply_score <= safe_reply_threshold and (
+        if active_hp >= min_progress_active_hp and behind and chosen_damaging and opp_hp > 0.55 and reply_score <= safe_reply_threshold and (
             _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle)
             or _has_setup_option(row, moves_data)
             or (hazard_available and opp_hazard_free)
@@ -731,6 +732,7 @@ def mine_examples(
             "safe_reply_threshold": safe_reply_threshold,
             "punish_reply_threshold": punish_reply_threshold,
             "low_hp_recovery": low_hp_recovery,
+            "min_progress_active_hp": min_progress_active_hp,
             "min_score_gap": min_score_gap,
         },
     }
@@ -746,6 +748,7 @@ def main() -> int:
     parser.add_argument("--safe-reply-threshold", type=float, default=110.0)
     parser.add_argument("--punish-reply-threshold", type=float, default=180.0)
     parser.add_argument("--low-hp-recovery", type=float, default=0.4)
+    parser.add_argument("--min-progress-active-hp", type=float, default=0.50)
     parser.add_argument("--sample-limit", type=int, default=30)
     args = parser.parse_args()
 
@@ -763,6 +766,7 @@ def main() -> int:
         safe_reply_threshold=max(0.0, args.safe_reply_threshold),
         punish_reply_threshold=max(0.0, args.punish_reply_threshold),
         low_hp_recovery=max(0.05, min(1.0, args.low_hp_recovery)),
+        min_progress_active_hp=max(0.05, min(1.0, args.min_progress_active_hp)),
         sample_limit=max(1, args.sample_limit),
     )
     print(f"Rows seen: {summary['rows_seen']}")

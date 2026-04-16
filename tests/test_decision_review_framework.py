@@ -223,7 +223,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
         self.assertEqual(samples[0]["alternative"], "recover")
 
     def test_failed_progress_requires_supported_progress_alternative(self):
-        def row(battle_id, progress_weight, choice_heur, progress_heur):
+        def row(battle_id, progress_weight, choice_heur, progress_heur, hp=90, progress_reason="policy_ratio"):
             return {
                 "battle_id": battle_id,
                 "turn": 12,
@@ -236,10 +236,10 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 "winner": "opp",
                 "bot_id": "bot",
                 "best_reply_score": 60.0,
-                "progress_window": {"reason": "policy_ratio", "chosen_choice": "tackle"},
+                "progress_window": {"reason": progress_reason, "chosen_choice": "tackle"},
                 "fp_oracle_battle": {
                     "user": {
-                        "active": {"name": "Mew", "hp": 90, "max_hp": 100, "boosts": {}},
+                        "active": {"name": "Mew", "hp": hp, "max_hp": 100, "boosts": {}},
                         "reserve": [],
                     },
                     "opponent": {
@@ -253,6 +253,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
             [
                 row("low-policy", progress_weight=10.0, choice_heur=0.0, progress_heur=120.0),
                 row("no-heur-regret", progress_weight=80.0, choice_heur=10.0, progress_heur=10.0),
+                row("low-hp-runtime-guard", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0, hp=40, progress_reason="low_hp"),
                 row("regret", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0),
             ],
             moves_data=self.moves_data,
