@@ -33,7 +33,6 @@ class FinishBlowDiagnosticTests(unittest.TestCase):
     def _engine(self, *, best_damage_score=120.0, finish_heuristic=90.0, passive_heuristic=10.0):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.TACTICAL_KO_THRESHOLD = 220.0
-        engine.FINISH_BLOW_NEAR_KO_RATIO = 0.90
         engine._estimate_best_damage_score = lambda *_args: best_damage_score
         engine._heuristic_action_score = (
             lambda _battle, choice: finish_heuristic if choice == "earthquake" else passive_heuristic
@@ -72,30 +71,7 @@ class FinishBlowDiagnosticTests(unittest.TestCase):
         self.assertEqual(mem["finish_blow_last"]["reason"], "no_ko_window")
         self.assertLess(
             mem["finish_blow_last"]["best_damage_score"],
-            mem["finish_blow_last"]["near_ko_threshold"],
-        )
-
-    def test_takes_near_ko_finish_from_passive_choice(self):
-        engine = self._engine(best_damage_score=40.0)
-        mem = {}
-        engine._get_battle_memory = lambda _battle: mem
-        battle = DummyBattle()
-
-        adjusted = engine._maybe_force_finish_blow_choice(
-            battle,
-            [("irondefense", 80.0), ("earthquake", 20.0)],
-            "irondefense",
-        )
-
-        self.assertEqual(adjusted, "earthquake")
-        self.assertEqual(mem["finish_blow_last"]["reason"], "take_passive_finish")
-        self.assertLess(
-            mem["finish_blow_last"]["best_damage_score"],
             mem["finish_blow_last"]["ko_threshold"],
-        )
-        self.assertGreaterEqual(
-            mem["finish_blow_last"]["best_damage_score"],
-            mem["finish_blow_last"]["near_ko_threshold"],
         )
 
 
