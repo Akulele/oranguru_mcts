@@ -139,6 +139,14 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 row("protect-choice", "protect", setup_weight=80.0, attack_heur=0.0, setup_heur=120.0),
                 row("low-policy", "tackle", setup_weight=10.0, attack_heur=0.0, setup_heur=120.0),
                 row("no-heur-regret", "tackle", setup_weight=80.0, attack_heur=10.0, setup_heur=10.0),
+                {
+                    **row("runtime-not-damaging", "tackle", setup_weight=30.0, attack_heur=0.0, setup_heur=20.0),
+                    "setup_window": {"reason": "not_damaging_choice"},
+                },
+                {
+                    **row("runtime-ko-guard", "tackle", setup_weight=30.0, attack_heur=0.0, setup_heur=20.0),
+                    "setup_window": {"reason": "ko_guard"},
+                },
                 row("regret", "tackle", setup_weight=30.0, attack_heur=0.0, setup_heur=20.0),
             ],
             moves_data=self.moves_data,
@@ -254,6 +262,7 @@ class DecisionReviewFrameworkTest(unittest.TestCase):
                 row("low-policy", progress_weight=10.0, choice_heur=0.0, progress_heur=120.0),
                 row("no-heur-regret", progress_weight=80.0, choice_heur=10.0, progress_heur=10.0),
                 row("low-hp-runtime-guard", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0, hp=40, progress_reason="low_hp"),
+                row("runtime-not-damaging", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0, progress_reason="not_damaging_choice"),
                 row("regret", progress_weight=30.0, choice_heur=0.0, progress_heur=20.0),
             ],
             moves_data=self.moves_data,

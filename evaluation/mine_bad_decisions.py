@@ -597,7 +597,17 @@ def mine_examples(
                         score_gap=round(max(0.0, alt_score - (chosen_score if chosen_score is not None else alt_score)), 3),
                     )
 
-        if chosen_damaging and _has_setup_option(row, moves_data) and active_hp >= 0.65 and opp_hp >= 0.55 and reply_score <= safe_reply_threshold and active_boost_max < 2:
+        setup_runtime_reason = str(setup_window.get("reason", "") or "") if isinstance(setup_window, dict) else ""
+        setup_runtime_says_blocked = setup_runtime_reason in {"not_damaging_choice", "ko_guard"}
+        if (
+            not setup_runtime_says_blocked
+            and chosen_damaging
+            and _has_setup_option(row, moves_data)
+            and active_hp >= 0.65
+            and opp_hp >= 0.55
+            and reply_score <= safe_reply_threshold
+            and active_boost_max < 2
+        ):
             setup_alt = _best_setup_alternative(row, moves_data, exclude_choice=choice)
             if setup_alt is not None:
                 alt_choice = str(setup_alt.get("choice", "") or "")
@@ -666,7 +676,15 @@ def mine_examples(
 
         hazard_available = any(move_id in RuleBotPlayer.ENTRY_HAZARDS for move_id in _available_move_ids(row))
         opp_hazard_free = not bool(opp_hazards)
-        if active_hp >= min_progress_active_hp and behind and chosen_damaging and opp_hp > 0.55 and reply_score <= safe_reply_threshold and (
+        progress_runtime_reason = str(progress_window.get("reason", "") or "") if isinstance(progress_window, dict) else ""
+        progress_runtime_says_blocked = progress_runtime_reason in {
+            "not_damaging_choice",
+            "not_behind",
+            "low_hp",
+            "opponent_low",
+            "ko_guard",
+        }
+        if not progress_runtime_says_blocked and active_hp >= min_progress_active_hp and behind and chosen_damaging and opp_hp > 0.55 and reply_score <= safe_reply_threshold and (
             _has_status_option(row, moves_data, opp_types, opp_status, fp_oracle_battle)
             or _has_setup_option(row, moves_data)
             or (hazard_available and opp_hazard_free)
