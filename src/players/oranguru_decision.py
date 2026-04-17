@@ -616,13 +616,16 @@ def maybe_force_finish_blow_choice(
     opp_hp = opponent.current_hp_fraction or 0.0
     best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
     ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
-    if best_damage_score < ko_threshold:
+    near_ko_ratio = float(getattr(self, "FINISH_BLOW_NEAR_KO_RATIO", 1.0))
+    near_ko_threshold = ko_threshold * near_ko_ratio
+    if best_damage_score < near_ko_threshold:
         _record(
             "no_ko_window",
             active_hp=float(active.current_hp_fraction or 0.0),
             opp_hp=float(opp_hp),
             best_damage_score=float(best_damage_score),
             ko_threshold=float(ko_threshold),
+            near_ko_threshold=float(near_ko_threshold),
         )
         return chosen_choice
 
@@ -660,6 +663,7 @@ def maybe_force_finish_blow_choice(
             opp_hp=float(opp_hp),
             best_damage_score=float(best_damage_score),
             ko_threshold=float(ko_threshold),
+            near_ko_threshold=float(near_ko_threshold),
         )
         return chosen_choice
     if chosen_choice.startswith("switch "):
@@ -669,6 +673,7 @@ def maybe_force_finish_blow_choice(
             opp_hp=float(opp_hp),
             best_damage_score=float(best_damage_score),
             ko_threshold=float(ko_threshold),
+            near_ko_threshold=float(near_ko_threshold),
             finish_choice=best_damage_choice,
             finish_heuristic=float(best_damage_heur),
         )
@@ -681,6 +686,7 @@ def maybe_force_finish_blow_choice(
             opp_hp=float(opp_hp),
             best_damage_score=float(best_damage_score),
             ko_threshold=float(ko_threshold),
+            near_ko_threshold=float(near_ko_threshold),
             finish_choice=best_damage_choice,
             finish_heuristic=float(best_damage_heur),
             chosen_heuristic=float(chosen_heur),
@@ -692,6 +698,7 @@ def maybe_force_finish_blow_choice(
         opp_hp=float(opp_hp),
         best_damage_score=float(best_damage_score),
         ko_threshold=float(ko_threshold),
+        near_ko_threshold=float(near_ko_threshold),
         finish_choice=best_damage_choice,
         finish_heuristic=float(best_damage_heur),
         chosen_heuristic=float(chosen_heur),
