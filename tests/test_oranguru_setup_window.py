@@ -38,7 +38,7 @@ class SetupWindowHighGainTests(unittest.TestCase):
         engine.SETUP_WINDOW_MAX_REPLY = 110.0
         engine.SETUP_WINDOW_MIN_POLICY_RATIO = 0.65
         engine.SETUP_WINDOW_MIN_HEUR_GAIN = 15.0
-        engine.SETUP_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.20
+        engine.SETUP_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.40
         engine.SETUP_WINDOW_HIGH_HEUR_GAIN = 60.0
         engine.TACTICAL_KO_THRESHOLD = 220.0
         engine._estimate_best_reply_score = lambda *_args: 40.0
@@ -53,7 +53,7 @@ class SetupWindowHighGainTests(unittest.TestCase):
 
         adjusted = engine._maybe_take_setup_window_choice(
             battle,
-            [("scald", 80.0), ("calmmind", 20.0)],
+            [("scald", 80.0), ("calmmind", 40.0)],
             "scald",
         )
 
@@ -79,7 +79,7 @@ class SetupWindowHighGainTests(unittest.TestCase):
 
         adjusted = engine._maybe_take_setup_window_choice(
             battle,
-            [("scald", 80.0), ("calmmind", 20.0)],
+            [("scald", 80.0), ("calmmind", 40.0)],
             "scald",
         )
 

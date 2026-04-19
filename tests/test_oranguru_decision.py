@@ -206,7 +206,7 @@ class OranguruDecisionTests(unittest.TestCase):
         engine.PROGRESS_WINDOW_MIN_OPP_HP = 0.55
         engine.PROGRESS_WINDOW_MAX_REPLY = 110.0
         engine.PROGRESS_WINDOW_MIN_POLICY_RATIO = 0.65
-        engine.PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.30
+        engine.PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.45
         engine.PROGRESS_WINDOW_MIN_HEUR_GAIN = 1.0
         engine.PROGRESS_WINDOW_HIGH_HEUR_GAIN = 10.0
         engine.TACTICAL_KO_THRESHOLD = 220.0
@@ -236,7 +236,7 @@ class OranguruDecisionTests(unittest.TestCase):
 
         adjusted = engine._maybe_take_progress_when_behind_choice(
             battle,
-            [("earthquake", 80.0), ("calmmind", 30.0)],
+            [("earthquake", 80.0), ("calmmind", 40.0)],
             "earthquake",
         )
 
@@ -250,7 +250,7 @@ class OranguruDecisionTests(unittest.TestCase):
         engine.PROGRESS_WINDOW_MIN_OPP_HP = 0.55
         engine.PROGRESS_WINDOW_MAX_REPLY = 110.0
         engine.PROGRESS_WINDOW_MIN_POLICY_RATIO = 0.65
-        engine.PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.30
+        engine.PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.45
         engine.PROGRESS_WINDOW_MIN_HEUR_GAIN = 1.0
         engine.PROGRESS_WINDOW_HIGH_HEUR_GAIN = 10.0
         engine.TACTICAL_KO_THRESHOLD = 220.0
@@ -283,7 +283,7 @@ class OranguruDecisionTests(unittest.TestCase):
 
         adjusted = engine._maybe_take_progress_when_behind_choice(
             battle,
-            [("earthquake", 80.0), ("calmmind", 30.0)],
+            [("earthquake", 80.0), ("calmmind", 40.0)],
             "earthquake",
         )
 
