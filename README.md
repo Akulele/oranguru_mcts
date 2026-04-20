@@ -41,6 +41,11 @@ oranguru_mcts/
 - `evaluation/ladder_rulebot.py`: ladder play and trajectory collection
 - `evaluation/run_ladder_triplet.py`: multi-account ladder runner
 
+### Replay reporting API
+- `src/api/oranguru_mcts_api.py`: dict-in/dict-out API that accepts a replay-public game state and returns the top MCTS move plus policy reasoning
+- `src/replay/replay_report.py`: replay URL/local JSON parser that feeds reconstructed turns through the MCTS API sequentially
+- `src/web/replay_report_server.py`: zero-dependency self-hosted form for "paste URL, get report"
+
 ### Training and data prep
 - `training/train_search_prior_value.py`: trainer for search-assist prior/value models
 - `training/prepare_search_assist_from_jsonl.py`: converts live search traces into pickled datasets
@@ -56,8 +61,18 @@ Current working assumptions:
 - `oranguru_engine` is the primary player under test
 - 200-battle runs are smoke tests only
 - 500-battle repeated blocks are the minimum bar for believing a change
-- broad neural action steering is not trusted yet
+- MCTS should not be replaced by a broad neural policy
+- neural work should support search through targeted gates, priors, pruning, or calibration
+- broad neural action steering is not trusted unless an eval clearly promotes it
 - targeted helpers are more promising than general learned move selection
+
+Current Foul Play direction:
+- keep world ranker on
+- keep passive breaker on
+- keep switch guard on
+- keep conservative setup/recovery/progress tactical windows
+- disable the speculative `take_risk_attack` switch-guard branch by default
+- use rerank trace attribution before making further behavior changes
 
 ## Setup
 
@@ -100,6 +115,136 @@ venv/bin/python evaluation/eval_vs_foulplay.py \
 ```
 
 For serious comparisons, prefer `evaluation/run_block_eval.py` and repeated 500-battle blocks instead of one-off runs.
+
+## Search traces and rerank review
+
+Search traces are the main debugging artifact for tactical behavior work. Enable them in eval runs with:
+
+```bash
+export ORANGURU_SEARCH_TRACE=1
+export ORANGURU_SEARCH_TRACE_OUT="logs/search_traces/current/<run_tag>.jsonl"
+export ORANGURU_SEARCH_TRACE_TAG="<run_tag>"
+```
+
+Summarize decision paths and rerank attribution:
+
+```bash
+TRACE_OUT="logs/search_traces/current/<run_tag>.jsonl"
+TRACE_DIAG_JSON="logs/replay_audit/<run_tag>.trace_decision_diag.json"
+
+venv/bin/python evaluation/summarize_trace_decisions.py \
+  "$TRACE_OUT" \
+  --limit 50 \
+  --json-out "$TRACE_DIAG_JSON"
+```
+
+Mine tactical review buckets:
+
+```bash
+TRACE_OUT="logs/search_traces/current/<run_tag>.jsonl"
+RUN_TAG="$(basename "$TRACE_OUT" .jsonl)"
+ISSUES_JSON="logs/replay_audit/${RUN_TAG}.bad_decisions.json"
+REVIEW_JSON="logs/replay_audit/${RUN_TAG}.review_pack.json"
+
+venv/bin/python evaluation/mine_bad_decisions.py --input "$TRACE_OUT" --summary-out "$ISSUES_JSON"
+venv/bin/python evaluation/build_decision_review_pack.py --issues-json "$ISSUES_JSON" --output "$REVIEW_JSON" --limit 300
+
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category ignored_safe_recovery
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category underused_setup_window
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category failed_to_progress_when_behind
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category over_attacked_into_bad_trade
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category over_switched_negative_matchup
+venv/bin/python evaluation/print_decision_review_pack.py --input "$REVIEW_JSON" --limit 40 --category missed_ko
+```
+
+## Rerank gate neural hook
+
+The rerank gate is a neural-hook scaffold for supporting MCTS. It is not a replacement policy. The hook can learn when to permit tactical reranks that displace the MCTS top action.
+
+Default behavior is unchanged:
+
+```bash
+ORANGURU_RERANK_GATE=0
+```
+
+Build a weak-supervised rerank-gate dataset from accepted reranks:
+
+```bash
+RERANK_GATE_TAG="rerank_gate_$(date +%Y%m%d_%H%M%S)"
+RERANK_GATE_JSONL="logs/replay_audit/${RERANK_GATE_TAG}.jsonl"
+RERANK_GATE_SUMMARY="logs/replay_audit/${RERANK_GATE_TAG}.summary.json"
+
+venv/bin/python evaluation/build_rerank_gate_dataset.py \
+  "logs/search_traces/current/*conservative*_accept.jsonl" \
+  "logs/search_traces/current/*switch_guard_risk_off_accept.jsonl" \
+  --output "$RERANK_GATE_JSONL" \
+  --summary-out "$RERANK_GATE_SUMMARY"
+
+wc -l "$RERANK_GATE_JSONL"
+cat "$RERANK_GATE_SUMMARY"
+```
+
+Build a focused dataset for the highest-volume sources:
+
+```bash
+venv/bin/python evaluation/build_rerank_gate_dataset.py \
+  "logs/search_traces/current/*conservative*_accept.jsonl" \
+  "logs/search_traces/current/*switch_guard_risk_off_accept.jsonl" \
+  --source setup_window:take_setup \
+  --source recovery_window:take_recovery \
+  --source switch_guard:take_live_attack \
+  --output "logs/replay_audit/${RERANK_GATE_TAG}.core_sources.jsonl" \
+  --summary-out "logs/replay_audit/${RERANK_GATE_TAG}.core_sources.summary.json"
+```
+
+Runtime gate knobs:
+
+```bash
+export ORANGURU_RERANK_GATE=1
+export ORANGURU_RERANK_GATE_MODEL="checkpoints/rl/rerank_gate.json"
+export ORANGURU_RERANK_GATE_THRESHOLD=0.50
+export ORANGURU_RERANK_GATE_FAIL_OPEN=1
+```
+
+Do not enable the runtime gate for serious evals until a calibrated `checkpoints/rl/rerank_gate.json` exists and has been smoke-tested.
+
+## Replay report service
+
+The replay report path is designed to run on the existing server with no new infrastructure service. It uses Python stdlib HTTP serving and the repo's existing `poke-engine` / Foul Play dependencies.
+
+Start the form:
+
+```bash
+source venv/bin/activate
+venv/bin/python -m src.web.replay_report_server --host 0.0.0.0 --port 8765
+```
+
+Then open `http://<server>:8765`, paste a public Pokemon Showdown replay URL, and run the report.
+
+CLI equivalent:
+
+```bash
+source venv/bin/activate
+venv/bin/python -m src.replay.replay_report \
+  https://replay.pokemonshowdown.com/gen9randombattle-2390494148 \
+  --player both \
+  --search-ms 200 \
+  --num-battles 4 \
+  --max-decisions 24 \
+  --output logs/replay_reports/report.json
+```
+
+Direct API shape:
+
+```python
+from src.api.oranguru_mcts_api import MCTSApiConfig, analyze_game_state
+
+result = analyze_game_state(
+    game_state_row,
+    config=MCTSApiConfig(search_ms=200, num_battles=4),
+)
+print(result["top_move"], result["reasoning"]["summary"])
+```
 
 ## Ladder accounts
 
