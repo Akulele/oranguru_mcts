@@ -458,6 +458,9 @@ def append_search_trace_example(
     passive_breaker = mem.get("passive_breaker_last") if isinstance(mem, dict) else None
     if not isinstance(passive_breaker, dict):
         passive_breaker = None
+    rerank_gate = mem.get("rerank_gate_last") if isinstance(mem, dict) else None
+    if not isinstance(rerank_gate, dict):
+        rerank_gate = None
     fp_oracle_battle = None
     if self.SEARCH_TRACE_INCLUDE_FP_ORACLE:
         try:
@@ -504,6 +507,7 @@ def append_search_trace_example(
             "switch_guard": switch_guard,
             "progress_window": progress_window,
             "passive_breaker": passive_breaker,
+            "rerank_gate": rerank_gate,
             "fp_oracle_battle": fp_oracle_battle,
         }
     )

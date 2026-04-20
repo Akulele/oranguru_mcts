@@ -277,6 +277,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
             "switch_guard",
             "progress_window",
             "passive_breaker",
+            "rerank_gate",
         ):
             payload = row.get(window)
             if isinstance(payload, dict):

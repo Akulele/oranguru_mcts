@@ -28,6 +28,7 @@ from src.players import oranguru_searchflow
 from src.players import oranguru_memory
 from src.players import oranguru_state
 from src.players import oranguru_models
+from src.players import oranguru_rerank_gate
 from src.players import oranguru_tactical
 from src.players import oranguru_trace
 from src.players import oranguru_worlds
@@ -277,6 +278,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", "0.45"))
     PROGRESS_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_HEUR_GAIN", "1.0"))
     PROGRESS_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_HEUR_GAIN", "10.0"))
+    RERANK_GATE_ENABLED = bool(int(os.getenv("ORANGURU_RERANK_GATE", "0")))
+    RERANK_GATE_MODEL = os.getenv("ORANGURU_RERANK_GATE_MODEL", "checkpoints/rl/rerank_gate.json")
+    RERANK_GATE_THRESHOLD = float(os.getenv("ORANGURU_RERANK_GATE_THRESHOLD", "0.50"))
+    RERANK_GATE_FAIL_OPEN = bool(int(os.getenv("ORANGURU_RERANK_GATE_FAIL_OPEN", "1")))
     ADAPTIVE_ESCALATE_ENABLED = bool(
         int(os.getenv("ORANGURU_ADAPTIVE_ESCALATE", "1"))
     )
@@ -426,6 +431,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
         self._search_trace_finished_battle_tags = set()
         self._search_trace_builder = None
         self._search_trace_builder_failed = False
+        self._rerank_gate_model = None
+        self._rerank_gate_failed = False
 
     _search_trace_token_hash = staticmethod(oranguru_trace.search_trace_token_hash)
     _search_trace_species_hash = oranguru_trace.search_trace_species_hash
@@ -440,6 +447,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _init_tera_pruner = oranguru_models.init_tera_pruner
     _init_world_ranker = oranguru_models.init_world_ranker
     _init_leaf_value = oranguru_models.init_leaf_value
+    _init_rerank_gate = oranguru_rerank_gate.init_rerank_gate
+    _rerank_gate_allows = oranguru_rerank_gate.rerank_gate_allows
+    _maybe_accept_rerank_choice = oranguru_rerank_gate.maybe_accept_rerank_choice
 
     def _build_rl_action_mask_and_maps(
         self, battle: Battle

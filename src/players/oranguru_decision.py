@@ -1097,6 +1097,14 @@ def select_move_from_results(
                 ordered,
                 chosen_choice,
             )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
+            )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
@@ -1104,6 +1112,14 @@ def select_move_from_results(
                 battle,
                 ordered,
                 chosen_choice,
+            )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
             )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
@@ -1113,6 +1129,14 @@ def select_move_from_results(
                 ordered,
                 chosen_choice,
             )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
+            )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
@@ -1120,6 +1144,14 @@ def select_move_from_results(
                 battle,
                 ordered,
                 chosen_choice,
+            )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
             )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
@@ -1129,6 +1161,14 @@ def select_move_from_results(
                 ordered,
                 chosen_choice,
             )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
+            )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
@@ -1136,6 +1176,14 @@ def select_move_from_results(
                 battle,
                 ordered,
                 chosen_choice,
+            )
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                chosen_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
             )
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
