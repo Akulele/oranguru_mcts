@@ -597,6 +597,19 @@ class OranguruEnginePlayer(RuleBotPlayer):
             return None
         if (best_prob - top_prob) < self.PASSIVE_BREAKER_MIN_MARGIN:
             return None
+        try:
+            mem = self._get_battle_memory(battle)
+            if isinstance(mem, dict):
+                mem["passive_breaker_last"] = {
+                    "reason": "take_passive_break",
+                    "top_choice": str(top_choice or ""),
+                    "passive_choice": str(best_choice or ""),
+                    "top_probability": float(top_prob),
+                    "passive_probability": float(best_prob),
+                    "margin": float(best_prob - top_prob),
+                }
+        except Exception:
+            pass
         self._mcts_stats["passive_breaker_used"] = int(self._mcts_stats.get("passive_breaker_used", 0) or 0) + 1
         return best_choice
 

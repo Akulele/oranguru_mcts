@@ -80,6 +80,57 @@ def _loss_bucket(value_target: float) -> str:
     return "unknown"
 
 
+def _score_drop_bucket(score_delta: float) -> str:
+    if score_delta <= 0.0:
+        return "0"
+    if score_delta <= 0.02:
+        return "(0,0.02]"
+    if score_delta <= 0.05:
+        return "(0.02,0.05]"
+    if score_delta <= 0.10:
+        return "(0.05,0.10]"
+    if score_delta <= 0.20:
+        return "(0.10,0.20]"
+    return ">0.20"
+
+
+def _take_source_from_payload(source: str, payload: object, choice: str) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    reason = str(payload.get("reason", "") or "")
+    if not reason.startswith("take_"):
+        return ""
+    target_keys = (
+        "finish_choice",
+        "setup_choice",
+        "recovery_choice",
+        "progress_choice",
+        "attack_choice",
+        "passive_choice",
+    )
+    targets = {str(payload.get(key, "") or "") for key in target_keys if payload.get(key)}
+    if targets and choice not in targets:
+        return ""
+    return f"{source}:{reason}"
+
+
+def _rerank_source(row: dict, choice: str, path: str) -> str:
+    if path != "rerank":
+        return path
+    for source, key in (
+        ("finish_blow", "finish_blow"),
+        ("setup_window", "setup_window"),
+        ("recovery_window", "recovery_window"),
+        ("progress_window", "progress_window"),
+        ("switch_guard", "switch_guard"),
+        ("passive_breaker", "passive_breaker"),
+    ):
+        source_reason = _take_source_from_payload(source, row.get(key), choice)
+        if source_reason:
+            return source_reason
+    return "rerank:unknown"
+
+
 def _iter_rows(paths: Iterable[str]) -> Iterable[dict]:
     for path in paths:
         with Path(path).open("r", encoding="utf-8") as handle:
@@ -154,6 +205,9 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
     by_path: dict[str, Bucket] = defaultdict(Bucket)
     by_choice_kind: dict[str, Bucket] = defaultdict(Bucket)
     by_path_kind: dict[str, Bucket] = defaultdict(Bucket)
+    by_rerank_source: dict[str, Bucket] = defaultdict(Bucket)
+    by_rerank_source_kind: dict[str, Bucket] = defaultdict(Bucket)
+    by_rerank_score_drop_bucket: dict[str, Bucket] = defaultdict(Bucket)
     by_window_reason: dict[str, Counter] = defaultdict(Counter)
     outcome_counts = Counter()
     battle_ids: set[str] = set()
@@ -178,6 +232,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
         non_top1 = bool(top1_choice and choice and choice != top1_choice)
         score_delta = max(0.0, _score(top1) - _score(chosen_action))
         heuristic_delta = _heuristic(chosen_action) - _heuristic(top1)
+        rerank_source = _rerank_source(row, choice, path)
         value_target = _safe_float(row.get("value_target", 0.0), 0.0)
         outcome = _loss_bucket(value_target)
 
@@ -195,8 +250,34 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
             score_delta=score_delta,
             heuristic_delta=heuristic_delta,
         )
+        if path == "rerank":
+            by_rerank_source[rerank_source].add(
+                row,
+                non_top1=non_top1,
+                score_delta=score_delta,
+                heuristic_delta=heuristic_delta,
+            )
+            by_rerank_source_kind[f"{rerank_source}/{chosen_kind}"].add(
+                row,
+                non_top1=non_top1,
+                score_delta=score_delta,
+                heuristic_delta=heuristic_delta,
+            )
+            by_rerank_score_drop_bucket[_score_drop_bucket(score_delta)].add(
+                row,
+                non_top1=non_top1,
+                score_delta=score_delta,
+                heuristic_delta=heuristic_delta,
+            )
 
-        for window in ("finish_blow", "setup_window", "recovery_window", "switch_guard", "progress_window"):
+        for window in (
+            "finish_blow",
+            "setup_window",
+            "recovery_window",
+            "switch_guard",
+            "progress_window",
+            "passive_breaker",
+        ):
             payload = row.get(window)
             if isinstance(payload, dict):
                 reason = str(payload.get("reason", "") or "")
@@ -209,6 +290,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
                     "battle_id": battle_id,
                     "turn": row.get("turn"),
                     "path": path,
+                    "rerank_source": rerank_source,
                     "chosen": choice,
                     "top1": top1_choice,
                     "chosen_kind": chosen_kind,
@@ -225,6 +307,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
                     "turn": row.get("turn"),
                     "chosen": choice,
                     "top1": top1_choice,
+                    "rerank_source": rerank_source,
                     "chosen_kind": chosen_kind,
                     "top1_kind": top1_kind,
                     "score_delta": round(score_delta, 4),
@@ -255,6 +338,13 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
         "by_path": {key: bucket.payload() for key, bucket in sorted(by_path.items())},
         "by_choice_kind": {key: bucket.payload() for key, bucket in sorted(by_choice_kind.items())},
         "by_path_kind": {key: bucket.payload() for key, bucket in sorted(by_path_kind.items())},
+        "by_rerank_source": {key: bucket.payload() for key, bucket in sorted(by_rerank_source.items())},
+        "by_rerank_source_kind": {
+            key: bucket.payload() for key, bucket in sorted(by_rerank_source_kind.items())
+        },
+        "by_rerank_score_drop_bucket": {
+            key: bucket.payload() for key, bucket in sorted(by_rerank_score_drop_bucket.items())
+        },
         "window_reasons": {key: dict(counter) for key, counter in by_window_reason.items()},
         "non_top1_loss_samples": non_top1_loss_samples,
         "rerank_loss_samples": rerank_loss_samples,
@@ -291,6 +381,9 @@ def print_summary(summary: dict, *, limit: int) -> None:
     _print_bucket_table("By selection path:", summary["by_path"], limit=limit)
     _print_bucket_table("By chosen kind:", summary["by_choice_kind"], limit=limit)
     _print_bucket_table("By path/chosen kind:", summary["by_path_kind"], limit=limit)
+    _print_bucket_table("By rerank source:", summary["by_rerank_source"], limit=limit)
+    _print_bucket_table("By rerank source/chosen kind:", summary["by_rerank_source_kind"], limit=limit)
+    _print_bucket_table("By rerank score-drop bucket:", summary["by_rerank_score_drop_bucket"], limit=limit)
     print("Window reasons:")
     for window, reasons in sorted(summary["window_reasons"].items()):
         top = ", ".join(f"{k}:{v}" for k, v in Counter(reasons).most_common(8))
@@ -298,13 +391,13 @@ def print_summary(summary: dict, *, limit: int) -> None:
     print("Non-top1 loss samples:")
     for sample in summary["non_top1_loss_samples"][:limit]:
         print(
-            "  {battle_id} t{turn} {path}: {chosen} over {top1} "
+            "  {battle_id} t{turn} {path}/{rerank_source}: {chosen} over {top1} "
             "scoreDrop={score_delta} heurDelta={heur_delta_chosen_minus_top1} conf={confidence}".format(**sample)
         )
     print("Rerank loss samples:")
     for sample in summary["rerank_loss_samples"][:limit]:
         print(
-            "  {battle_id} t{turn}: {chosen} over {top1} "
+            "  {battle_id} t{turn} {rerank_source}: {chosen} over {top1} "
             "scoreDrop={score_delta} heurDelta={heur_delta_chosen_minus_top1} conf={confidence}".format(**sample)
         )
 
