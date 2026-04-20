@@ -152,6 +152,41 @@ class OranguruDecisionTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "earthquake")
 
+    def test_negative_matchup_switch_guard_suppresses_risk_branch_by_default(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._heuristic_action_score = lambda _battle, choice: 0.0 if choice.startswith("switch ") else -0.3
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 60.0 if choice.startswith("switch ") else 0.0
+        battle = DummyBattle()
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 100.0), ("earthquake", 70.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "switch skarmory")
+        self.assertEqual(memory["switch_guard_last"]["reason"], "policy_or_heuristic")
+
+    def test_negative_matchup_switch_guard_risk_branch_remains_env_tunable(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.SWITCH_GUARD_RISK_MIN_RISK = 20.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._heuristic_action_score = lambda _battle, choice: 0.0 if choice.startswith("switch ") else -0.3
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 60.0 if choice.startswith("switch ") else 0.0
+        battle = DummyBattle()
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 100.0), ("earthquake", 70.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(memory["switch_guard_last"]["reason"], "take_risk_attack")
+
     def test_negative_matchup_switch_guard_matches_live_presence_audit(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.SWITCH_GUARD_MIN_ACTIVE_HP = 0.45
