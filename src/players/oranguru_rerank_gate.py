@@ -291,6 +291,19 @@ def init_rerank_gate(self) -> bool:
             return False
         with path.open("r", encoding="utf-8") as handle:
             model = json.load(handle)
+        mode = str(model.get("mode", "linear") or "linear").strip().lower()
+        if mode == "bucket_rules":
+            rules = model.get("rules") or []
+            if not isinstance(rules, list):
+                self._rerank_gate_failed = True
+                return False
+            self._rerank_gate_model = {
+                "mode": "bucket_rules",
+                "default": str(model.get("default", "allow") or "allow").strip().lower(),
+                "rules": [dict(rule) for rule in rules if isinstance(rule, Mapping)],
+                "path": str(path),
+            }
+            return True
         names = model.get("feature_names") or list(FEATURE_NAMES)
         weights = model.get("weights") or []
         if not isinstance(names, list) or not isinstance(weights, list) or len(names) != len(weights):
@@ -308,6 +321,91 @@ def init_rerank_gate(self) -> bool:
     except Exception:
         self._rerank_gate_failed = True
         return False
+
+
+def _feature_name_for_rule_key(key: str) -> str:
+    aliases = {
+        "score_drop": "score_drop_top1_minus_candidate",
+        "heuristic_delta": "heuristic_delta_candidate_minus_top1",
+        "risk_delta": "risk_delta_top1_minus_candidate",
+    }
+    return aliases.get(key, key)
+
+
+def _rule_float_matches(rule: Mapping[str, object], features: Mapping[str, float], name: str) -> bool:
+    feature_name = _feature_name_for_rule_key(name)
+    value = safe_float(features.get(feature_name, 0.0), 0.0)
+    min_key = f"{name}_min"
+    max_key = f"{name}_max"
+    if min_key in rule and value < safe_float(rule.get(min_key), float("-inf")):
+        return False
+    if max_key in rule and value > safe_float(rule.get(max_key), float("inf")):
+        return False
+    return True
+
+
+def _bucket_rule_matches(
+    rule: Mapping[str, object],
+    *,
+    source_reason: str,
+    candidate_kind: str,
+    top1_kind: str,
+    features: Mapping[str, float],
+) -> bool:
+    source = str(rule.get("source", "") or "")
+    if source and source != source_reason:
+        return False
+    candidate_kind_rule = str(rule.get("candidate_kind", "") or "")
+    if candidate_kind_rule and candidate_kind_rule != candidate_kind:
+        return False
+    top1_kind_rule = str(rule.get("top1_kind", "") or "")
+    if top1_kind_rule and top1_kind_rule != top1_kind:
+        return False
+
+    rule_fields = set(rule.keys())
+    threshold_bases = {
+        key[:-4]
+        for key in rule_fields
+        if key.endswith("_min") and key not in {"source_min", "candidate_kind_min", "top1_kind_min"}
+    }
+    threshold_bases.update(
+        key[:-4]
+        for key in rule_fields
+        if key.endswith("_max") and key not in {"source_max", "candidate_kind_max", "top1_kind_max"}
+    )
+    for name in threshold_bases:
+        if not _rule_float_matches(rule, features, name):
+            return False
+    return True
+
+
+def _bucket_rules_allow(
+    model: Mapping[str, object],
+    *,
+    source_reason: str,
+    candidate_kind: str,
+    top1_kind: str,
+    features: Mapping[str, float],
+) -> tuple[bool, Optional[int], str]:
+    default_action = str(model.get("default", "allow") or "allow").strip().lower()
+    default_allow = default_action != "block"
+    rules = model.get("rules") or []
+    if not isinstance(rules, list):
+        return default_allow, None, default_action
+    for idx, raw_rule in enumerate(rules):
+        if not isinstance(raw_rule, Mapping):
+            continue
+        if not _bucket_rule_matches(
+            raw_rule,
+            source_reason=source_reason,
+            candidate_kind=candidate_kind,
+            top1_kind=top1_kind,
+            features=features,
+        ):
+            continue
+        action = str(raw_rule.get("action", default_action) or default_action).strip().lower()
+        return action != "block", idx, action
+    return default_allow, None, default_action
 
 
 def _record_gate(self, battle, reason: str, **extra) -> None:
@@ -399,12 +497,14 @@ def rerank_gate_allows(
     except Exception:
         pass
 
+    candidate_kind = _kind(candidate_choice)
+    top1_kind = _kind(top1_choice)
     features = build_feature_dict(
         source_reason=source_reason,
         candidate_choice=candidate_choice,
         top1_choice=top1_choice,
-        candidate_kind=_kind(candidate_choice),
-        top1_kind=_kind(top1_choice),
+        candidate_kind=candidate_kind,
+        top1_kind=top1_kind,
         candidate_score=weights.get(candidate_choice, 0.0),
         top1_score=weights.get(top1_choice, 0.0),
         candidate_heuristic=_heur(candidate_choice),
@@ -419,6 +519,32 @@ def rerank_gate_allows(
         payload=payload,
     )
     model = self._rerank_gate_model or {}
+    if str(model.get("mode", "linear") or "linear").strip().lower() == "bucket_rules":
+        allow, rule_idx, action = _bucket_rules_allow(
+            model,
+            source_reason=source_reason,
+            candidate_kind=candidate_kind,
+            top1_kind=top1_kind,
+            features=features,
+        )
+        if isinstance(stats, dict):
+            key = "rerank_gate_allowed" if allow else "rerank_gate_blocked"
+            stats[key] = int(stats.get(key, 0) or 0) + 1
+        _record_gate(
+            self,
+            battle,
+            "allow" if allow else "block",
+            source=source_reason,
+            current_choice=current_choice,
+            candidate_choice=candidate_choice,
+            mode="bucket_rules",
+            action=action,
+            rule_idx=rule_idx,
+            score_drop=float(features.get("score_drop_top1_minus_candidate", 0.0)),
+            heuristic_delta=float(features.get("heuristic_delta_candidate_minus_top1", 0.0)),
+        )
+        return allow
+
     names = model.get("feature_names") or list(FEATURE_NAMES)
     weights_model = model.get("weights") or []
     logit = safe_float(model.get("bias", 0.0), 0.0)

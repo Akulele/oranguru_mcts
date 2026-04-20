@@ -206,7 +206,28 @@ export ORANGURU_RERANK_GATE_THRESHOLD=0.50
 export ORANGURU_RERANK_GATE_FAIL_OPEN=1
 ```
 
-Do not enable the runtime gate for serious evals until a calibrated `checkpoints/rl/rerank_gate.json` exists and has been smoke-tested.
+The runtime gate supports two JSON config shapes:
+- linear model configs with `feature_names`, `weights`, `bias`, and `threshold`
+- conservative bucket-rule configs with `mode: "bucket_rules"`, `default`, and ordered `rules`
+
+Write the first conservative bucket-rule config:
+
+```bash
+venv/bin/python evaluation/write_rerank_gate_bucket_rules.py \
+  --output checkpoints/rl/rerank_gate_bucket_rules_v1.json
+```
+
+Evaluate that config by pointing the same runtime gate at the generated file:
+
+```bash
+export ORANGURU_RERANK_GATE=1
+export ORANGURU_RERANK_GATE_MODEL="checkpoints/rl/rerank_gate_bucket_rules_v1.json"
+export ORANGURU_RERANK_GATE_FAIL_OPEN=1
+```
+
+Search traces include a `rerank_gate` payload when the hook evaluates a tactical rerank. Use `evaluation/summarize_trace_decisions.py` to compare `allow` and `block` counts against win rate before promoting any gate.
+
+Do not enable the runtime gate for serious evals until a calibrated or bucket-rule `checkpoints/rl/rerank_gate*.json` exists and has been smoke-tested.
 
 ## Replay report service
 

@@ -111,6 +111,73 @@ class RerankGateHookTests(unittest.TestCase):
         self.assertEqual(memory["rerank_gate_last"]["source"], "setup_window:take_setup")
         self.assertEqual(engine._mcts_stats["rerank_gate_blocked"], 1)
 
+    def test_runtime_bucket_rule_gate_blocks_matching_bucket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "gate.json"
+            model_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "bucket_rules",
+                        "default": "allow",
+                        "rules": [
+                            {
+                                "source": "setup_window:take_setup",
+                                "score_drop_max": 0.05,
+                                "heuristic_delta_min": 60.0,
+                                "heuristic_delta_max": 100.0,
+                                "action": "block",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+            engine.RERANK_GATE_ENABLED = True
+            engine.RERANK_GATE_MODEL = str(model_path)
+            engine.RERANK_GATE_THRESHOLD = 0.50
+            engine.RERANK_GATE_FAIL_OPEN = True
+            engine._rerank_gate_model = None
+            engine._rerank_gate_failed = False
+            engine._mcts_stats = {}
+            memory = {
+                "setup_window_last": {
+                    "reason": "take_setup",
+                    "chosen_choice": "earthquake",
+                    "setup_choice": "calmmind",
+                    "chosen_weight": 0.60,
+                    "setup_weight": 0.58,
+                    "chosen_heuristic": 20.0,
+                    "setup_heuristic": 90.0,
+                }
+            }
+            engine._get_battle_memory = lambda _battle: memory
+            engine._heuristic_action_score = lambda _battle, choice: 90.0 if choice == "calmmind" else 20.0
+            engine._adaptive_choice_risk_penalty = lambda _battle, _choice: 0.0
+            engine._search_trace_choice_kind = lambda _battle, choice: "setup" if choice == "calmmind" else "attack"
+            engine._estimate_matchup = lambda *_args: 0.25
+            engine._estimate_best_reply_score = lambda *_args: 80.0
+            engine._side_hazard_pressure = lambda _battle: 0.0
+            battle = SimpleNamespace(active_pokemon=object(), opponent_active_pokemon=object())
+
+            accepted = engine._maybe_accept_rerank_choice(
+                battle,
+                [("earthquake", 0.60), ("calmmind", 0.58)],
+                "earthquake",
+                "calmmind",
+                0.31,
+                0.60,
+            )
+
+        self.assertEqual(accepted, "earthquake")
+        self.assertEqual(memory["rerank_gate_last"]["reason"], "block")
+        self.assertEqual(memory["rerank_gate_last"]["mode"], "bucket_rules")
+        self.assertEqual(memory["rerank_gate_last"]["rule_idx"], 0)
+        self.assertAlmostEqual(memory["rerank_gate_last"]["score_drop"], 0.02)
+        self.assertAlmostEqual(memory["rerank_gate_last"]["heuristic_delta"], 70.0)
+        self.assertEqual(engine._mcts_stats["rerank_gate_blocked"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
