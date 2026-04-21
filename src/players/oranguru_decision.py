@@ -1091,7 +1091,8 @@ def select_move_from_results(
         return ""
 
     def _return_choice(chosen_choice: str, path: str) -> str:
-        if chosen_choice:
+        tactical_reranks_enabled = bool(getattr(self, "TACTICAL_RERANKS_ENABLED", True))
+        if chosen_choice and tactical_reranks_enabled:
             adjusted_choice = self._maybe_force_finish_blow_choice(
                 battle,
                 ordered,
@@ -1188,6 +1189,7 @@ def select_move_from_results(
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "rerank" if path == "mcts" else path
+        if chosen_choice:
             self._diag_record_choice(
                 battle,
                 ordered,
@@ -1231,9 +1233,10 @@ def select_move_from_results(
     filtered = self._apply_tera_prune(battle, filtered, confidence, threshold)
     if not filtered:
         filtered = [ordered[0]]
-    passive_break_choice = self._maybe_passive_break_choice(battle, filtered, confidence, threshold)
-    if passive_break_choice:
-        return _return_choice(passive_break_choice, "rerank")
+    if getattr(self, "TACTICAL_RERANKS_ENABLED", True):
+        passive_break_choice = self._maybe_passive_break_choice(battle, filtered, confidence, threshold)
+        if passive_break_choice:
+            return _return_choice(passive_break_choice, "rerank")
 
     if self._should_trigger_adaptive_fallback(battle, ordered, confidence, threshold):
         mem = self._get_battle_memory(battle)

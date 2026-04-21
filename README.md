@@ -73,6 +73,7 @@ Current Foul Play direction:
 - keep conservative setup/recovery/progress tactical windows
 - disable the speculative `take_risk_attack` switch-guard branch by default
 - use rerank trace attribution before making further behavior changes
+- use `ORANGURU_TACTICAL_RERANKS=0` when verifying a pure-MCTS baseline
 
 ## Setup
 
@@ -115,6 +116,19 @@ venv/bin/python evaluation/eval_vs_foulplay.py \
 ```
 
 For serious comparisons, prefer `evaluation/run_block_eval.py` and repeated 500-battle blocks instead of one-off runs.
+
+To test a pure-MCTS baseline without post-search tactical reranks, disable the master tactical rerank switch:
+
+```bash
+export ORANGURU_TACTICAL_RERANKS=0
+export ORANGURU_PASSIVE_BREAKER=0
+export ORANGURU_RERANK_GATE=0
+export ORANGURU_ADAPTIVE_FALLBACK=0
+export ORANGURU_HEURISTIC_BLEND=0.0
+export ORANGURU_MIN_HEURISTIC_BLEND=0.0
+```
+
+`ORANGURU_TACTICAL_RERANKS` defaults to `1`, preserving current behavior unless explicitly disabled.
 
 ## Search traces and rerank review
 
