@@ -140,6 +140,17 @@ export ORANGURU_FINISH_BLOW_GUARD=1
 
 That keeps setup, recovery, progress, switch-guard, and passive-break reranks off while still allowing a forced damaging finish when the opponent is in a clear KO window.
 
+Individual tactical windows can be enabled independently for isolated A/B tests. When unset, these default to the value of `ORANGURU_TACTICAL_RERANKS`:
+
+```bash
+export ORANGURU_SETUP_WINDOW=1
+export ORANGURU_RECOVERY_WINDOW=0
+export ORANGURU_PROGRESS_WINDOW=0
+export ORANGURU_SWITCH_GUARD=0
+```
+
+Use this with `ORANGURU_TACTICAL_RERANKS=0` to test one discretionary rerank source at a time.
+
 ## Search traces and rerank review
 
 Search traces are the main debugging artifact for tactical behavior work. Enable them in eval runs with:

@@ -1113,73 +1113,48 @@ def select_move_from_results(
                 current_path = "rerank" if current_path == "mcts" else current_path
             return current_choice, current_path
 
-        if chosen_choice and (tactical_reranks_enabled or finish_blow_guard_enabled):
+        def _apply_rerank_candidate(current_choice: str, current_path: str, candidate_fn) -> tuple[str, str]:
+            adjusted_choice = candidate_fn(battle, ordered, current_choice)
+            adjusted_choice = self._maybe_accept_rerank_choice(
+                battle,
+                ordered,
+                current_choice,
+                adjusted_choice,
+                confidence,
+                threshold,
+            )
+            if adjusted_choice != current_choice:
+                current_choice = adjusted_choice
+                current_path = "rerank" if current_path == "mcts" else current_path
+            return current_choice, current_path
+
+        if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
-        if chosen_choice and tactical_reranks_enabled:
-            adjusted_choice = self._maybe_take_setup_window_choice(
-                battle,
-                ordered,
+        if chosen_choice and bool(getattr(self, "SETUP_WINDOW_ENABLED", tactical_reranks_enabled)):
+            chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,
+                path,
+                self._maybe_take_setup_window_choice,
             )
-            adjusted_choice = self._maybe_accept_rerank_choice(
-                battle,
-                ordered,
+        if chosen_choice and bool(getattr(self, "RECOVERY_WINDOW_ENABLED", tactical_reranks_enabled)):
+            chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,
-                adjusted_choice,
-                confidence,
-                threshold,
+                path,
+                self._maybe_take_safe_recovery_choice,
             )
-            if adjusted_choice != chosen_choice:
-                chosen_choice = adjusted_choice
-                path = "rerank" if path == "mcts" else path
-            adjusted_choice = self._maybe_take_safe_recovery_choice(
-                battle,
-                ordered,
+        if chosen_choice and bool(getattr(self, "PROGRESS_WINDOW_ENABLED", tactical_reranks_enabled)):
+            chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,
+                path,
+                self._maybe_take_progress_when_behind_choice,
             )
-            adjusted_choice = self._maybe_accept_rerank_choice(
-                battle,
-                ordered,
+        if chosen_choice and bool(getattr(self, "SWITCH_GUARD_ENABLED", tactical_reranks_enabled)):
+            chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,
-                adjusted_choice,
-                confidence,
-                threshold,
+                path,
+                self._maybe_reduce_negative_matchup_switch,
             )
-            if adjusted_choice != chosen_choice:
-                chosen_choice = adjusted_choice
-                path = "rerank" if path == "mcts" else path
-            adjusted_choice = self._maybe_take_progress_when_behind_choice(
-                battle,
-                ordered,
-                chosen_choice,
-            )
-            adjusted_choice = self._maybe_accept_rerank_choice(
-                battle,
-                ordered,
-                chosen_choice,
-                adjusted_choice,
-                confidence,
-                threshold,
-            )
-            if adjusted_choice != chosen_choice:
-                chosen_choice = adjusted_choice
-                path = "rerank" if path == "mcts" else path
-            adjusted_choice = self._maybe_reduce_negative_matchup_switch(
-                battle,
-                ordered,
-                chosen_choice,
-            )
-            adjusted_choice = self._maybe_accept_rerank_choice(
-                battle,
-                ordered,
-                chosen_choice,
-                adjusted_choice,
-                confidence,
-                threshold,
-            )
-            if adjusted_choice != chosen_choice:
-                chosen_choice = adjusted_choice
-                path = "rerank" if path == "mcts" else path
+        if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
         if chosen_choice:
             self._diag_record_choice(
