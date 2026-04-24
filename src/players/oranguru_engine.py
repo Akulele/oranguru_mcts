@@ -279,7 +279,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PROGRESS_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_HEUR_GAIN", "1.0"))
     PROGRESS_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_HEUR_GAIN", "10.0"))
     TACTICAL_RERANKS_ENABLED = bool(int(os.getenv("ORANGURU_TACTICAL_RERANKS", "1")))
-    FINISH_BLOW_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_FINISH_BLOW_GUARD", "0")))
+    FINISH_BLOW_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_FINISH_BLOW_GUARD", "1")))
     RERANK_GATE_ENABLED = bool(int(os.getenv("ORANGURU_RERANK_GATE", "0")))
     RERANK_GATE_MODEL = os.getenv("ORANGURU_RERANK_GATE_MODEL", "checkpoints/rl/rerank_gate.json")
     RERANK_GATE_THRESHOLD = float(os.getenv("ORANGURU_RERANK_GATE_THRESHOLD", "0.50"))

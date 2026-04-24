@@ -131,7 +131,7 @@ export ORANGURU_MIN_HEURISTIC_BLEND=0.0
 
 `ORANGURU_TACTICAL_RERANKS` defaults to `1`, preserving current behavior unless explicitly disabled.
 
-If pure MCTS is missing obvious kills, you can opt back into only the KO-finisher safeguard without re-enabling the rest of the tactical reranks:
+If you want MCTS with only the KO-finisher safeguard, keep the finish-blow guard enabled while disabling the rest of the tactical reranks:
 
 ```bash
 export ORANGURU_TACTICAL_RERANKS=0
