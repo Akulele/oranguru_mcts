@@ -383,6 +383,7 @@ class OranguruDecisionTests(unittest.TestCase):
         engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
         engine.MCTS_CONFIDENCE_THRESHOLD = 0.0
         engine.TACTICAL_RERANKS_ENABLED = False
+        engine.FINISH_BLOW_GUARD_ENABLED = False
         engine.SELECTION_MODE = "blend"
         engine.GATE_MODE = "hard"
         engine.HEURISTIC_BLEND = 0.0
@@ -418,6 +419,50 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(choice, "earthquake")
         self.assertEqual(diag["choice"], "earthquake")
         self.assertEqual(diag["path"], "mcts")
+
+    def test_finish_blow_guard_can_run_with_tactical_reranks_disabled(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine._mcts_stats = {"deterministic_decisions": 0, "stochastic_decisions": 0}
+        engine.MCTS_DETERMINISTIC = True
+        engine.MCTS_DETERMINISTIC_EVAL_ONLY = False
+        engine.MCTS_CONFIDENCE_THRESHOLD = 0.0
+        engine.TACTICAL_RERANKS_ENABLED = False
+        engine.FINISH_BLOW_GUARD_ENABLED = True
+        engine.SELECTION_MODE = "blend"
+        engine.GATE_MODE = "hard"
+        engine.HEURISTIC_BLEND = 0.0
+        engine.MIN_HEURISTIC_BLEND = 0.0
+        engine.POLICY_CUTOFF = 0.75
+        engine.RL_PRIOR_BLEND = 0.0
+        engine.RL_PRIOR_LOWCONF_ONLY = True
+        engine.SEARCH_PRIOR_BLEND = 0.0
+        engine.SEARCH_PRIOR_LOWCONF_ONLY = True
+        engine._apply_switch_prior_prune = lambda _battle, filtered, _confidence, _threshold: filtered
+        engine._apply_tera_prune = lambda _battle, filtered, _confidence, _threshold: filtered
+        engine._maybe_passive_break_choice = lambda *_args: "calmmind"
+        engine._should_trigger_adaptive_fallback = lambda *_args: False
+        engine._maybe_force_finish_blow_choice = lambda _battle, _ordered, _choice: "earthquake"
+        engine._maybe_take_setup_window_choice = lambda _battle, _ordered, _choice: "calmmind"
+        engine._maybe_take_safe_recovery_choice = lambda _battle, _ordered, _choice: "recover"
+        engine._maybe_take_progress_when_behind_choice = lambda _battle, _ordered, _choice: "swordsdance"
+        engine._maybe_reduce_negative_matchup_switch = lambda _battle, _ordered, _choice: "switch skarmory"
+        engine._maybe_accept_rerank_choice = lambda _battle, _ordered, _current, candidate, _confidence, _threshold: candidate
+        diag = {}
+        engine._diag_record_choice = lambda _battle, _ordered, choice, _confidence, _threshold, path: diag.update(choice=choice, path=path)
+        engine._append_search_trace_example = lambda *_args, **_kwargs: None
+
+        battle = DummyBattle()
+        battle.available_moves = [
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("roost", category=MoveCategory.STATUS, base_power=0),
+        ]
+        results = [(DummyResult([("roost", 60.0), ("earthquake", 40.0)]), 1.0)]
+
+        choice = engine._select_move_from_results(results, battle)
+
+        self.assertEqual(choice, "earthquake")
+        self.assertEqual(diag["choice"], "earthquake")
+        self.assertEqual(diag["path"], "rerank")
 
 
 if __name__ == "__main__":

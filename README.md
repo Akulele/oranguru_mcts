@@ -121,6 +121,7 @@ To test a pure-MCTS baseline without post-search tactical reranks, disable the m
 
 ```bash
 export ORANGURU_TACTICAL_RERANKS=0
+export ORANGURU_FINISH_BLOW_GUARD=0
 export ORANGURU_PASSIVE_BREAKER=0
 export ORANGURU_RERANK_GATE=0
 export ORANGURU_ADAPTIVE_FALLBACK=0
@@ -129,6 +130,15 @@ export ORANGURU_MIN_HEURISTIC_BLEND=0.0
 ```
 
 `ORANGURU_TACTICAL_RERANKS` defaults to `1`, preserving current behavior unless explicitly disabled.
+
+If pure MCTS is missing obvious kills, you can opt back into only the KO-finisher safeguard without re-enabling the rest of the tactical reranks:
+
+```bash
+export ORANGURU_TACTICAL_RERANKS=0
+export ORANGURU_FINISH_BLOW_GUARD=1
+```
+
+That keeps setup, recovery, progress, switch-guard, and passive-break reranks off while still allowing a forced damaging finish when the opponent is in a clear KO window.
 
 ## Search traces and rerank review
 
