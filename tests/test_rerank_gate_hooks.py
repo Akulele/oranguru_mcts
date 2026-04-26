@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from evaluation.build_rerank_gate_dataset import build_dataset
 from src.players.oranguru_engine import OranguruEnginePlayer
 from src.players.oranguru_rerank_gate import build_trace_rerank_gate_example
 
@@ -50,6 +51,46 @@ class RerankGateHookTests(unittest.TestCase):
         self.assertAlmostEqual(example["features"]["score_drop_top1_minus_candidate"], 0.18)
         self.assertAlmostEqual(example["features"]["heuristic_delta_candidate_minus_top1"], 80.0)
         self.assertEqual(len(example["feature_vector"]), len(example["feature_names"]))
+
+    def test_builds_shadow_take_example_from_mcts_trace(self):
+        row = {
+            "battle_id": "b1",
+            "turn": 7,
+            "value_target": 1.0,
+            "selection_path": "mcts",
+            "chosen_choice": "earthquake",
+            "policy_confidence": 0.31,
+            "policy_threshold": 0.60,
+            "top_actions": [
+                {"choice": "earthquake", "kind": "attack", "score": 0.60, "heuristic_score": 20.0},
+                {"choice": "calmmind", "kind": "setup", "score": 0.42, "heuristic_score": 100.0},
+            ],
+            "setup_window": {
+                "reason": "take_setup",
+                "chosen_choice": "earthquake",
+                "setup_choice": "calmmind",
+                "active_hp": 0.9,
+                "opp_hp": 0.8,
+                "reply_score": 70.0,
+                "chosen_weight": 0.60,
+                "setup_weight": 0.42,
+                "chosen_heuristic": 20.0,
+                "setup_heuristic": 100.0,
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "trace.jsonl"
+            trace_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+            examples, summary = build_dataset([str(trace_path)], include_shadow=True)
+
+        self.assertEqual(summary["examples"], 1)
+        self.assertEqual(summary["by_type"], {"shadow_take": 1})
+        self.assertEqual(examples[0]["source"], "setup_window:take_setup")
+        self.assertEqual(examples[0]["label"], 1)
+        self.assertEqual(examples[0]["candidate_choice"], "calmmind")
+        self.assertEqual(examples[0]["top1_choice"], "earthquake")
+        self.assertEqual(examples[0]["example_type"], "shadow_take")
 
     def test_runtime_gate_can_block_tactical_rerank_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
