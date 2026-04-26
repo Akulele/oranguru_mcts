@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from evaluation.build_rerank_gate_dataset import build_dataset
+from evaluation.build_teacher_rerank_gate_dataset import _examples_for_row
 from src.players.oranguru_engine import OranguruEnginePlayer
 from src.players.oranguru_rerank_gate import build_trace_rerank_gate_example
 
@@ -91,6 +92,49 @@ class RerankGateHookTests(unittest.TestCase):
         self.assertEqual(examples[0]["candidate_choice"], "calmmind")
         self.assertEqual(examples[0]["top1_choice"], "earthquake")
         self.assertEqual(examples[0]["example_type"], "shadow_take")
+
+    def test_builds_teacher_labeled_shadow_gate_example(self):
+        row = {
+            "battle_id": "b1",
+            "turn": 7,
+            "selection_path": "mcts",
+            "chosen_choice": "earthquake",
+            "policy_confidence": 0.31,
+            "policy_threshold": 0.60,
+            "action_labels": ["earthquake", "calmmind"],
+            "top_actions": [
+                {"choice": "earthquake", "kind": "attack", "score": 0.60, "heuristic_score": 20.0},
+                {"choice": "calmmind", "kind": "setup", "score": 0.42, "heuristic_score": 100.0},
+            ],
+            "setup_window": {
+                "reason": "take_setup",
+                "chosen_choice": "earthquake",
+                "setup_choice": "calmmind",
+                "chosen_weight": 0.60,
+                "setup_weight": 0.42,
+                "chosen_heuristic": 20.0,
+                "setup_heuristic": 100.0,
+            },
+        }
+        teacher_row = {
+            "battle_id": "b1",
+            "turn": 7,
+            "action_labels": ["earthquake", "calmmind"],
+            "policy_target": [0.20, 0.45],
+            "teacher_top1_prob": 0.45,
+            "teacher_entropy": 0.6,
+            "teacher_worlds_used": 8,
+            "teacher_total_visits": 400.0,
+        }
+
+        examples = _examples_for_row(row, teacher_row, min_delta=0.02, min_candidate_prob=0.05)
+
+        self.assertEqual(len(examples), 1)
+        self.assertEqual(examples[0]["label"], 1)
+        self.assertEqual(examples[0]["source"], "setup_window:take_setup")
+        self.assertAlmostEqual(examples[0]["teacher_candidate_prob"], 0.45)
+        self.assertAlmostEqual(examples[0]["teacher_top1_prob"], 0.20)
+        self.assertAlmostEqual(examples[0]["teacher_delta_candidate_minus_top1"], 0.25)
 
     def test_runtime_gate_can_block_tactical_rerank_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
