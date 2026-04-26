@@ -279,6 +279,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PROGRESS_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_HEUR_GAIN", "1.0"))
     PROGRESS_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_HEUR_GAIN", "10.0"))
     TACTICAL_RERANKS_ENABLED = bool(int(os.getenv("ORANGURU_TACTICAL_RERANKS", "1")))
+    TACTICAL_SHADOW_WINDOWS_ENABLED = bool(int(os.getenv("ORANGURU_TACTICAL_SHADOW_WINDOWS", "0")))
     FINISH_BLOW_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_FINISH_BLOW_GUARD", "1")))
     SETUP_WINDOW_ENABLED = bool(int(os.getenv("ORANGURU_SETUP_WINDOW", os.getenv("ORANGURU_TACTICAL_RERANKS", "1"))))
     RECOVERY_WINDOW_ENABLED = bool(int(os.getenv("ORANGURU_RECOVERY_WINDOW", os.getenv("ORANGURU_TACTICAL_RERANKS", "1"))))
@@ -580,14 +581,36 @@ class OranguruEnginePlayer(RuleBotPlayer):
         confidence: float,
         threshold: float,
     ) -> Optional[str]:
+        def _record(reason: str, **extra) -> None:
+            try:
+                mem = self._get_battle_memory(battle)
+                if isinstance(mem, dict):
+                    payload = {"reason": reason}
+                    payload.update(extra)
+                    mem["passive_breaker_last"] = payload
+            except Exception:
+                pass
+
+        self._mcts_stats["passive_breaker_calls"] = int(
+            self._mcts_stats.get("passive_breaker_calls", 0) or 0
+        ) + 1
         if not ordered or not self.PASSIVE_BREAKER_ENABLED:
+            _record("disabled_or_empty")
             return None
         if self.PASSIVE_BREAKER_LOWCONF_ONLY and confidence >= threshold:
+            self._mcts_stats["passive_breaker_lowconf_skip"] = int(
+                self._mcts_stats.get("passive_breaker_lowconf_skip", 0) or 0
+            ) + 1
+            _record("high_confidence", confidence=float(confidence), threshold=float(threshold))
             return None
 
         top_choice = ordered[0][0]
         top_kind = self._search_trace_choice_kind(battle, top_choice)
         if top_kind not in {"protect", "recovery", "status", "setup"}:
+            self._mcts_stats["passive_breaker_nonpassive_top"] = int(
+                self._mcts_stats.get("passive_breaker_nonpassive_top", 0) or 0
+            ) + 1
+            _record("top1_not_passive", top_choice=str(top_choice or ""), top_kind=str(top_kind or ""))
             return None
 
         topk = max(2, self.PASSIVE_BREAKER_TOPK)
@@ -595,10 +618,18 @@ class OranguruEnginePlayer(RuleBotPlayer):
         choices = [choice for choice, _ in candidates]
         priors = self._passive_break_choice_priors(battle, choices)
         if not priors:
+            self._mcts_stats["passive_breaker_no_priors"] = int(
+                self._mcts_stats.get("passive_breaker_no_priors", 0) or 0
+            ) + 1
+            _record("no_priors", top_choice=str(top_choice or ""), top_kind=str(top_kind or ""))
             return None
 
         ranked = sorted(zip(choices, priors), key=lambda item: item[1], reverse=True)
         if not ranked:
+            self._mcts_stats["passive_breaker_no_priors"] = int(
+                self._mcts_stats.get("passive_breaker_no_priors", 0) or 0
+            ) + 1
+            _record("empty_ranked", top_choice=str(top_choice or ""), top_kind=str(top_kind or ""))
             return None
         best_choice, best_prob = ranked[0]
         top_prob = 0.0
@@ -608,24 +639,61 @@ class OranguruEnginePlayer(RuleBotPlayer):
                 break
         best_kind = self._search_trace_choice_kind(battle, best_choice)
         if best_choice == top_choice or best_kind not in {"attack", "tera_attack", "switch"}:
+            self._mcts_stats["passive_breaker_no_candidate"] = int(
+                self._mcts_stats.get("passive_breaker_no_candidate", 0) or 0
+            ) + 1
+            _record(
+                "candidate_not_breaking",
+                top_choice=str(top_choice or ""),
+                top_kind=str(top_kind or ""),
+                passive_choice=str(best_choice or ""),
+                attack_choice=str(best_choice or ""),
+                passive_probability=float(best_prob),
+                top_probability=float(top_prob),
+                best_kind=str(best_kind or ""),
+            )
             return None
         if best_prob < self.PASSIVE_BREAKER_MIN_PROB:
+            self._mcts_stats["passive_breaker_min_prob"] = int(
+                self._mcts_stats.get("passive_breaker_min_prob", 0) or 0
+            ) + 1
+            _record(
+                "min_probability",
+                top_choice=str(top_choice or ""),
+                top_kind=str(top_kind or ""),
+                passive_choice=str(best_choice or ""),
+                attack_choice=str(best_choice or ""),
+                passive_probability=float(best_prob),
+                top_probability=float(top_prob),
+                min_probability=float(self.PASSIVE_BREAKER_MIN_PROB),
+            )
             return None
         if (best_prob - top_prob) < self.PASSIVE_BREAKER_MIN_MARGIN:
+            self._mcts_stats["passive_breaker_min_margin"] = int(
+                self._mcts_stats.get("passive_breaker_min_margin", 0) or 0
+            ) + 1
+            _record(
+                "min_margin",
+                top_choice=str(top_choice or ""),
+                top_kind=str(top_kind or ""),
+                passive_choice=str(best_choice or ""),
+                attack_choice=str(best_choice or ""),
+                passive_probability=float(best_prob),
+                top_probability=float(top_prob),
+                margin=float(best_prob - top_prob),
+                min_margin=float(self.PASSIVE_BREAKER_MIN_MARGIN),
+            )
             return None
-        try:
-            mem = self._get_battle_memory(battle)
-            if isinstance(mem, dict):
-                mem["passive_breaker_last"] = {
-                    "reason": "take_passive_break",
-                    "top_choice": str(top_choice or ""),
-                    "passive_choice": str(best_choice or ""),
-                    "top_probability": float(top_prob),
-                    "passive_probability": float(best_prob),
-                    "margin": float(best_prob - top_prob),
-                }
-        except Exception:
-            pass
+        _record(
+            "take_passive_break",
+            top_choice=str(top_choice or ""),
+            top_kind=str(top_kind or ""),
+            passive_choice=str(best_choice or ""),
+            attack_choice=str(best_choice or ""),
+            top_probability=float(top_prob),
+            passive_probability=float(best_prob),
+            margin=float(best_prob - top_prob),
+        )
         self._mcts_stats["passive_breaker_used"] = int(self._mcts_stats.get("passive_breaker_used", 0) or 0) + 1
         return best_choice
 

@@ -1128,6 +1128,20 @@ def select_move_from_results(
                 current_path = "rerank" if current_path == "mcts" else current_path
             return current_choice, current_path
 
+        def _record_shadow_windows(current_choice: str) -> None:
+            if not bool(getattr(self, "TACTICAL_SHADOW_WINDOWS_ENABLED", False)):
+                return
+            if not current_choice:
+                return
+            if not bool(getattr(self, "SETUP_WINDOW_ENABLED", tactical_reranks_enabled)):
+                self._maybe_take_setup_window_choice(battle, ordered, current_choice)
+            if not bool(getattr(self, "RECOVERY_WINDOW_ENABLED", tactical_reranks_enabled)):
+                self._maybe_take_safe_recovery_choice(battle, ordered, current_choice)
+            if not bool(getattr(self, "PROGRESS_WINDOW_ENABLED", tactical_reranks_enabled)):
+                self._maybe_take_progress_when_behind_choice(battle, ordered, current_choice)
+            if not bool(getattr(self, "SWITCH_GUARD_ENABLED", tactical_reranks_enabled)):
+                self._maybe_reduce_negative_matchup_switch(battle, ordered, current_choice)
+
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
         if chosen_choice and bool(getattr(self, "SETUP_WINDOW_ENABLED", tactical_reranks_enabled)):
@@ -1157,6 +1171,7 @@ def select_move_from_results(
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
         if chosen_choice:
+            _record_shadow_windows(chosen_choice)
             self._diag_record_choice(
                 battle,
                 ordered,
@@ -1200,7 +1215,7 @@ def select_move_from_results(
     filtered = self._apply_tera_prune(battle, filtered, confidence, threshold)
     if not filtered:
         filtered = [ordered[0]]
-    if getattr(self, "TACTICAL_RERANKS_ENABLED", True):
+    if getattr(self, "PASSIVE_BREAKER_ENABLED", False):
         passive_break_choice = self._maybe_passive_break_choice(battle, filtered, confidence, threshold)
         if passive_break_choice:
             return _return_choice(passive_break_choice, "rerank")

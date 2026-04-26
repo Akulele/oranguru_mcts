@@ -1526,6 +1526,13 @@ async def main():
         switch_prior_used = int(mcts_stats.get("switch_prior_used", 0))
         switch_prior_pruned = int(mcts_stats.get("switch_prior_pruned", 0))
         passive_breaker_used = int(mcts_stats.get("passive_breaker_used", 0))
+        passive_breaker_calls = int(mcts_stats.get("passive_breaker_calls", 0))
+        passive_breaker_lowconf_skip = int(mcts_stats.get("passive_breaker_lowconf_skip", 0))
+        passive_breaker_nonpassive_top = int(mcts_stats.get("passive_breaker_nonpassive_top", 0))
+        passive_breaker_no_priors = int(mcts_stats.get("passive_breaker_no_priors", 0))
+        passive_breaker_no_candidate = int(mcts_stats.get("passive_breaker_no_candidate", 0))
+        passive_breaker_min_prob = int(mcts_stats.get("passive_breaker_min_prob", 0))
+        passive_breaker_min_margin = int(mcts_stats.get("passive_breaker_min_margin", 0))
         tera_pruner_used = int(mcts_stats.get("tera_pruner_used", 0))
         tera_pruner_pruned = int(mcts_stats.get("tera_pruner_pruned", 0))
         world_ranker_used = int(mcts_stats.get("world_ranker_used", 0))
@@ -1564,8 +1571,28 @@ async def main():
             )
         if switch_prior_used or switch_prior_pruned:
             print(f"   Switch prior uses/pruned: {switch_prior_used}/{switch_prior_pruned}")
-        if passive_breaker_used:
-            print(f"   Passive breaker uses: {passive_breaker_used}")
+        if (
+            passive_breaker_calls
+            or passive_breaker_used
+            or passive_breaker_lowconf_skip
+            or passive_breaker_nonpassive_top
+            or passive_breaker_no_priors
+            or passive_breaker_no_candidate
+            or passive_breaker_min_prob
+            or passive_breaker_min_margin
+        ):
+            print(
+                "   Passive breaker calls/uses/conf/nonpass/noPrior/noCand/minP/minM: {}/{}/{}/{}/{}/{}/{}/{}".format(
+                    passive_breaker_calls,
+                    passive_breaker_used,
+                    passive_breaker_lowconf_skip,
+                    passive_breaker_nonpassive_top,
+                    passive_breaker_no_priors,
+                    passive_breaker_no_candidate,
+                    passive_breaker_min_prob,
+                    passive_breaker_min_margin,
+                )
+            )
         if tera_pruner_used or tera_pruner_pruned:
             print(f"   Tera pruner uses/pruned: {tera_pruner_used}/{tera_pruner_pruned}")
         if world_ranker_used or world_ranker_pruned:
