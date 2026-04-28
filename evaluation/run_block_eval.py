@@ -145,6 +145,13 @@ def _build_jobs(
         args = _upsert_arg(args, "--foulplay-username", foulplay_user)
         args = _upsert_arg(args, "--foulplay-log", str(foulplay_log))
         args = _upsert_arg(args, "--foulplay-user-id-file", str(foulplay_user_id))
+        job_env = dict(env)
+        if str(job_env.get("ORANGURU_SEARCH_TRACE", "0")).strip() not in {"", "0", "false", "False"}:
+            job_env.setdefault(
+                "ORANGURU_SEARCH_TRACE_OUT",
+                str(PROJECT_ROOT / "logs" / "search_traces" / "current" / f"fp_trace_{run_id}.jsonl"),
+            )
+            job_env.setdefault("ORANGURU_SEARCH_TRACE_TAG", run_id)
 
         jobs.append(
             Job(
@@ -156,7 +163,7 @@ def _build_jobs(
                 foulplay_log=foulplay_log,
                 foulplay_user_id_file=foulplay_user_id,
                 args=args,
-                env=dict(env),
+                env=job_env,
             )
         )
     return jobs
@@ -175,6 +182,15 @@ def _make_retry_job(job: Job) -> Job:
         args = _upsert_arg(args, "--foulplay-username", f"{username}r{next_attempt}")
     args = _upsert_arg(args, "--foulplay-log", str(foulplay_log))
     args = _upsert_arg(args, "--foulplay-user-id-file", str(foulplay_user_id))
+    retry_env = dict(job.env)
+    if str(retry_env.get("ORANGURU_SEARCH_TRACE", "0")).strip() not in {"", "0", "false", "False"}:
+        default_old = str(PROJECT_ROOT / "logs" / "search_traces" / "current" / f"fp_trace_{job.run_id}.jsonl")
+        if retry_env.get("ORANGURU_SEARCH_TRACE_OUT") == default_old:
+            retry_env["ORANGURU_SEARCH_TRACE_OUT"] = str(
+                PROJECT_ROOT / "logs" / "search_traces" / "current" / f"fp_trace_{run_id}.jsonl"
+            )
+        if retry_env.get("ORANGURU_SEARCH_TRACE_TAG") == job.run_id:
+            retry_env["ORANGURU_SEARCH_TRACE_TAG"] = run_id
 
     return Job(
         name=job.name,
@@ -185,7 +201,7 @@ def _make_retry_job(job: Job) -> Job:
         foulplay_log=foulplay_log,
         foulplay_user_id_file=foulplay_user_id,
         args=args,
-        env=dict(job.env),
+        env=retry_env,
         attempt=next_attempt,
     )
 
@@ -440,14 +456,20 @@ def main() -> int:
             if job.handle is not None:
                 job.handle.close()
             running.remove(job)
-            summary = _extract_summary(job.stdout_log) if ret == 0 else None
+            summary = _extract_summary(job.stdout_log)
             invalid_reason = None
-            if ret == 0 and summary is None:
+            if summary is None:
                 invalid_reason = "missing_summary"
-            elif ret == 0 and summary["battles"] != args.battles_per_block:
+            elif summary["battles"] != args.battles_per_block:
                 invalid_reason = f"partial:{summary['battles']}/{args.battles_per_block}"
+            elif ret != 0:
+                invalid_reason = f"exit:{ret}"
 
-            if ret == 0 and invalid_reason is not None and job.attempt < args.retry_partial:
+            if (
+                invalid_reason is not None
+                and invalid_reason.startswith("partial:")
+                and job.attempt < args.retry_partial
+            ):
                 retry_job = _make_retry_job(job)
                 pending.append(retry_job)
                 _event(
@@ -483,15 +505,17 @@ def main() -> int:
         summary = _extract_summary(job.stdout_log)
         valid_summary = summary
         invalid_reason = None
-        if job.exit_code != 0:
-            failed += 1
-        elif summary is None:
+        if summary is None:
             failed += 1
             invalid_reason = "missing_summary"
             valid_summary = None
         elif summary["battles"] != args.battles_per_block:
             failed += 1
             invalid_reason = f"partial:{summary['battles']}/{args.battles_per_block}"
+            valid_summary = None
+        elif job.exit_code != 0:
+            failed += 1
+            invalid_reason = f"exit:{job.exit_code}"
             valid_summary = None
         results.append(
             {
