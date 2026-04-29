@@ -120,6 +120,11 @@ def _extract_arg(args: List[str], flag: str) -> Optional[str]:
     return args[idx + 1]
 
 
+def _env_truthy(env: Dict[str, str], key: str) -> bool:
+    value = str(env.get(key, os.environ.get(key, "0"))).strip()
+    return value not in {"", "0", "false", "False"}
+
+
 def _build_jobs(
     name: str,
     blocks: int,
@@ -146,7 +151,7 @@ def _build_jobs(
         args = _upsert_arg(args, "--foulplay-log", str(foulplay_log))
         args = _upsert_arg(args, "--foulplay-user-id-file", str(foulplay_user_id))
         job_env = dict(env)
-        if str(job_env.get("ORANGURU_SEARCH_TRACE", "0")).strip() not in {"", "0", "false", "False"}:
+        if _env_truthy(job_env, "ORANGURU_SEARCH_TRACE"):
             job_env.setdefault(
                 "ORANGURU_SEARCH_TRACE_OUT",
                 str(PROJECT_ROOT / "logs" / "search_traces" / "current" / f"fp_trace_{run_id}.jsonl"),
@@ -183,7 +188,7 @@ def _make_retry_job(job: Job) -> Job:
     args = _upsert_arg(args, "--foulplay-log", str(foulplay_log))
     args = _upsert_arg(args, "--foulplay-user-id-file", str(foulplay_user_id))
     retry_env = dict(job.env)
-    if str(retry_env.get("ORANGURU_SEARCH_TRACE", "0")).strip() not in {"", "0", "false", "False"}:
+    if _env_truthy(retry_env, "ORANGURU_SEARCH_TRACE"):
         default_old = str(PROJECT_ROOT / "logs" / "search_traces" / "current" / f"fp_trace_{job.run_id}.jsonl")
         if retry_env.get("ORANGURU_SEARCH_TRACE_OUT") == default_old:
             retry_env["ORANGURU_SEARCH_TRACE_OUT"] = str(
