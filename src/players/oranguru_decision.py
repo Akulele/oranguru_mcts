@@ -1031,6 +1031,173 @@ def maybe_take_safe_recovery_choice(
     return best_recovery_choice
 
 
+def maybe_take_critical_recovery_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["recovery_window_last"] = payload
+
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("critical_forced_or_empty")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("critical_missing_active")
+        return chosen_choice
+
+    active_hp = active.current_hp_fraction or 0.0
+    max_hp = float(getattr(self, "CRITICAL_RECOVERY_MAX_HP", 0.35))
+    if active_hp > max_hp:
+        _record("critical_high_hp", active_hp=float(active_hp), max_hp=float(max_hp))
+        return chosen_choice
+
+    opp_hp = opponent.current_hp_fraction or 0.0
+    min_opp_hp = float(getattr(self, "CRITICAL_RECOVERY_MIN_OPP_HP", 0.30))
+    if opp_hp <= min_opp_hp:
+        _record("critical_opponent_low", active_hp=float(active_hp), opp_hp=float(opp_hp))
+        return chosen_choice
+
+    reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    max_reply = float(getattr(self, "CRITICAL_RECOVERY_MAX_REPLY", 100.0))
+    if reply_score > max_reply:
+        _record(
+            "critical_unsafe_reply",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            max_reply=float(max_reply),
+        )
+        return chosen_choice
+
+    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    if best_damage_score >= ko_threshold:
+        _record(
+            "critical_ko_guard",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+        )
+        return chosen_choice
+
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+
+    allow_rest = bool(getattr(self, "CRITICAL_RECOVERY_ALLOW_REST", False))
+    best_recovery_choice = ""
+    best_recovery_weight = 0.0
+    best_recovery_heur = 0.0
+    for choice, weight in ordered:
+        if choice.startswith("switch "):
+            continue
+        move_id = normalize_name(choice.replace("-tera", ""))
+        if move_id == "rest" and not allow_rest:
+            continue
+        selected_move = None
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                selected_move = move
+                break
+        if selected_move is None or not self._is_recovery_move(selected_move):
+            continue
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        if heur <= best_recovery_heur:
+            continue
+        best_recovery_choice = choice
+        best_recovery_weight = float(weight or 0.0)
+        best_recovery_heur = heur
+
+    if not best_recovery_choice:
+        _record(
+            "critical_no_recovery_candidate",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+
+    if best_recovery_choice == chosen_choice:
+        _record("critical_chosen_recovery", active_hp=float(active_hp), opp_hp=float(opp_hp))
+        return chosen_choice
+
+    min_heuristic = float(getattr(self, "CRITICAL_RECOVERY_MIN_HEURISTIC", 110.0))
+    heur_gain = best_recovery_heur - chosen_heur
+    min_heur_gain = float(getattr(self, "CRITICAL_RECOVERY_MIN_HEUR_GAIN", 85.0))
+    if best_recovery_heur < min_heuristic or heur_gain < min_heur_gain:
+        _record(
+            "critical_heuristic_gain",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+            recovery_choice=best_recovery_choice,
+            recovery_weight=float(best_recovery_weight),
+            chosen_heuristic=float(chosen_heur),
+            recovery_heuristic=float(best_recovery_heur),
+            min_heuristic=float(min_heuristic),
+            min_heur_gain=float(min_heur_gain),
+        )
+        return chosen_choice
+
+    score_drop = max(0.0, chosen_weight - best_recovery_weight)
+    max_score_drop = float(getattr(self, "CRITICAL_RECOVERY_MAX_SCORE_DROP", 0.12))
+    min_ratio = float(getattr(self, "CRITICAL_RECOVERY_MIN_POLICY_RATIO", 0.40))
+    if score_drop > max_score_drop or best_recovery_weight < chosen_weight * min_ratio:
+        _record(
+            "critical_policy_ratio",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+            recovery_choice=best_recovery_choice,
+            recovery_weight=float(best_recovery_weight),
+            chosen_heuristic=float(chosen_heur),
+            recovery_heuristic=float(best_recovery_heur),
+            score_drop=float(score_drop),
+            max_score_drop=float(max_score_drop),
+            min_policy_ratio=float(min_ratio),
+        )
+        return chosen_choice
+
+    _record(
+        "take_critical_recovery",
+        active_hp=float(active_hp),
+        opp_hp=float(opp_hp),
+        reply_score=float(reply_score),
+        best_damage_score=float(best_damage_score),
+        ko_threshold=float(ko_threshold),
+        chosen_weight=float(chosen_weight),
+        recovery_choice=best_recovery_choice,
+        recovery_weight=float(best_recovery_weight),
+        chosen_heuristic=float(chosen_heur),
+        recovery_heuristic=float(best_recovery_heur),
+        score_drop=float(score_drop),
+    )
+    return best_recovery_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -1144,6 +1311,12 @@ def select_move_from_results(
 
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
+        if chosen_choice and bool(getattr(self, "CRITICAL_RECOVERY_GUARD_ENABLED", False)):
+            chosen_choice, path = _apply_rerank_candidate(
+                chosen_choice,
+                path,
+                self._maybe_take_critical_recovery_choice,
+            )
         if chosen_choice and bool(getattr(self, "SETUP_WINDOW_ENABLED", tactical_reranks_enabled)):
             chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,

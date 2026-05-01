@@ -41,6 +41,14 @@ class SafeRecoveryWindowTests(unittest.TestCase):
         engine.RECOVERY_WINDOW_CRITICAL_MIN_POLICY_RATIO = 0.33
         engine.RECOVERY_WINDOW_MIN_HEUR_GAIN = 1.0
         engine.RECOVERY_WINDOW_HIGH_HEUR_GAIN = 10.0
+        engine.CRITICAL_RECOVERY_MAX_HP = 0.35
+        engine.CRITICAL_RECOVERY_MIN_OPP_HP = 0.30
+        engine.CRITICAL_RECOVERY_MAX_REPLY = 100.0
+        engine.CRITICAL_RECOVERY_MIN_HEURISTIC = 110.0
+        engine.CRITICAL_RECOVERY_MIN_HEUR_GAIN = 85.0
+        engine.CRITICAL_RECOVERY_MIN_POLICY_RATIO = 0.40
+        engine.CRITICAL_RECOVERY_MAX_SCORE_DROP = 0.12
+        engine.CRITICAL_RECOVERY_ALLOW_REST = False
         engine.TACTICAL_KO_THRESHOLD = 220.0
         engine._estimate_best_reply_score = lambda *_args: reply_score
         engine._estimate_best_damage_score = lambda *_args: 40.0
@@ -108,6 +116,54 @@ class SafeRecoveryWindowTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "earthquake")
         self.assertEqual(mem["recovery_window_last"]["reason"], "unsafe_reply")
+
+    def test_critical_recovery_takes_only_strong_supported_recovery(self):
+        engine, battle = self._engine(active_hp=0.31, reply_score=50.0, recover_heuristic=130.0)
+        mem = {}
+        engine._get_battle_memory = lambda _battle: mem
+
+        adjusted = engine._maybe_take_critical_recovery_choice(
+            battle,
+            [("earthquake", 0.183), ("recover", 0.174)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "recover")
+        self.assertEqual(mem["recovery_window_last"]["reason"], "take_critical_recovery")
+
+    def test_critical_recovery_rejects_large_policy_drop(self):
+        engine, battle = self._engine(active_hp=0.31, reply_score=50.0, recover_heuristic=130.0)
+        mem = {}
+        engine._get_battle_memory = lambda _battle: mem
+
+        adjusted = engine._maybe_take_critical_recovery_choice(
+            battle,
+            [("earthquake", 0.60), ("recover", 0.30)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(mem["recovery_window_last"]["reason"], "critical_policy_ratio")
+
+    def test_critical_recovery_excludes_rest_by_default(self):
+        engine, battle = self._engine(active_hp=0.25, reply_score=50.0, recover_heuristic=130.0)
+        battle.available_moves = [
+            DummyMove("rest", category=MoveCategory.STATUS, base_power=0),
+            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
+        ]
+        engine._heuristic_action_score = lambda _battle, choice: 130.0 if choice == "rest" else 2.0
+        engine._is_recovery_move = lambda move: move.id == "rest"
+        mem = {}
+        engine._get_battle_memory = lambda _battle: mem
+
+        adjusted = engine._maybe_take_critical_recovery_choice(
+            battle,
+            [("earthquake", 0.20), ("rest", 0.18)],
+            "earthquake",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(mem["recovery_window_last"]["reason"], "critical_no_recovery_candidate")
 
 
 if __name__ == "__main__":

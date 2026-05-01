@@ -265,6 +265,15 @@ class OranguruEnginePlayer(RuleBotPlayer):
     RECOVERY_WINDOW_CRITICAL_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_RECOVERY_WINDOW_CRITICAL_MIN_POLICY_RATIO", "0.33"))
     RECOVERY_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_RECOVERY_WINDOW_MIN_HEUR_GAIN", "1.0"))
     RECOVERY_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_RECOVERY_WINDOW_HIGH_HEUR_GAIN", "10.0"))
+    CRITICAL_RECOVERY_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_CRITICAL_RECOVERY_GUARD", "0")))
+    CRITICAL_RECOVERY_MAX_HP = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MAX_HP", "0.35"))
+    CRITICAL_RECOVERY_MIN_OPP_HP = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MIN_OPP_HP", "0.30"))
+    CRITICAL_RECOVERY_MAX_REPLY = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MAX_REPLY", "100.0"))
+    CRITICAL_RECOVERY_MIN_HEURISTIC = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MIN_HEURISTIC", "110.0"))
+    CRITICAL_RECOVERY_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MIN_HEUR_GAIN", "85.0"))
+    CRITICAL_RECOVERY_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MIN_POLICY_RATIO", "0.40"))
+    CRITICAL_RECOVERY_MAX_SCORE_DROP = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MAX_SCORE_DROP", "0.12"))
+    CRITICAL_RECOVERY_ALLOW_REST = bool(int(os.getenv("ORANGURU_CRITICAL_RECOVERY_ALLOW_REST", "0")))
     SWITCH_GUARD_MIN_ACTIVE_HP = float(os.getenv("ORANGURU_SWITCH_GUARD_MIN_ACTIVE_HP", "0.45"))
     SWITCH_GUARD_POLICY_RATIO = float(os.getenv("ORANGURU_SWITCH_GUARD_POLICY_RATIO", "0.70"))
     SWITCH_GUARD_HEUR_GAIN = float(os.getenv("ORANGURU_SWITCH_GUARD_HEUR_GAIN", "1.0"))
@@ -1118,6 +1127,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_force_finish_blow_choice = oranguru_decision.maybe_force_finish_blow_choice
     _maybe_take_setup_window_choice = oranguru_decision.maybe_take_setup_window_choice
     _maybe_take_safe_recovery_choice = oranguru_decision.maybe_take_safe_recovery_choice
+    _maybe_take_critical_recovery_choice = oranguru_decision.maybe_take_critical_recovery_choice
     _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
 
