@@ -119,6 +119,7 @@ def _rerank_source(row: dict, choice: str, path: str) -> str:
         return path
     for source, key in (
         ("finish_blow", "finish_blow"),
+        ("critical_recovery", "critical_recovery"),
         ("setup_window", "setup_window"),
         ("recovery_window", "recovery_window"),
         ("progress_window", "progress_window"),
@@ -272,6 +273,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
 
         for window in (
             "finish_blow",
+            "critical_recovery",
             "setup_window",
             "recovery_window",
             "switch_guard",

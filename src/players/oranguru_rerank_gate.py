@@ -14,6 +14,7 @@ from typing import Iterable, Mapping, Optional
 
 RERANK_WINDOWS = (
     ("finish_blow", "finish_blow"),
+    ("critical_recovery", "critical_recovery"),
     ("setup_window", "setup_window"),
     ("recovery_window", "recovery_window"),
     ("progress_window", "progress_window"),

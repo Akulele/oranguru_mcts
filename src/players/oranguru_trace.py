@@ -443,6 +443,9 @@ def append_search_trace_example(
     finish_blow = mem.get("finish_blow_last") if isinstance(mem, dict) else None
     if not isinstance(finish_blow, dict):
         finish_blow = None
+    critical_recovery = mem.get("critical_recovery_last") if isinstance(mem, dict) else None
+    if not isinstance(critical_recovery, dict):
+        critical_recovery = None
     recovery_window = mem.get("recovery_window_last") if isinstance(mem, dict) else None
     if not isinstance(recovery_window, dict):
         recovery_window = None
@@ -502,6 +505,7 @@ def append_search_trace_example(
             "state_value_features": state_value_features,
             "world_candidates": list(world_candidates or []),
             "finish_blow": finish_blow,
+            "critical_recovery": critical_recovery,
             "recovery_window": recovery_window,
             "setup_window": setup_window,
             "switch_guard": switch_guard,

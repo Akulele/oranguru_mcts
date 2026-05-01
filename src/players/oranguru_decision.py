@@ -1049,6 +1049,7 @@ def maybe_take_critical_recovery_choice(
             "chosen_choice": str(chosen_choice or ""),
         }
         payload.update(extra)
+        mem["critical_recovery_last"] = payload
         mem["recovery_window_last"] = payload
 
     if not chosen_choice or getattr(battle, "force_switch", False):
