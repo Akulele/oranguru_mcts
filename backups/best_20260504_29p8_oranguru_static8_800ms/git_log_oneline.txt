@@ -1,0 +1,10 @@
+cbe81ac Trace critical recovery reranks
+d29b80f Add critical recovery guard
+4d418ab Honor inherited search trace env in block eval
+33dfbb6 Harden block eval trace retries
+5edd46d Add teacher-labeled rerank gate dataset tools
+0eba090 Build rerank gate dataset from shadow windows
+b3c3fa7 Decouple passive breaker from tactical rerank switch
+083e742 Add tactical window branch switches
+4322d2f Default finish blow guard on
+8a35f19 Add opt-in finish blow guard

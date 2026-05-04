@@ -1,0 +1,2 @@
+Clean source snapshot taken from committed HEAD cbe81ac after stashing pre-existing dirty/untracked work.
+The backup directory itself was generated after the clean snapshot.
