@@ -1517,15 +1517,14 @@ async def main():
         world_dedup_saved = int(mcts_stats.get("world_dedup_saved", 0))
         fp_close_top_used = int(mcts_stats.get("fp_close_top_used", 0))
         fp_close_top_non_top1 = int(mcts_stats.get("fp_close_top_non_top1", 0))
-        if world_dedup_used or world_dedup_saved or fp_close_top_used:
-            print(
-                "   Cost guards: world dedup used/saved: {}/{} | FP close-top used/nonTop1: {}/{}".format(
-                    world_dedup_used,
-                    world_dedup_saved,
-                    fp_close_top_used,
-                    fp_close_top_non_top1,
-                )
+        print(
+            "   Cost guards: world dedup used/saved: {}/{} | FP close-top used/nonTop1: {}/{}".format(
+                world_dedup_used,
+                world_dedup_saved,
+                fp_close_top_used,
+                fp_close_top_non_top1,
             )
+        )
         adaptive_triggered = int(mcts_stats.get("adaptive_triggered", 0))
         adaptive_rerank = int(mcts_stats.get("adaptive_rerank_used", 0))
         adaptive_second_pass = int(mcts_stats.get("adaptive_second_pass_used", 0))
