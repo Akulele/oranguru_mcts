@@ -602,9 +602,35 @@ def collect_mcts_results(
 
     self._mcts_stats["worlds_generated_total"] += len(fp_battles)
     fp_battles, weights = self._rank_and_trim_worlds(battle, fp_battles, weights)
-    self._mcts_stats["worlds_searched_total"] += len(fp_battles)
 
     states = [battle_to_poke_engine_state(b).to_string() for b in fp_battles]
+    if getattr(self, "WORLD_DEDUP_ENABLED", False) and len(states) > 1:
+        seen: dict[str, int] = {}
+        dedup_states: List[str] = []
+        dedup_battles: List[FPBattle] = []
+        dedup_weights: List[float] = []
+        for state, weight, fp_state in zip(states, weights, fp_battles):
+            index = seen.get(state)
+            if index is None:
+                seen[state] = len(dedup_states)
+                dedup_states.append(state)
+                dedup_battles.append(fp_state)
+                dedup_weights.append(weight)
+            else:
+                dedup_weights[index] += weight
+        saved = len(states) - len(dedup_states)
+        if saved > 0:
+            self._mcts_stats["world_dedup_used"] = int(
+                self._mcts_stats.get("world_dedup_used", 0) or 0
+            ) + 1
+            self._mcts_stats["world_dedup_saved"] = int(
+                self._mcts_stats.get("world_dedup_saved", 0) or 0
+            ) + saved
+            states = dedup_states
+            fp_battles = dedup_battles
+            weights = dedup_weights
+
+    self._mcts_stats["worlds_searched_total"] += len(states)
     self._mcts_stats["states_sampled"] += len(states)
 
     results: List[Tuple[object, float]] = []

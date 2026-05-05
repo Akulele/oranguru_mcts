@@ -1247,7 +1247,8 @@ def select_move_from_results(
     deterministic = self.MCTS_DETERMINISTIC and (
         not self.MCTS_DETERMINISTIC_EVAL_ONLY or is_eval_tag or env_eval_mode
     )
-    if deterministic:
+    fp_close_top_selection = bool(getattr(self, "FP_CLOSE_TOP_SELECTION", False))
+    if deterministic and not fp_close_top_selection:
         self._mcts_stats["deterministic_decisions"] += 1
     else:
         self._mcts_stats["stochastic_decisions"] += 1
@@ -1372,6 +1373,19 @@ def select_move_from_results(
         if not choices:
             return ""
         total = sum(weights) if weights else 0.0
+        if fp_close_top_selection and len(choices) > 1:
+            self._mcts_stats["fp_close_top_used"] = int(
+                self._mcts_stats.get("fp_close_top_used", 0) or 0
+            ) + 1
+            if total <= 0:
+                choice = random.choice(choices)
+            else:
+                choice = random.choices(choices, weights=weights, k=1)[0]
+            if choice != choices[0]:
+                self._mcts_stats["fp_close_top_non_top1"] = int(
+                    self._mcts_stats.get("fp_close_top_non_top1", 0) or 0
+                ) + 1
+            return choice
         if deterministic:
             if total <= 0:
                 return choices[0]
@@ -1383,7 +1397,8 @@ def select_move_from_results(
 
     best = ordered[0][1]
 
-    cutoff = best * 0.75
+    close_top_ratio = max(0.0, min(1.0, float(getattr(self, "FP_CLOSE_TOP_RATIO", 0.75))))
+    cutoff = best * close_top_ratio
     filtered = [o for o in ordered if o[1] >= cutoff]
     filtered = self._apply_switch_prior_prune(battle, filtered, confidence, threshold)
     filtered = self._apply_tera_prune(battle, filtered, confidence, threshold)

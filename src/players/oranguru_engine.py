@@ -74,9 +74,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
     ENDGAME_MAX_STATES = int(
         os.getenv("ORANGURU_ENDGAME_MAX_STATES", str(max(2, SAMPLE_STATES)))
     )
+    WORLD_DEDUP_ENABLED = bool(int(os.getenv("ORANGURU_WORLD_DEDUP", "0")))
     HEURISTIC_BLEND = float(os.getenv("ORANGURU_HEURISTIC_BLEND", "0.35"))
     MIN_HEURISTIC_BLEND = float(os.getenv("ORANGURU_MIN_HEURISTIC_BLEND", "0.0"))
     POLICY_CUTOFF = float(os.getenv("ORANGURU_POLICY_CUTOFF", "0.75"))
+    FP_CLOSE_TOP_SELECTION = bool(int(os.getenv("ORANGURU_FP_CLOSE_TOP_SELECTION", "0")))
+    FP_CLOSE_TOP_RATIO = float(os.getenv("ORANGURU_FP_CLOSE_TOP_RATIO", "0.75"))
     STATUS_KO_GUARD = bool(int(os.getenv("ORANGURU_STATUS_KO_GUARD", "0")))
     STATUS_KO_THRESHOLD = float(os.getenv("ORANGURU_STATUS_KO_THRESHOLD", "200.0"))
     IMMUNITY_INFER = bool(int(os.getenv("ORANGURU_IMMUNITY_INFER", "0")))
