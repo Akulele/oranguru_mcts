@@ -12,7 +12,6 @@ import getpass
 import json
 import logging
 import os
-import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -38,6 +37,13 @@ from evaluation.test_rulebot import test_rulebot
 from training.config import RLConfig
 from src.utils.features import load_moves, EnhancedFeatureBuilder
 from src.utils.damage_calc import normalize_name
+from evaluation.ladder_metrics import (
+    LadderMetricsLogger,
+    battle_has_forfeit,
+    extract_ladder_ratings,
+    remaining_pokemon,
+    resolve_bot_version,
+)
 
 
 def prompt_account_credentials() -> tuple[str, str]:
@@ -250,69 +256,15 @@ class LadderDataCollector:
         return None
 
     def _battle_has_forfeit(self, battle) -> bool:
-        observations = getattr(battle, "_observations", {})
-        for obs in observations.values():
-            for event in getattr(obs, "events", []):
-                if len(event) > 1 and event[1] == "forfeit":
-                    return True
-        return False
+        return battle_has_forfeit(battle)
 
     def _remaining_pokemon(self, battle, is_player: bool) -> int | None:
-        team = battle.team if is_player else battle.opponent_team
-        if not team:
-            return None
-        return sum(1 for mon in team.values() if not getattr(mon, "fainted", False))
+        return remaining_pokemon(battle, player=is_player)
 
     def _extract_battle_ratings(self, battle) -> tuple[int | None, int | None]:
-        """Get player/opponent ratings with fallback parsing from observation events.
-
-        Some Showdown flows don't populate `battle.rating` / `battle.opponent_rating`
-        even though rating updates are present in raw battle messages.
-        """
-        rating = getattr(battle, "rating", None)
-        opponent_rating = getattr(battle, "opponent_rating", None)
-        if rating is not None and opponent_rating is not None:
-            return rating, opponent_rating
-
-        player_name = to_id_str(getattr(battle, "player_username", "") or "")
-        opp_name = to_id_str(getattr(battle, "opponent_username", "") or "")
-
-        # Example source strings:
-        # "A_Jar_Of_Water's rating: 1242 -> 1266"
-        # "A_Jar_Of_Water's rating: 1242 &rarr; <strong>1266</strong>"
-        pattern = re.compile(r"(.+?)'s rating:\s*(\d+)\s*(?:->|→)?\s*(\d+)")
-        observations = getattr(battle, "_observations", {})
-
-        for obs in observations.values():
-            for event in getattr(obs, "events", []):
-                if not event:
-                    continue
-                for chunk in event:
-                    if not isinstance(chunk, str) or "rating:" not in chunk:
-                        continue
-                    text = chunk.replace("&rarr;", "->")
-                    text = re.sub(r"<[^>]+>", " ", text)
-                    for line in text.splitlines():
-                        m = pattern.search(line)
-                        if not m:
-                            continue
-                        name = to_id_str(m.group(1).strip())
-                        try:
-                            new_rating = int(m.group(3))
-                        except Exception:
-                            continue
-                        if player_name and name == player_name and rating is None:
-                            rating = new_rating
-                        elif opp_name and name == opp_name and opponent_rating is None:
-                            opponent_rating = new_rating
-                        elif rating is None:
-                            rating = new_rating
-                        elif opponent_rating is None:
-                            opponent_rating = new_rating
-                        if rating is not None and opponent_rating is not None:
-                            return rating, opponent_rating
-
-        return rating, opponent_rating
+        """Get player/opponent post-ratings for data filters."""
+        ratings = extract_ladder_ratings(battle)
+        return ratings["player_rating_post"], ratings["opponent_rating_post"]
 
 
 def load_checkpoint_for_ladder(path: str, device: str):
@@ -353,15 +305,6 @@ def apply_rl_inference_overrides(config: RLConfig, disable_biases: bool) -> None
     config.switch_bias_enabled = False
     config.switch_stay_penalty_strength = 0.0
     config.attack_eff_penalty_enabled = False
-
-
-def battle_has_forfeit(battle) -> bool:
-    observations = getattr(battle, "_observations", {})
-    for obs in observations.values():
-        for event in getattr(obs, "events", []):
-            if len(event) > 1 and event[1] == "forfeit":
-                return True
-    return False
 
 
 def load_accounts_from_file(path: str) -> list[tuple[str, str]]:
@@ -457,6 +400,8 @@ async def ladder_rulebot(
     challenge_battles: int | None = None,
     snapshot_log: str | None = None,
     snapshot_every: int = 1,
+    ladder_log: str | None = None,
+    bot_version: str = "",
 ):
     if username is None:
         username = os.environ.get("PS_USERNAME")
@@ -466,6 +411,13 @@ async def ladder_rulebot(
     if not username or not password:
         print("❌ Missing credentials. Set PS_USERNAME and PS_PASSWORD in your environment.")
         return 1
+
+    metrics_logger = LadderMetricsLogger(
+        ladder_log,
+        bot_version=bot_version or resolve_bot_version(),
+    )
+    if metrics_logger.enabled:
+        print(f"   🧾 Ladder metrics log: {metrics_logger.path}")
 
     if pre_eval:
         print(f"🔎 Pre-eval: {pre_eval_battles} battles per opponent (local server required)")
@@ -662,6 +614,7 @@ async def ladder_rulebot(
                 asyncio.create_task(self.ps_client.send_message(self._chat_message, room=tag))
 
         def _battle_finished_callback(self, battle):
+            tag = getattr(battle, "battle_tag", "unknown")
             if self.data_collector and battle.finished:
                 won = getattr(battle, "won", False)
                 self.data_collector.commit_battle(battle, won, wins_only=wins_only)
@@ -705,6 +658,23 @@ async def ladder_rulebot(
                     battle_stats["forfeits"] += 1
                 if self._snapshot_every and (self._summary_counts["finished"] % self._snapshot_every == 0):
                     self._emit_snapshot("battle_end", battle=battle)
+                per = action_stats["per_battle"].get(tag, Counter())
+                decisions = int(per.get("actions", 0))
+                decision_ms_sum = float(per.get("decision_ms_sum", 0.0))
+                decision_ms_avg = (decision_ms_sum / decisions) if decisions else None
+                try:
+                    metrics_logger.log_battle(
+                        battle,
+                        account=username,
+                        player_type=player_type,
+                        battle_format=battle_format,
+                        action_counts=per,
+                        decision_count=decisions or None,
+                        decision_ms_avg=decision_ms_avg,
+                        decision_ms_max=float(per.get("decision_ms_max", 0.0)) if decisions else None,
+                    )
+                except Exception as exc:
+                    print(f"⚠️ Ladder metrics logging failed for {tag}: {exc}")
             self._battles.pop(battle.battle_tag, None)
 
         def _log_action(self, battle, order, duration_ms):
@@ -773,6 +743,12 @@ async def ladder_rulebot(
             action_stats["decision_ms_sum"] += duration_ms
             action_stats["decision_ms_max"] = max(action_stats["decision_ms_max"], duration_ms)
             action_stats["decision_ms_count"] += 1
+            action_stats["per_battle"][tag]["actions"] += 1
+            action_stats["per_battle"][tag]["decision_ms_sum"] += duration_ms
+            action_stats["per_battle"][tag]["decision_ms_max"] = max(
+                action_stats["per_battle"][tag].get("decision_ms_max", 0.0),
+                duration_ms,
+            )
             if duration_ms >= decision_slow_ms:
                 action_stats["decision_slow"] += 1
             if self._status_available_in_moves(getattr(battle, "available_moves", [])):
@@ -842,6 +818,12 @@ async def ladder_rulebot(
             action_stats["decision_ms_sum"] += duration_ms
             action_stats["decision_ms_max"] = max(action_stats["decision_ms_max"], duration_ms)
             action_stats["decision_ms_count"] += 1
+            action_stats["per_battle"][tag]["actions"] += 1
+            action_stats["per_battle"][tag]["decision_ms_sum"] += duration_ms
+            action_stats["per_battle"][tag]["decision_ms_max"] = max(
+                action_stats["per_battle"][tag].get("decision_ms_max", 0.0),
+                duration_ms,
+            )
             if duration_ms >= decision_slow_ms:
                 action_stats["decision_slow"] += 1
             if self._status_available_in_moves(getattr(battle, "available_moves", [])):
@@ -988,6 +970,7 @@ async def ladder_rulebot(
             action_idx = action.item()
             order = self._action_to_order(battle, action_idx)
             duration_ms = (time.perf_counter() - start) * 1000
+            tag = getattr(battle, "battle_tag", "unknown")
 
             # Record for training data
             if self.data_collector:
@@ -997,6 +980,12 @@ async def ladder_rulebot(
             action_stats["decision_ms_sum"] += duration_ms
             action_stats["decision_ms_max"] = max(action_stats["decision_ms_max"], duration_ms)
             action_stats["decision_ms_count"] += 1
+            action_stats["per_battle"][tag]["actions"] += 1
+            action_stats["per_battle"][tag]["decision_ms_sum"] += duration_ms
+            action_stats["per_battle"][tag]["decision_ms_max"] = max(
+                action_stats["per_battle"][tag].get("decision_ms_max", 0.0),
+                duration_ms,
+            )
             if duration_ms >= decision_slow_ms:
                 action_stats["decision_slow"] += 1
             if self._status_available_in_moves(getattr(battle, "available_moves", [])):
@@ -1010,7 +999,6 @@ async def ladder_rulebot(
 
             if hasattr(order, "order"):
                 move_or_switch = order.order
-                tag = getattr(battle, "battle_tag", "unknown")
                 if hasattr(move_or_switch, "species"):
                     action_stats["switches"] += 1
                     action_stats["per_battle"][tag]["switches"] += 1
@@ -1402,6 +1390,8 @@ async def ladder_rulebot(
             win_rate = (won / played) if played else 0.0
             print(f"   {name}: {won}/{lost}/{tied} ({win_rate:.1%}) in {played}")
 
+    metrics_logger.print_summary()
+
     if total:
         win_rate = wins / total if total else 0.0
         turns = battle_stats["turns"]
@@ -1489,6 +1479,8 @@ async def ladder_rulebot_multi(
     challenge_battles: int | None = None,
     snapshot_log: str | None = None,
     snapshot_every: int = 1,
+    ladder_log: str | None = None,
+    bot_version: str = "",
 ):
     if not accounts:
         print("❌ No accounts provided.")
@@ -1558,6 +1550,8 @@ async def ladder_rulebot_multi(
                 challenge_battles=challenge_battles,
                 snapshot_log=snapshot_log,
                 snapshot_every=snapshot_every,
+                ladder_log=ladder_log,
+                bot_version=bot_version,
             )
         )
 
@@ -1682,6 +1676,12 @@ if __name__ == "__main__":
                         help="Optional JSONL file for per-battle progress snapshots")
     parser.add_argument("--snapshot-every", type=int, default=1,
                         help="Emit snapshot every N finished battles (0 disables)")
+    parser.add_argument("--ladder-log", type=str, default="logs/ladder/ladder_metrics.jsonl",
+                        help="JSONL file for one row per finished ladder battle")
+    parser.add_argument("--no-ladder-log", action="store_true",
+                        help="Disable ladder metrics JSONL logging")
+    parser.add_argument("--bot-version", type=str, default="",
+                        help="Version label stored in ladder metrics (default: git commit/env)")
     args = parser.parse_args()
     if args.no_rl_disable_biases:
         args.rl_disable_biases = False
@@ -1707,6 +1707,8 @@ if __name__ == "__main__":
     snapshot_log = args.snapshot_log.strip() if args.snapshot_log else ""
     snapshot_log = snapshot_log or None
     snapshot_every = max(0, int(args.snapshot_every))
+    ladder_log = None if args.no_ladder_log else (args.ladder_log.strip() or None)
+    bot_version = args.bot_version.strip()
     account_names = []
     for entry in args.account_name or []:
         for name in entry.split(","):
@@ -1779,6 +1781,8 @@ if __name__ == "__main__":
                 challenge_battles=challenge_battles,
                 snapshot_log=snapshot_log,
                 snapshot_every=snapshot_every,
+                ladder_log=ladder_log,
+                bot_version=bot_version,
             )
         if args.accounts_file:
             accounts = load_accounts_from_file(args.accounts_file)
@@ -1842,6 +1846,8 @@ if __name__ == "__main__":
                 challenge_battles=challenge_battles,
                 snapshot_log=snapshot_log,
                 snapshot_every=snapshot_every,
+                ladder_log=ladder_log,
+                bot_version=bot_version,
             )
         return await ladder_rulebot(
             args.battles,
@@ -1895,6 +1901,8 @@ if __name__ == "__main__":
             challenge_battles=challenge_battles,
             snapshot_log=snapshot_log,
             snapshot_every=snapshot_every,
+            ladder_log=ladder_log,
+            bot_version=bot_version,
         )
 
     raise SystemExit(asyncio.run(_run()))
