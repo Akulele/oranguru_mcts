@@ -503,6 +503,7 @@ async def ladder_rulebot(
             self._guard_errors: int = 0
             self._snapshot_log_path = snapshot_log
             self._snapshot_every = max(0, int(snapshot_every))
+            self._install_ladder_metrics_message_hook()
             self._switch_mass_stats = {
                 "count": 0,
                 "sum": 0.0,
@@ -515,6 +516,25 @@ async def ladder_rulebot(
                 "raw_low": 0,
                 "boosted": 0,
             }
+
+        def _install_ladder_metrics_message_hook(self):
+            ps_client = getattr(self, "ps_client", None)
+            if ps_client is None or getattr(ps_client, "_oranguru_ladder_metrics_hooked", False):
+                return
+            original_handle_message = getattr(ps_client, "_handle_message", None)
+            if original_handle_message is None:
+                return
+
+            async def _handle_message_with_metrics(message: str):
+                if isinstance(message, str) and "rating:" in message:
+                    metrics_logger.update_battle_ratings_from_text(
+                        battle_tag=self._raw_battle_message_tag(message),
+                        text=message,
+                    )
+                return await original_handle_message(message)
+
+            ps_client._handle_message = _handle_message_with_metrics
+            ps_client._oranguru_ladder_metrics_hooked = True
 
         def _build_snapshot_payload(self, reason: str, battle=None) -> dict:
             counts = self._summary_counts
@@ -765,6 +785,14 @@ async def ladder_rulebot(
                             return first[1:]
                         if first.startswith("battle-"):
                             return first
+            return None
+
+        def _raw_battle_message_tag(self, message: str) -> str | None:
+            first = message.splitlines()[0].strip() if message else ""
+            if first.startswith(">battle-"):
+                return first[1:]
+            if first.startswith("battle-"):
+                return first
             return None
 
     class TrackedRuleBot(TrackedBase, RuleBotPlayer):
