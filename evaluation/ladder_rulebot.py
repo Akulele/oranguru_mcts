@@ -718,6 +718,42 @@ async def ladder_rulebot(
                 except Exception:
                     pass
                 self._battles.pop(battle_tag, None)
+            else:
+                text = self._battle_message_text(split_messages)
+                if "rating:" in text:
+                    metrics_logger.update_battle_ratings_from_text(
+                        battle_tag=self._battle_message_tag(split_messages),
+                        text=text,
+                    )
+
+        def _battle_message_text(self, split_messages) -> str:
+            chunks = []
+
+            def visit(obj):
+                if isinstance(obj, str):
+                    chunks.append(obj)
+                elif isinstance(obj, (list, tuple)):
+                    for item in obj:
+                        visit(item)
+
+            visit(split_messages)
+            return "\n".join(chunks)
+
+        def _battle_message_tag(self, split_messages) -> str | None:
+            for obj in split_messages or []:
+                if isinstance(obj, str):
+                    if obj.startswith(">battle-"):
+                        return obj[1:]
+                    if obj.startswith("battle-"):
+                        return obj
+                elif isinstance(obj, (list, tuple)) and obj:
+                    first = obj[0]
+                    if isinstance(first, str):
+                        if first.startswith(">battle-"):
+                            return first[1:]
+                        if first.startswith("battle-"):
+                            return first
+            return None
 
     class TrackedRuleBot(TrackedBase, RuleBotPlayer):
         def __init__(self, *args, data_collector=None, **kwargs):

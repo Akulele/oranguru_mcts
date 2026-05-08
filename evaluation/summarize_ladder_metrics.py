@@ -15,6 +15,13 @@ from statistics import mean
 from typing import Any
 
 
+METRIC_RESULTS = {"win", "loss", "tie"}
+
+
+def _is_metric_row(row: dict[str, Any]) -> bool:
+    return row.get("schema_version") == 1 and str(row.get("result") or "") in METRIC_RESULTS
+
+
 def _safe_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
@@ -81,15 +88,22 @@ def main() -> int:
     args = parser.parse_args()
 
     rows: list[dict[str, Any]] = []
+    skipped = 0
     for raw in args.inputs:
         path = Path(raw)
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
                 if line:
-                    rows.append(json.loads(line))
+                    row = json.loads(line)
+                    if _is_metric_row(row):
+                        rows.append(row)
+                    else:
+                        skipped += 1
 
     _print_summary("Overall", rows)
+    if skipped:
+        print(f"\nSkipped non-metric rows: {skipped}")
     grouped: dict[str, list[dict[str, Any]]] = {}
     if args.by_version:
         by_version: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)

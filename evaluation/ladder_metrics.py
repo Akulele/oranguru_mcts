@@ -194,6 +194,30 @@ def extract_ladder_ratings(battle: Any) -> dict[str, int | None]:
     }
 
 
+def extract_ladder_ratings_from_transitions(
+    transitions: Mapping[str, RatingTransition],
+    *,
+    player_username: str | None,
+    opponent_username: str | None,
+) -> dict[str, int | None]:
+    """Extract rating fields from already-parsed transitions."""
+
+    player = _transition_for_user(transitions, player_username)
+    opponent = _transition_for_user(transitions, opponent_username)
+    if player.post is None and transitions:
+        player = next(iter(transitions.values()))
+    if opponent.post is None and len(transitions) > 1:
+        opponent = list(transitions.values())[1]
+    return {
+        "player_rating_pre": player.pre,
+        "player_rating_post": player.post,
+        "player_rating_delta": player.delta,
+        "opponent_rating_pre": opponent.pre,
+        "opponent_rating_post": opponent.post,
+        "opponent_rating_delta": opponent.delta,
+    }
+
+
 def result_score(battle: Any) -> tuple[str, float]:
     if bool(getattr(battle, "won", False)):
         return "win", 1.0
@@ -215,6 +239,10 @@ class LadderMetricsLogger:
         self.expected_count = 0
         self.rating_delta_sum = 0
         self.rating_delta_count = 0
+        self.rows: list[dict[str, Any]] = []
+        self._existing_lines: list[str] = []
+        if self.path is not None and self.path.exists():
+            self._existing_lines = self.path.read_text(encoding="utf-8").splitlines()
 
     @property
     def enabled(self) -> bool:
@@ -259,12 +287,69 @@ class LadderMetricsLogger:
             "action_counts": dict(action_counts or {}),
         }
         payload.update(ratings)
-        self._accumulate(payload)
+        self.rows.append(payload)
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, sort_keys=True) + "\n")
         return payload
+
+    def update_battle_ratings_from_text(
+        self,
+        *,
+        battle_tag: str | None,
+        text: str,
+    ) -> bool:
+        """Patch a logged battle row when Showdown emits late rating lines.
+
+        poke-env often marks the battle finished before the final raw ladder
+        rating messages are attached to the battle object.  This method keeps
+        the metrics file as one row per battle by rewriting the JSONL file after
+        the matching row is enriched.
+        """
+
+        transitions = parse_rating_transitions_from_text(text)
+        if not transitions:
+            return False
+        row = self._find_row_for_rating_update(battle_tag)
+        if row is None:
+            return False
+        ratings = extract_ladder_ratings_from_transitions(
+            transitions,
+            player_username=str(row.get("account") or ""),
+            opponent_username=str(row.get("opponent_username") or ""),
+        )
+        if ratings["player_rating_pre"] is None and ratings["opponent_rating_pre"] is None:
+            return False
+        row.update(ratings)
+        expected = expected_score(row.get("player_rating_pre"), row.get("opponent_rating_pre"))
+        row["expected_score"] = expected
+        row["rating_residual"] = rating_residual(float(row.get("score", 0.0)), expected)
+        if self.path is not None:
+            self._rewrite_file()
+        return True
+
+    def _find_row_for_rating_update(self, battle_tag: str | None) -> dict[str, Any] | None:
+        if battle_tag:
+            for row in reversed(self.rows):
+                if row.get("battle_tag") == battle_tag:
+                    return row
+        for row in reversed(self.rows):
+            if row.get("player_rating_pre") is None and row.get("opponent_rating_pre") is None:
+                return row
+        return None
+
+    def _rewrite_file(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as handle:
+            for line in self._existing_lines:
+                handle.write(line.rstrip("\n") + "\n")
+            for row in self.rows:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+        tmp.replace(self.path)
 
     def _accumulate(self, payload: Mapping[str, Any]) -> None:
         self.counts["battles"] += 1
@@ -283,6 +368,15 @@ class LadderMetricsLogger:
             self.rating_delta_count += 1
 
     def summary(self) -> dict[str, Any]:
+        self.counts.clear()
+        self.residual_sum = 0.0
+        self.residual_count = 0
+        self.expected_sum = 0.0
+        self.expected_count = 0
+        self.rating_delta_sum = 0
+        self.rating_delta_count = 0
+        for payload in self.rows:
+            self._accumulate(payload)
         battles = int(self.counts.get("battles", 0))
         wins = int(self.counts.get("win", 0))
         losses = int(self.counts.get("loss", 0))

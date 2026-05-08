@@ -77,6 +77,76 @@ class LadderMetricsTest(unittest.TestCase):
             self.assertEqual(saved["bot_version"], "test")
             self.assertEqual(saved["player_rating_delta"], 16)
 
+    def test_logger_patches_late_rating_lines(self):
+        battle = SimpleNamespace(
+            won=False,
+            lost=True,
+            battle_tag="battle-gen9randombattle-2",
+            player_username="Bot",
+            opponent_username="Opp",
+            _observations={},
+            rating=None,
+            opponent_rating=None,
+            turn=20,
+            team={},
+            opponent_team={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ladder.jsonl"
+            logger = LadderMetricsLogger(path, bot_version="test")
+            logger.log_battle(
+                battle,
+                account="Bot",
+                player_type="oranguru_engine",
+                battle_format="gen9randombattle",
+            )
+
+            updated = logger.update_battle_ratings_from_text(
+                battle_tag="battle-gen9randombattle-2",
+                text="Bot's rating: 1510 -> 1494\nOpp's rating: 1510 -> 1526",
+            )
+
+            self.assertTrue(updated)
+            saved = json.loads(path.read_text().strip())
+            self.assertEqual(saved["player_rating_pre"], 1510)
+            self.assertEqual(saved["player_rating_delta"], -16)
+            self.assertAlmostEqual(saved["expected_score"], 0.5)
+            self.assertAlmostEqual(saved["rating_residual"], -0.5)
+
+    def test_late_rating_patch_preserves_existing_log_rows(self):
+        battle = SimpleNamespace(
+            won=True,
+            lost=False,
+            battle_tag="battle-gen9randombattle-3",
+            player_username="Bot",
+            opponent_username="Opp",
+            _observations={},
+            rating=None,
+            opponent_rating=None,
+            turn=5,
+            team={},
+            opponent_team={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ladder.jsonl"
+            path.write_text('{"schema_version":1,"result":"loss"}\n', encoding="utf-8")
+            logger = LadderMetricsLogger(path, bot_version="test")
+            logger.log_battle(
+                battle,
+                account="Bot",
+                player_type="oranguru_engine",
+                battle_format="gen9randombattle",
+            )
+            logger.update_battle_ratings_from_text(
+                battle_tag="battle-gen9randombattle-3",
+                text="Bot's rating: 1500 -> 1516\nOpp's rating: 1500 -> 1484",
+            )
+
+            lines = path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(json.loads(lines[0])["result"], "loss")
+            self.assertEqual(json.loads(lines[1])["player_rating_delta"], 16)
+
 
 if __name__ == "__main__":
     unittest.main()
