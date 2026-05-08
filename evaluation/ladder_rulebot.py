@@ -1338,6 +1338,17 @@ async def ladder_rulebot(
     if interrupted:
         print("⚠️ Ladder interrupted; printing partial summary.")
     if bot is not None:
+        if metrics_logger.enabled:
+            # Showdown rating lines often arrive just after poke-env marks the
+            # battle complete.  Give the websocket a brief drain window, then
+            # rescan retained battle observations before printing summaries.
+            await asyncio.sleep(2.0)
+            try:
+                for battle in bot.battles.values():
+                    if getattr(battle, "finished", False):
+                        metrics_logger.update_battle_ratings_from_battle(battle)
+            except Exception as exc:
+                print(f"⚠️ Ladder metrics rating refresh failed: {exc}")
         try:
             bot._emit_snapshot("final")
         except Exception:

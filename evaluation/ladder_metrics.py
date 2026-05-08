@@ -319,6 +319,23 @@ class LadderMetricsLogger:
             player_username=str(row.get("account") or ""),
             opponent_username=str(row.get("opponent_username") or ""),
         )
+        return self._update_row_ratings(row, ratings)
+
+    def update_battle_ratings_from_battle(self, battle: Any) -> bool:
+        """Patch a logged row from a battle object after late observations arrive."""
+
+        battle_tag = getattr(battle, "battle_tag", None)
+        row = self._find_row_for_rating_update(battle_tag)
+        if row is None:
+            return False
+        ratings = extract_ladder_ratings(battle)
+        return self._update_row_ratings(row, ratings)
+
+    def _update_row_ratings(
+        self,
+        row: dict[str, Any],
+        ratings: Mapping[str, int | None],
+    ) -> bool:
         if ratings["player_rating_pre"] is None and ratings["opponent_rating_pre"] is None:
             return False
         row.update(ratings)

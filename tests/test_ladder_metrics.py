@@ -147,6 +147,42 @@ class LadderMetricsTest(unittest.TestCase):
             self.assertEqual(json.loads(lines[0])["result"], "loss")
             self.assertEqual(json.loads(lines[1])["player_rating_delta"], 16)
 
+    def test_logger_patches_from_battle_observations(self):
+        battle = SimpleNamespace(
+            won=True,
+            lost=False,
+            battle_tag="battle-gen9randombattle-4",
+            player_username="Bot",
+            opponent_username="Opp",
+            _observations={},
+            rating=None,
+            opponent_rating=None,
+            turn=9,
+            team={},
+            opponent_team={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ladder.jsonl"
+            logger = LadderMetricsLogger(path, bot_version="test")
+            logger.log_battle(
+                battle,
+                account="Bot",
+                player_type="oranguru_engine",
+                battle_format="gen9randombattle",
+            )
+
+            battle._observations = {
+                1: SimpleNamespace(events=[[
+                    "Bot's rating: 1500 -> 1516\nOpp's rating: 1500 -> 1484",
+                ]])
+            }
+            updated = logger.update_battle_ratings_from_battle(battle)
+
+            self.assertTrue(updated)
+            saved = json.loads(path.read_text().strip())
+            self.assertEqual(saved["player_rating_delta"], 16)
+            self.assertAlmostEqual(saved["rating_residual"], 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
