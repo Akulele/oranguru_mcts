@@ -124,7 +124,10 @@ def parse_rating_transitions_from_text(text: str) -> dict[str, RatingTransition]
         match = RATING_RE.search(line)
         if not match:
             continue
-        user_id = to_id_str(match.group(1).strip())
+        username = match.group(1).strip()
+        if username.startswith("|raw|"):
+            username = username[len("|raw|") :]
+        user_id = to_id_str(username)
         try:
             pre = int(match.group(2))
             post = int(match.group(3))
@@ -240,6 +243,7 @@ class LadderMetricsLogger:
         self.rating_delta_sum = 0
         self.rating_delta_count = 0
         self.rows: list[dict[str, Any]] = []
+        self.pending_ratings: dict[str, dict[str, int | None]] = {}
         self._existing_lines: list[str] = []
         if self.path is not None and self.path.exists():
             self._existing_lines = self.path.read_text(encoding="utf-8").splitlines()
@@ -288,6 +292,9 @@ class LadderMetricsLogger:
         }
         payload.update(ratings)
         self.rows.append(payload)
+        pending = self.pending_ratings.pop(str(payload.get("battle_tag") or ""), None)
+        if pending:
+            self._update_row_ratings(payload, pending, rewrite=False)
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as handle:
@@ -312,13 +319,15 @@ class LadderMetricsLogger:
         if not transitions:
             return False
         row = self._find_row_for_rating_update(battle_tag)
-        if row is None:
-            return False
         ratings = extract_ladder_ratings_from_transitions(
             transitions,
-            player_username=str(row.get("account") or ""),
-            opponent_username=str(row.get("opponent_username") or ""),
+            player_username=str(row.get("account") or "") if row else None,
+            opponent_username=str(row.get("opponent_username") or "") if row else None,
         )
+        if row is None:
+            if battle_tag:
+                self.pending_ratings[battle_tag] = dict(ratings)
+            return False
         return self._update_row_ratings(row, ratings)
 
     def update_battle_ratings_from_battle(self, battle: Any) -> bool:
@@ -335,6 +344,8 @@ class LadderMetricsLogger:
         self,
         row: dict[str, Any],
         ratings: Mapping[str, int | None],
+        *,
+        rewrite: bool = True,
     ) -> bool:
         if ratings["player_rating_pre"] is None and ratings["opponent_rating_pre"] is None:
             return False
@@ -342,7 +353,7 @@ class LadderMetricsLogger:
         expected = expected_score(row.get("player_rating_pre"), row.get("opponent_rating_pre"))
         row["expected_score"] = expected
         row["rating_residual"] = rating_residual(float(row.get("score", 0.0)), expected)
-        if self.path is not None:
+        if rewrite and self.path is not None:
             self._rewrite_file()
         return True
 

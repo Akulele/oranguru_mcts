@@ -700,6 +700,19 @@ async def ladder_rulebot(
             )
 
         async def _handle_battle_message(self, split_messages):
+            text = self._battle_message_text(split_messages)
+            battle_tag = self._battle_message_tag(split_messages)
+            has_rating = "rating:" in text
+            if has_rating:
+                metrics_logger.update_battle_ratings_from_text(
+                    battle_tag=battle_tag,
+                    text=text,
+                )
+                # Finished battles are removed from poke-env's active battle
+                # map before final ladder rating lines arrive.  Avoid waiting
+                # forever in super()._get_battle for a row we already patched.
+                if battle_tag and battle_tag not in self._battles:
+                    return
             try:
                 await super()._handle_battle_message(split_messages)
             except Exception as exc:
@@ -719,10 +732,9 @@ async def ladder_rulebot(
                     pass
                 self._battles.pop(battle_tag, None)
             else:
-                text = self._battle_message_text(split_messages)
-                if "rating:" in text:
+                if has_rating:
                     metrics_logger.update_battle_ratings_from_text(
-                        battle_tag=self._battle_message_tag(split_messages),
+                        battle_tag=battle_tag,
                         text=text,
                     )
 

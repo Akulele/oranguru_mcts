@@ -21,6 +21,12 @@ class LadderMetricsTest(unittest.TestCase):
         self.assertEqual(row.post, 1266)
         self.assertEqual(row.delta, 24)
 
+    def test_parse_showdown_raw_rating_prefix(self):
+        text = "|raw|A_Jar_Of_Water's rating: 1499 &rarr; <strong>1518</strong>"
+        parsed = parse_rating_transitions_from_text(text)
+        self.assertIn("ajarofwater", parsed)
+        self.assertEqual(parsed["ajarofwater"].delta, 19)
+
     def test_expected_score_even_rating(self):
         self.assertAlmostEqual(expected_score(1500, 1500), 0.5)
 
@@ -112,6 +118,38 @@ class LadderMetricsTest(unittest.TestCase):
             self.assertEqual(saved["player_rating_delta"], -16)
             self.assertAlmostEqual(saved["expected_score"], 0.5)
             self.assertAlmostEqual(saved["rating_residual"], -0.5)
+
+    def test_logger_applies_pending_rating_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ladder.jsonl"
+            logger = LadderMetricsLogger(path, bot_version="test")
+            logger.update_battle_ratings_from_text(
+                battle_tag="battle-gen9randombattle-5",
+                text="Bot's rating: 1500 -> 1516\nOpp's rating: 1500 -> 1484",
+            )
+            battle = SimpleNamespace(
+                won=True,
+                lost=False,
+                battle_tag="battle-gen9randombattle-5",
+                player_username="Bot",
+                opponent_username="Opp",
+                _observations={},
+                rating=None,
+                opponent_rating=None,
+                turn=11,
+                team={},
+                opponent_team={},
+            )
+            logger.log_battle(
+                battle,
+                account="Bot",
+                player_type="oranguru_engine",
+                battle_format="gen9randombattle",
+            )
+
+            saved = json.loads(path.read_text().strip())
+            self.assertEqual(saved["player_rating_delta"], 16)
+            self.assertAlmostEqual(saved["rating_residual"], 0.5)
 
     def test_late_rating_patch_preserves_existing_log_rows(self):
         battle = SimpleNamespace(
