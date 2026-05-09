@@ -695,6 +695,12 @@ async def ladder_rulebot(
                     )
                 except Exception as exc:
                     print(f"⚠️ Ladder metrics logging failed for {tag}: {exc}")
+                try:
+                    flush_traces = getattr(self, "_flush_finished_search_traces", None)
+                    if flush_traces is not None:
+                        flush_traces()
+                except Exception as exc:
+                    print(f"⚠️ Search trace flush failed for {tag}: {exc}")
             self._battles.pop(battle.battle_tag, None)
 
         def _log_action(self, battle, order, duration_ms):
