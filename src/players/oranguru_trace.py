@@ -455,6 +455,9 @@ def append_search_trace_example(
     switch_guard = mem.get("switch_guard_last") if isinstance(mem, dict) else None
     if not isinstance(switch_guard, dict):
         switch_guard = None
+    late_game_attack_guard = mem.get("late_game_attack_guard_last") if isinstance(mem, dict) else None
+    if not isinstance(late_game_attack_guard, dict):
+        late_game_attack_guard = None
     progress_window = mem.get("progress_window_last") if isinstance(mem, dict) else None
     if not isinstance(progress_window, dict):
         progress_window = None
@@ -509,6 +512,7 @@ def append_search_trace_example(
             "recovery_window": recovery_window,
             "setup_window": setup_window,
             "switch_guard": switch_guard,
+            "late_game_attack_guard": late_game_attack_guard,
             "progress_window": progress_window,
             "passive_breaker": passive_breaker,
             "rerank_gate": rerank_gate,

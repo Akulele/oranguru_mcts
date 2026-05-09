@@ -283,6 +283,14 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SWITCH_GUARD_RISK_POLICY_RATIO = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_POLICY_RATIO", "0.60"))
     SWITCH_GUARD_RISK_MIN_RISK = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_MIN_RISK", "999.0"))
     SWITCH_GUARD_RISK_HEUR_FLOOR = float(os.getenv("ORANGURU_SWITCH_GUARD_RISK_HEUR_FLOOR", "-0.5"))
+    LATEGAME_ATTACK_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_LATEGAME_ATTACK_GUARD", "0")))
+    LATEGAME_ATTACK_MIN_TURN = int(os.getenv("ORANGURU_LATEGAME_ATTACK_MIN_TURN", "12"))
+    LATEGAME_ATTACK_ALLOW_HIDDEN = bool(int(os.getenv("ORANGURU_LATEGAME_ATTACK_ALLOW_HIDDEN", "0")))
+    LATEGAME_ATTACK_MIN_BASE_POWER = float(os.getenv("ORANGURU_LATEGAME_ATTACK_MIN_BASE_POWER", "50.0"))
+    LATEGAME_ATTACK_MIN_HEURISTIC = float(os.getenv("ORANGURU_LATEGAME_ATTACK_MIN_HEURISTIC", "0.75"))
+    LATEGAME_ATTACK_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_LATEGAME_ATTACK_MIN_POLICY_RATIO", "0.05"))
+    LATEGAME_ATTACK_MAX_SCORE_DROP = float(os.getenv("ORANGURU_LATEGAME_ATTACK_MAX_SCORE_DROP", "0.40"))
+    LATEGAME_ATTACK_MAX_RISK = float(os.getenv("ORANGURU_LATEGAME_ATTACK_MAX_RISK", "35.0"))
     PROGRESS_WINDOW_MIN_ACTIVE_HP = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_ACTIVE_HP", "0.50"))
     PROGRESS_WINDOW_MIN_OPP_HP = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_OPP_HP", "0.55"))
     PROGRESS_WINDOW_MAX_REPLY = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MAX_REPLY", "120.0"))
@@ -1133,6 +1141,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_take_critical_recovery_choice = oranguru_decision.maybe_take_critical_recovery_choice
     _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
+    _maybe_commit_late_game_attack_choice = oranguru_decision.maybe_commit_late_game_attack_choice
 
     def _adaptive_rerank_choice(
         self,

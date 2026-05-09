@@ -10,6 +10,18 @@ from poke_env.battle import Battle, Pokemon, MoveCategory
 from src.utils.damage_calc import normalize_name
 
 
+_COMMIT_AVOIDING_MOVES = {
+    "batonpass",
+    "chillyreception",
+    "flipturn",
+    "partingshot",
+    "shedtail",
+    "teleport",
+    "uturn",
+    "voltswitch",
+}
+
+
 def heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]:
     active = battle.active_pokemon
     opponent = battle.opponent_active_pokemon
@@ -350,6 +362,210 @@ def maybe_reduce_negative_matchup_switch(
         **_details(min_policy_ratio=policy_ratio, min_heur_gain=min_heur_gain),
     )
     return chosen_choice
+
+
+def maybe_commit_late_game_attack_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["late_game_attack_guard_last"] = payload
+
+    def _alive_count(team: object) -> tuple[int, int]:
+        if not isinstance(team, dict):
+            return 0, 0
+        visible = 0
+        alive = 0
+        for mon in team.values():
+            visible += 1
+            if not bool(getattr(mon, "fainted", False)):
+                alive += 1
+        return visible, alive
+
+    def _move_for_choice(choice: str):
+        move_id = normalize_name(choice.replace("-tera", ""))
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                return move
+        return None
+
+    def _is_commit_avoiding_choice(choice: str) -> bool:
+        if not choice:
+            return False
+        if choice.startswith("switch "):
+            return True
+        move = _move_for_choice(choice)
+        if move is None:
+            return False
+        move_id = normalize_name(getattr(move, "id", ""))
+        protect_moves = getattr(self, "PROTECT_MOVES", set())
+        if move_id in _COMMIT_AVOIDING_MOVES or move_id in protect_moves:
+            return True
+        try:
+            if self._is_recovery_move(move):
+                return True
+        except Exception:
+            pass
+        return getattr(move, "category", None) == MoveCategory.STATUS
+
+    def _is_direct_attack_choice(choice: str) -> bool:
+        move = _move_for_choice(choice)
+        if move is None:
+            return False
+        move_id = normalize_name(getattr(move, "id", ""))
+        if move_id in _COMMIT_AVOIDING_MOVES:
+            return False
+        if not self._is_damaging_move_choice(battle, choice):
+            return False
+        min_base_power = float(getattr(self, "LATEGAME_ATTACK_MIN_BASE_POWER", 50.0))
+        base_power = float(getattr(move, "base_power", 0.0) or 0.0)
+        damage_attr = getattr(move, "damage", None)
+        return base_power >= min_base_power or damage_attr not in (None, 0, "0", False)
+
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("forced_or_empty")
+        return chosen_choice
+    if not _is_commit_avoiding_choice(chosen_choice):
+        _record("already_committed")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    my_visible, my_alive = _alive_count(getattr(battle, "team", {}) or {})
+    opp_visible, opp_alive = _alive_count(getattr(battle, "opponent_team", {}) or {})
+    opp_hidden = max(0, 6 - opp_visible)
+    allow_hidden = bool(getattr(self, "LATEGAME_ATTACK_ALLOW_HIDDEN", False))
+    turn = int(getattr(battle, "turn", 0) or 0)
+    min_turn = int(getattr(self, "LATEGAME_ATTACK_MIN_TURN", 12))
+
+    known_endgame = opp_hidden == 0 and (my_alive <= 2 or opp_alive <= 2)
+    late_known_close = (
+        opp_hidden == 0
+        and turn >= min_turn
+        and my_alive <= 3
+        and opp_alive <= 3
+    )
+    hidden_desperation = allow_hidden and turn >= min_turn and my_alive <= 2 and opp_alive <= 2
+    if not (known_endgame or late_known_close or hidden_desperation):
+        _record(
+            "not_lategame",
+            turn=int(turn),
+            min_turn=int(min_turn),
+            my_visible=int(my_visible),
+            my_alive=int(my_alive),
+            opp_visible=int(opp_visible),
+            opp_alive=int(opp_alive),
+            opp_hidden=int(opp_hidden),
+        )
+        return chosen_choice
+
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
+
+    best_choice = ""
+    best_weight = 0.0
+    best_heur = 0.0
+    for choice, weight in ordered:
+        if not _is_direct_attack_choice(choice):
+            continue
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        candidate_weight = float(weight or 0.0)
+        if not best_choice or (heur, candidate_weight) > (best_heur, best_weight):
+            best_choice = choice
+            best_weight = candidate_weight
+            best_heur = heur
+
+    if not best_choice:
+        _record(
+            "no_direct_attack_candidate",
+            turn=int(turn),
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            opp_hidden=int(opp_hidden),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+    if best_choice == chosen_choice:
+        _record("chosen_direct_attack", attack_choice=best_choice)
+        return chosen_choice
+
+    min_heuristic = float(getattr(self, "LATEGAME_ATTACK_MIN_HEURISTIC", 0.75))
+    if best_heur < min_heuristic:
+        _record(
+            "weak_attack_heuristic",
+            attack_choice=best_choice,
+            attack_heuristic=float(best_heur),
+            min_heuristic=float(min_heuristic),
+        )
+        return chosen_choice
+
+    if chosen_weight <= 0.0:
+        policy_ratio = 1.0 if best_weight > 0.0 else 0.0
+    else:
+        policy_ratio = best_weight / max(chosen_weight, 1e-6)
+    score_drop = max(0.0, chosen_weight - best_weight)
+    min_ratio = float(getattr(self, "LATEGAME_ATTACK_MIN_POLICY_RATIO", 0.05))
+    max_drop = float(getattr(self, "LATEGAME_ATTACK_MAX_SCORE_DROP", 0.40))
+    if policy_ratio < min_ratio or score_drop > max_drop:
+        _record(
+            "policy_ratio",
+            attack_choice=best_choice,
+            chosen_weight=float(chosen_weight),
+            attack_weight=float(best_weight),
+            policy_ratio=float(policy_ratio),
+            min_policy_ratio=float(min_ratio),
+            score_drop=float(score_drop),
+            max_score_drop=float(max_drop),
+        )
+        return chosen_choice
+
+    attack_risk = float(self._adaptive_choice_risk_penalty(battle, best_choice) or 0.0)
+    max_risk = float(getattr(self, "LATEGAME_ATTACK_MAX_RISK", 35.0))
+    if attack_risk > max_risk:
+        _record(
+            "attack_risk",
+            attack_choice=best_choice,
+            attack_risk=float(attack_risk),
+            max_attack_risk=float(max_risk),
+        )
+        return chosen_choice
+
+    _record(
+        "take_late_attack",
+        attack_choice=best_choice,
+        turn=int(turn),
+        my_alive=int(my_alive),
+        opp_alive=int(opp_alive),
+        opp_hidden=int(opp_hidden),
+        active_hp=float(active.current_hp_fraction or 0.0),
+        opp_hp=float(opponent.current_hp_fraction or 0.0),
+        chosen_weight=float(chosen_weight),
+        attack_weight=float(best_weight),
+        policy_ratio=float(policy_ratio),
+        score_drop=float(score_drop),
+        chosen_heuristic=float(chosen_heur),
+        attack_heuristic=float(best_heur),
+        attack_risk=float(attack_risk),
+    )
+    return best_choice
 
 
 def maybe_take_progress_when_behind_choice(
@@ -1345,6 +1561,15 @@ def select_move_from_results(
             )
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
+        if chosen_choice and bool(getattr(self, "LATEGAME_ATTACK_GUARD_ENABLED", False)):
+            adjusted_choice = self._maybe_commit_late_game_attack_choice(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "late_attack"
         if chosen_choice:
             _record_shadow_windows(chosen_choice)
             self._diag_record_choice(

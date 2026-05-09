@@ -277,6 +277,7 @@ def summarize(paths: list[str], *, sample_limit: int = 20) -> dict:
             "setup_window",
             "recovery_window",
             "switch_guard",
+            "late_game_attack_guard",
             "progress_window",
             "passive_breaker",
             "rerank_gate",

@@ -34,6 +34,7 @@ class DummyBattle:
         self.team = {"active": self.active_pokemon}
         self.opponent_team = {"active": self.opponent_active_pokemon}
         self.opponent_side_conditions = {}
+        self.turn = 1
 
 
 class DummyResult:
@@ -137,6 +138,112 @@ class OranguruDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(adjusted, "earthquake")
+
+    def test_lategame_attack_guard_commits_direct_damage_over_switch(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.PROTECT_MOVES = set()
+        engine.LATEGAME_ATTACK_MIN_TURN = 12
+        engine.LATEGAME_ATTACK_ALLOW_HIDDEN = False
+        engine.LATEGAME_ATTACK_MIN_BASE_POWER = 50.0
+        engine.LATEGAME_ATTACK_MIN_HEURISTIC = 0.75
+        engine.LATEGAME_ATTACK_MIN_POLICY_RATIO = 0.05
+        engine.LATEGAME_ATTACK_MAX_SCORE_DROP = 0.40
+        engine.LATEGAME_ATTACK_MAX_RISK = 35.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_recovery_move = lambda _move: False
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._adaptive_choice_risk_penalty = lambda *_args: 0.0
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "switch talonflame": 0.0,
+            "uturn": 18.0,
+            "nuzzle": 7.0,
+            "thunderbolt": 2.1,
+            "dazzlinggleam": 1.8,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.turn = 53
+        battle.active_pokemon = DummyPokemon(0.6)
+        battle.opponent_active_pokemon = DummyPokemon(0.74)
+        battle.team = {
+            "ded": battle.active_pokemon,
+            "talonflame": DummyPokemon(0.35),
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+            "fainted3": DummyPokemon(0.0),
+            "fainted4": DummyPokemon(0.0),
+        }
+        battle.opponent_team = {
+            "chansey": battle.opponent_active_pokemon,
+            "alomomola": DummyPokemon(1.0),
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+            "fainted3": DummyPokemon(0.0),
+            "fainted4": DummyPokemon(0.0),
+        }
+        battle.available_moves = [
+            DummyMove("uturn", category=MoveCategory.PHYSICAL, base_power=70),
+            DummyMove("nuzzle", category=MoveCategory.PHYSICAL, base_power=20),
+            DummyMove("thunderbolt", category=MoveCategory.SPECIAL, base_power=90),
+            DummyMove("dazzlinggleam", category=MoveCategory.SPECIAL, base_power=80),
+        ]
+
+        adjusted = engine._maybe_commit_late_game_attack_choice(
+            battle,
+            [
+                ("switch talonflame", 0.3589),
+                ("uturn", 0.3420),
+                ("nuzzle", 0.2396),
+                ("thunderbolt", 0.0354),
+                ("dazzlinggleam", 0.0241),
+            ],
+            "switch talonflame",
+        )
+
+        self.assertEqual(adjusted, "thunderbolt")
+        self.assertEqual(memory["late_game_attack_guard_last"]["reason"], "take_late_attack")
+
+    def test_lategame_attack_guard_ignores_hidden_opponents_by_default(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.PROTECT_MOVES = set()
+        engine.LATEGAME_ATTACK_MIN_TURN = 12
+        engine.LATEGAME_ATTACK_ALLOW_HIDDEN = False
+        engine.LATEGAME_ATTACK_MIN_BASE_POWER = 50.0
+        engine.LATEGAME_ATTACK_MIN_HEURISTIC = 0.75
+        engine.LATEGAME_ATTACK_MIN_POLICY_RATIO = 0.05
+        engine.LATEGAME_ATTACK_MAX_SCORE_DROP = 0.40
+        engine.LATEGAME_ATTACK_MAX_RISK = 35.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_recovery_move = lambda _move: False
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._adaptive_choice_risk_penalty = lambda *_args: 0.0
+        engine._heuristic_action_score = lambda _battle, choice: 10.0 if choice == "behemothblade" else 0.0
+        battle = DummyBattle()
+        battle.turn = 6
+        battle.active_pokemon = DummyPokemon(1.0)
+        battle.opponent_active_pokemon = DummyPokemon(0.37)
+        battle.team = {
+            "active": battle.active_pokemon,
+            "ally1": DummyPokemon(1.0),
+            "ally2": DummyPokemon(1.0),
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+            "fainted3": DummyPokemon(0.0),
+        }
+        battle.opponent_team = {"active": battle.opponent_active_pokemon}
+        battle.available_moves = [
+            DummyMove("behemothblade", category=MoveCategory.PHYSICAL, base_power=100),
+        ]
+
+        adjusted = engine._maybe_commit_late_game_attack_choice(
+            battle,
+            [("switch hydrapple", 0.2026), ("behemothblade", 0.2077)],
+            "switch hydrapple",
+        )
+
+        self.assertEqual(adjusted, "switch hydrapple")
+        self.assertEqual(memory["late_game_attack_guard_last"]["reason"], "not_lategame")
 
     def test_negative_matchup_switch_guard_breaks_near_tie_for_damage(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
