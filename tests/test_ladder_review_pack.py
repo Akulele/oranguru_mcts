@@ -103,6 +103,7 @@ class LadderReviewPackTests(unittest.TestCase):
         self.assertEqual(pack["rows"][0]["opponent_species"], "pikachu")
         self.assertEqual(pack["rows"][0]["board_context"]["user"]["alive"], 1)
         self.assertEqual(pack["rows"][0]["board_context"]["opponent"]["alive"], 2)
+        self.assertEqual(pack["rows"][0]["board_context"]["opponent"]["hidden_estimate"], 4)
         self.assertEqual(pack["rows"][0]["board_context"]["field"]["weather"], "raindance")
         self.assertEqual(pack["rows"][0]["nearby_turns"][0]["turn"], 28)
         self.assertEqual(pack["rows"][0]["teacher"]["source"], "fp_oracle")

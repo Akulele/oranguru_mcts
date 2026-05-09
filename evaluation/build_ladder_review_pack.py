@@ -230,10 +230,19 @@ def _side_context(fp_oracle_battle: dict[str, Any], side: str) -> dict[str, Any]
     if active and not active.get("fainted"):
         alive += 1
     alive += sum(1 for mon in bench if not mon.get("fainted"))
+    visible = int(bool(active)) + len(bench)
+    hidden_estimate = 0
+    if side == "opponent":
+        # Random battles only expose revealed opposing Pokemon.  Make that
+        # uncertainty explicit so reviewers do not read known-alive as full
+        # team state.
+        hidden_estimate = max(0, 6 - visible)
     return {
         "active": active,
         "bench": bench,
         "alive": alive,
+        "visible": visible,
+        "hidden_estimate": hidden_estimate,
         "side_conditions": dict(side_obj.get("side_conditions") or {}),
         "trapped": bool(side_obj.get("trapped", False)),
         "wish": list(side_obj.get("wish") or []),
@@ -706,7 +715,8 @@ def write_markdown(pack: dict[str, Any], path: str | Path) -> None:
         field = context.get("field") if isinstance(context, dict) else {}
         if isinstance(user, dict) and isinstance(opponent, dict):
             lines.append(
-                f"- Remaining: us {user.get('alive', '?')} / opp {opponent.get('alive', '?')}"
+                f"- Known remaining: us {user.get('alive', '?')} / opp {opponent.get('alive', '?')} "
+                f"(opp hidden estimate {opponent.get('hidden_estimate', 0)})"
             )
             lines.append(
                 f"- Field: weather={field.get('weather') if isinstance(field, dict) else None} "
