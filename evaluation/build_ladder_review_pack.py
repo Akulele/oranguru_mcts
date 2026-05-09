@@ -287,9 +287,12 @@ def _board_summary(row: dict[str, Any]) -> dict[str, Any]:
             "opponent_hp": None,
             "user_alive": None,
             "opp_alive": None,
+            "opp_hidden_estimate": None,
         }
     user_active = _oracle_side_active(fp, "user")
     opp_active = _oracle_side_active(fp, "opponent")
+    context = _board_context(row)
+    opponent = context.get("opponent") if isinstance(context, dict) else {}
     return {
         "active_species": _species(user_active),
         "opponent_species": _species(opp_active),
@@ -297,6 +300,7 @@ def _board_summary(row: dict[str, Any]) -> dict[str, Any]:
         "opponent_hp": None if not isinstance(opp_active, dict) else round(_hp_frac(opp_active), 3),
         "user_alive": _alive_count(fp, "user"),
         "opp_alive": _alive_count(fp, "opponent"),
+        "opp_hidden_estimate": opponent.get("hidden_estimate") if isinstance(opponent, dict) else None,
     }
 
 
@@ -400,6 +404,15 @@ def _priority(
     phase = str(row.get("phase", "") or "")
     path = str(row.get("selection_path", "") or "")
     board = _board_summary(row)
+    user_alive = board.get("user_alive")
+    opp_alive = board.get("opp_alive")
+    opp_hidden_estimate = int(board.get("opp_hidden_estimate") or 0)
+    user_low_remaining = isinstance(user_alive, int) and user_alive <= 2
+    opp_low_remaining = (
+        isinstance(opp_alive, int)
+        and opp_alive <= 2
+        and opp_hidden_estimate == 0
+    )
     result = str((ladder or {}).get("result", "") or "")
     residual = _safe_float((ladder or {}).get("rating_residual"), 0.0)
     expected = _safe_float((ladder or {}).get("expected_score"), 0.0)
@@ -424,14 +437,13 @@ def _priority(
     if turn >= 20:
         score += min(14.0, (turn - 19) * 0.7)
         reasons.append("late-game turn")
-    if phase == "end":
+    if phase == "end" and (user_low_remaining or opp_low_remaining):
         score += 8.0
         reasons.append("endgame phase")
 
-    if board["user_alive"] is not None and board["opp_alive"] is not None:
-        if min(int(board["user_alive"]), int(board["opp_alive"])) <= 2:
-            score += 8.0
-            reasons.append("low remaining mons")
+    if user_low_remaining or opp_low_remaining:
+        score += 8.0
+        reasons.append("low remaining mons")
     if board["active_hp"] is not None and float(board["active_hp"]) <= 0.35:
         score += 5.0
         reasons.append("active low HP")
