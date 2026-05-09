@@ -41,13 +41,22 @@ class LadderReviewPackTests(unittest.TestCase):
                 ],
                 "fp_oracle_battle": {
                     "user": {
-                        "active": {"name": "Hippowdon", "hp": 60, "max_hp": 100},
+                        "active": {
+                            "name": "Hippowdon",
+                            "hp": 60,
+                            "max_hp": 100,
+                            "status": "brn",
+                            "moves": [{"name": "earthquake"}, {"name": "slackoff"}],
+                        },
                         "reserve": [{"name": "Rotom", "hp": 0, "max_hp": 100}],
+                        "side_conditions": {"stealthrock": 1},
                     },
                     "opponent": {
                         "active": {"name": "Pikachu", "hp": 20, "max_hp": 100},
-                        "reserve": [],
+                        "reserve": [{"name": "Blissey", "hp": 100, "max_hp": 100}],
+                        "side_conditions": {"spikes": 1},
                     },
+                    "weather": "raindance",
                 },
             },
             {
@@ -78,6 +87,10 @@ class LadderReviewPackTests(unittest.TestCase):
         self.assertIn("negative residual", " ".join(pack["rows"][0]["reasons"]))
         self.assertEqual(pack["rows"][0]["active_species"], "hippowdon")
         self.assertEqual(pack["rows"][0]["opponent_species"], "pikachu")
+        self.assertEqual(pack["rows"][0]["board_context"]["user"]["alive"], 1)
+        self.assertEqual(pack["rows"][0]["board_context"]["opponent"]["alive"], 2)
+        self.assertEqual(pack["rows"][0]["board_context"]["field"]["weather"], "raindance")
+        self.assertEqual(pack["rows"][0]["nearby_turns"][0]["turn"], 28)
 
 
 if __name__ == "__main__":

@@ -125,6 +125,85 @@ def _alive_count(fp_oracle_battle: dict[str, Any], side: str) -> int | None:
     return count if seen else None
 
 
+def _mon_snapshot(mon: Any) -> dict[str, Any] | None:
+    if not isinstance(mon, dict):
+        return None
+    hp = _hp_frac(mon)
+    moves = mon.get("moves") or []
+    move_names: list[str] = []
+    if isinstance(moves, list):
+        for move in moves[:6]:
+            if isinstance(move, dict):
+                name = str(move.get("name", "") or "")
+            else:
+                name = str(move or "")
+            if name:
+                move_names.append(name)
+    return {
+        "species": _species(mon),
+        "hp": round(hp, 3),
+        "status": str(mon.get("status", "") or ""),
+        "boosts": dict(mon.get("boosts") or {}),
+        "item": mon.get("item"),
+        "ability": mon.get("ability"),
+        "tera_type": mon.get("tera_type"),
+        "fainted": bool(mon.get("fainted", False) or hp <= 0.0),
+        "moves": move_names,
+    }
+
+
+def _side_context(fp_oracle_battle: dict[str, Any], side: str) -> dict[str, Any]:
+    side_obj = fp_oracle_battle.get(side) if isinstance(fp_oracle_battle, dict) else None
+    if not isinstance(side_obj, dict):
+        side_obj = {}
+    active = _mon_snapshot(_oracle_side_active(fp_oracle_battle, side))
+    bench = [
+        snap
+        for snap in (_mon_snapshot(mon) for mon in _oracle_side_reserve(fp_oracle_battle, side))
+        if snap is not None
+    ]
+    alive = 0
+    if active and not active.get("fainted"):
+        alive += 1
+    alive += sum(1 for mon in bench if not mon.get("fainted"))
+    return {
+        "active": active,
+        "bench": bench,
+        "alive": alive,
+        "side_conditions": dict(side_obj.get("side_conditions") or {}),
+        "trapped": bool(side_obj.get("trapped", False)),
+        "wish": list(side_obj.get("wish") or []),
+        "future_sight": list(side_obj.get("future_sight") or []),
+    }
+
+
+def _field_context(fp_oracle_battle: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(fp_oracle_battle, dict):
+        return {}
+    return {
+        "turn": fp_oracle_battle.get("turn"),
+        "weather": fp_oracle_battle.get("weather"),
+        "weather_turns_remaining": fp_oracle_battle.get("weather_turns_remaining"),
+        "field": fp_oracle_battle.get("field"),
+        "field_turns_remaining": fp_oracle_battle.get("field_turns_remaining"),
+        "trick_room": fp_oracle_battle.get("trick_room"),
+        "trick_room_turns_remaining": fp_oracle_battle.get("trick_room_turns_remaining"),
+        "gravity": fp_oracle_battle.get("gravity"),
+        "force_switch": fp_oracle_battle.get("force_switch"),
+    }
+
+
+def _board_context(row: dict[str, Any]) -> dict[str, Any]:
+    fp = row.get("fp_oracle_battle")
+    if not isinstance(fp, dict):
+        return {}
+    return {
+        "field": _field_context(fp),
+        "user": _side_context(fp, "user"),
+        "opponent": _side_context(fp, "opponent"),
+    }
+
+
 def _board_summary(row: dict[str, Any]) -> dict[str, Any]:
     fp = row.get("fp_oracle_battle")
     if not isinstance(fp, dict):
@@ -146,6 +225,38 @@ def _board_summary(row: dict[str, Any]) -> dict[str, Any]:
         "user_alive": _alive_count(fp, "user"),
         "opp_alive": _alive_count(fp, "opponent"),
     }
+
+
+def _nearby_turns(
+    battle_rows: list[dict[str, Any]],
+    *,
+    turn: int,
+    radius: int = 3,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in battle_rows:
+        row_turn = int(row.get("turn", 0) or 0)
+        if abs(row_turn - turn) > radius:
+            continue
+        choice = _choice(row)
+        actions = _top_actions(row)
+        top_choice = str(actions[0].get("choice", "") or "") if actions else ""
+        board = _board_summary(row)
+        out.append(
+            {
+                "turn": row_turn,
+                "choice": choice,
+                "top_choice": top_choice,
+                "active_species": board.get("active_species"),
+                "opponent_species": board.get("opponent_species"),
+                "active_hp": board.get("active_hp"),
+                "opponent_hp": board.get("opponent_hp"),
+                "policy_confidence": round(_safe_float(row.get("policy_confidence"), 0.0), 4),
+                "selection_path": str(row.get("selection_path", "") or ""),
+            }
+        )
+    out.sort(key=lambda item: int(item.get("turn", 0) or 0))
+    return out
 
 
 def _score_drop(row: dict[str, Any], choice: str) -> float:
@@ -345,6 +456,11 @@ def build_ladder_review_pack(
         for row in trace_rows
         if str(row.get("battle_id", "") or "") in ladder_by_battle
     ]
+    rows_by_battle: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in trace_rows:
+        rows_by_battle[str(row.get("battle_id", "") or "")].append(row)
+    for rows in rows_by_battle.values():
+        rows.sort(key=lambda item: int(item.get("turn", 0) or 0))
     issues = _issue_lookup(trace_rows, sample_limit=max(limit, 25)) if trace_rows else {}
     candidates: list[dict[str, Any]] = []
     for row in trace_rows:
@@ -389,6 +505,11 @@ def build_ladder_review_pack(
             "human_notes": "",
         }
         item.update(board)
+        item["board_context"] = _board_context(row)
+        item["nearby_turns"] = _nearby_turns(
+            rows_by_battle.get(battle_id, []),
+            turn=int(row.get("turn", 0) or 0),
+        )
         item["review_prompt"] = _review_prompt(item)
         candidates.append(item)
 
@@ -473,8 +594,43 @@ def write_markdown(pack: dict[str, Any], path: str | Path) -> None:
         lines.append(
             f"- Ladder: expected={row.get('expected_score')} residual={row.get('rating_residual')} opp_pre={row.get('opponent_rating_pre')}"
         )
+        context = row.get("board_context") or {}
+        user = context.get("user") if isinstance(context, dict) else {}
+        opponent = context.get("opponent") if isinstance(context, dict) else {}
+        field = context.get("field") if isinstance(context, dict) else {}
+        if isinstance(user, dict) and isinstance(opponent, dict):
+            lines.append(
+                f"- Remaining: us {user.get('alive', '?')} / opp {opponent.get('alive', '?')}"
+            )
+            lines.append(
+                f"- Field: weather={field.get('weather') if isinstance(field, dict) else None} "
+                f"field={field.get('field') if isinstance(field, dict) else None} "
+                f"trick_room={field.get('trick_room') if isinstance(field, dict) else None}"
+            )
+            lines.append(
+                f"- Hazards: us [{_format_conditions(user.get('side_conditions'))}] "
+                f"opp [{_format_conditions(opponent.get('side_conditions'))}]"
+            )
+            lines.append(f"- Our active: {_format_mon(user.get('active'))}")
+            lines.append("- Our bench:")
+            for mon in user.get("bench") or []:
+                lines.append(f"  - {_format_mon(mon)}")
+            lines.append(f"- Opp active: {_format_mon(opponent.get('active'))}")
+            lines.append("- Opp revealed:")
+            for mon in opponent.get("bench") or []:
+                lines.append(f"  - {_format_mon(mon)}")
         lines.append(f"- Why selected: {', '.join(row.get('reasons') or [])}")
         lines.append(f"- Prompt: {row.get('review_prompt')}")
+        nearby = row.get("nearby_turns") or []
+        if nearby:
+            lines.append("- Nearby decisions:")
+            for near in nearby:
+                marker = " <= review" if int(near.get("turn", -1) or -1) == int(row.get("turn", -2) or -2) else ""
+                lines.append(
+                    f"  - t{near.get('turn')}: {near.get('active_species')} vs {near.get('opponent_species')} "
+                    f"choice={near.get('choice')} top={near.get('top_choice')} "
+                    f"hp={near.get('active_hp')}/{near.get('opponent_hp')} conf={near.get('policy_confidence')}{marker}"
+                )
         lines.append("- Top actions:")
         for action in row.get("top_actions") or []:
             lines.append(
@@ -485,6 +641,38 @@ def write_markdown(pack: dict[str, Any], path: str | Path) -> None:
         lines.append("- Human notes: ")
         lines.append("")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _format_mon(mon: dict[str, Any] | None) -> str:
+    if not mon:
+        return "?"
+    bits = [
+        str(mon.get("species") or "?"),
+        f"hp={mon.get('hp')}",
+    ]
+    if mon.get("status"):
+        bits.append(f"status={mon.get('status')}")
+    boosts = mon.get("boosts") or {}
+    if isinstance(boosts, dict):
+        useful_boosts = {k: v for k, v in boosts.items() if v}
+        if useful_boosts:
+            bits.append(f"boosts={useful_boosts}")
+    if mon.get("item"):
+        bits.append(f"item={mon.get('item')}")
+    if mon.get("ability"):
+        bits.append(f"ability={mon.get('ability')}")
+    moves = mon.get("moves") or []
+    if moves:
+        bits.append("moves=" + ",".join(str(m) for m in moves[:4]))
+    if mon.get("fainted"):
+        bits.append("fainted")
+    return " ".join(bits)
+
+
+def _format_conditions(conditions: Any) -> str:
+    if not isinstance(conditions, dict) or not conditions:
+        return "none"
+    return ", ".join(f"{k}:{v}" for k, v in sorted(conditions.items()))
 
 
 def print_pack(pack: dict[str, Any], *, limit: int) -> None:
