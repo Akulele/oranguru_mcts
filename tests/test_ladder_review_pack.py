@@ -72,10 +72,24 @@ class LadderReviewPackTests(unittest.TestCase):
                 ],
             },
         ]
+        teacher_rows = [
+            {
+                "battle_id": "battle-1",
+                "turn": 28,
+                "teacher_source": "fp_oracle",
+                "action_labels": ["earthquake", "recover"],
+                "action_mask": [True, True],
+                "policy_target": [0.72, 0.28],
+                "teacher_entropy": 0.59,
+                "teacher_samples_used": 4,
+                "teacher_total_visits": 1200,
+            }
+        ]
 
         pack = build_ladder_review_pack(
             ladder_rows=ladder_rows,
             trace_rows=trace_rows,
+            teacher_rows=teacher_rows,
             limit=5,
             max_per_battle=3,
         )
@@ -91,6 +105,10 @@ class LadderReviewPackTests(unittest.TestCase):
         self.assertEqual(pack["rows"][0]["board_context"]["opponent"]["alive"], 2)
         self.assertEqual(pack["rows"][0]["board_context"]["field"]["weather"], "raindance")
         self.assertEqual(pack["rows"][0]["nearby_turns"][0]["turn"], 28)
+        self.assertEqual(pack["rows"][0]["teacher"]["source"], "fp_oracle")
+        self.assertEqual(pack["rows"][0]["teacher"]["top_choice"], "earthquake")
+        self.assertEqual(pack["summary"]["teacher_rows"], 1)
+        self.assertEqual(pack["summary"]["teacher_disagreements"], 1)
 
 
 if __name__ == "__main__":

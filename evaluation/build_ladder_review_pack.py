@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import json
+import pickle
 from pathlib import Path
 from statistics import mean
 from typing import Any, Iterable
@@ -75,6 +76,16 @@ def _metric_rows(path: str | Path) -> list[dict[str, Any]]:
     ]
 
 
+def _load_teacher_rows(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in paths:
+        with Path(path).open("rb") as handle:
+            obj = pickle.load(handle)
+        if isinstance(obj, list):
+            rows.extend(item for item in obj if isinstance(item, dict))
+    return rows
+
+
 def _choice(row: dict[str, Any]) -> str:
     choice = str(row.get("chosen_choice", "") or "")
     if choice:
@@ -108,6 +119,59 @@ def _choice_action(row: dict[str, Any], choice: str) -> dict[str, Any] | None:
         if str(action.get("choice", "") or "") == choice:
             return action
     return None
+
+
+def _teacher_lookup(teacher_rows: list[dict[str, Any]]) -> dict[tuple[str, int], dict[str, Any]]:
+    lookup: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in teacher_rows:
+        key = (str(row.get("battle_id", "") or ""), int(row.get("turn", 0) or 0))
+        if not key[0]:
+            continue
+        lookup[key] = row
+    return lookup
+
+
+def _teacher_decision(row: dict[str, Any] | None, chosen_choice: str) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    labels = row.get("action_labels") or []
+    probs = row.get("policy_target") or []
+    mask = row.get("action_mask") or []
+    if not isinstance(labels, list) or not isinstance(probs, list):
+        return None
+    best_choice = ""
+    best_prob = -1.0
+    chosen_prob = 0.0
+    distribution: list[dict[str, Any]] = []
+    for idx, label in enumerate(labels):
+        if idx >= len(probs):
+            continue
+        if isinstance(mask, list) and idx < len(mask) and not mask[idx]:
+            continue
+        choice = str(label or "")
+        if not choice:
+            continue
+        prob = max(0.0, _safe_float(probs[idx], 0.0))
+        distribution.append({"choice": choice, "prob": round(prob, 4)})
+        if choice == chosen_choice:
+            chosen_prob = prob
+        if prob > best_prob:
+            best_prob = prob
+            best_choice = choice
+    if not best_choice:
+        return None
+    distribution.sort(key=lambda item: -float(item.get("prob", 0.0) or 0.0))
+    return {
+        "source": str(row.get("teacher_source", "") or "teacher"),
+        "top_choice": best_choice,
+        "top_prob": round(best_prob, 4),
+        "chosen_prob": round(chosen_prob, 4),
+        "delta_top_minus_chosen": round(max(0.0, best_prob - chosen_prob), 4),
+        "entropy": round(_safe_float(row.get("teacher_entropy"), 0.0), 4),
+        "samples_used": int(row.get("teacher_samples_used", row.get("teacher_worlds_used", 0)) or 0),
+        "total_visits": round(_safe_float(row.get("teacher_total_visits"), 0.0), 1),
+        "top_distribution": distribution[:5],
+    }
 
 
 def _alive_count(fp_oracle_battle: dict[str, Any], side: str) -> int | None:
@@ -315,6 +379,7 @@ def _priority(
     row: dict[str, Any],
     ladder: dict[str, Any] | None,
     issue: dict[str, Any] | None,
+    teacher: dict[str, Any] | None = None,
 ) -> tuple[float, list[str]]:
     choice = _choice(row)
     actions = _top_actions(row)
@@ -381,6 +446,19 @@ def _priority(
         score += 8.0
         reasons.append("rerank decision")
 
+    if teacher:
+        teacher_top = str(teacher.get("top_choice", "") or "")
+        teacher_delta = _safe_float(teacher.get("delta_top_minus_chosen"), 0.0)
+        teacher_top_prob = _safe_float(teacher.get("top_prob"), 0.0)
+        if teacher_top and teacher_top != choice and teacher_delta >= 0.03:
+            score += min(24.0, 8.0 + teacher_delta * 80.0)
+            reasons.append(
+                f"FP teacher prefers {teacher_top} by {teacher_delta:.3f}"
+            )
+        elif teacher_top == choice and teacher_top_prob >= 0.45:
+            score -= 8.0
+            reasons.append("FP teacher agrees")
+
     chosen_action = _choice_action(row, choice)
     chosen_kind = str((chosen_action or {}).get("kind", "") or "")
     if result == "loss" and chosen_kind in {"switch", "status", "recovery", "protect"}:
@@ -443,6 +521,7 @@ def build_ladder_review_pack(
     *,
     ladder_rows: list[dict[str, Any]],
     trace_rows: list[dict[str, Any]],
+    teacher_rows: list[dict[str, Any]] | None = None,
     limit: int = 25,
     max_per_battle: int = 3,
 ) -> dict[str, Any]:
@@ -462,6 +541,7 @@ def build_ladder_review_pack(
     for rows in rows_by_battle.values():
         rows.sort(key=lambda item: int(item.get("turn", 0) or 0))
     issues = _issue_lookup(trace_rows, sample_limit=max(limit, 25)) if trace_rows else {}
+    teacher_by_turn = _teacher_lookup(teacher_rows or [])
     candidates: list[dict[str, Any]] = []
     for row in trace_rows:
         battle_id = str(row.get("battle_id", "") or "")
@@ -469,7 +549,11 @@ def build_ladder_review_pack(
         choice = _choice(row)
         key = (battle_id, int(row.get("turn", 0) or 0), choice)
         issue = issues.get(key)
-        priority, reasons = _priority(row, ladder, issue)
+        teacher = _teacher_decision(
+            teacher_by_turn.get((battle_id, int(row.get("turn", 0) or 0))),
+            choice,
+        )
+        priority, reasons = _priority(row, ladder, issue, teacher)
         if priority <= 0.0:
             continue
         actions = _top_actions(row)
@@ -500,6 +584,7 @@ def build_ladder_review_pack(
             "issue_category": None if issue is None else issue.get("category"),
             "issue_blurb": None if issue is None else issue.get("review_blurb"),
             "issue_priority": None if issue is None else issue.get("priority"),
+            "teacher": teacher,
             "human_label": "",
             "human_category": "",
             "human_notes": "",
@@ -527,6 +612,14 @@ def build_ladder_review_pack(
         "summary": {
             "ladder_battles": len(ladder_rows),
             "trace_rows": len(trace_rows),
+            "teacher_rows": len(teacher_rows or []),
+            "teacher_labeled_rows": sum(1 for row in rows if row.get("teacher")),
+            "teacher_disagreements": sum(
+                1
+                for row in rows
+                if (row.get("teacher") or {}).get("top_choice")
+                and (row.get("teacher") or {}).get("top_choice") != row.get("choice")
+            ),
             "rated_battles": len(residuals),
             "wins": result_counts.get("win", 0),
             "losses": result_counts.get("loss", 0),
@@ -594,6 +687,19 @@ def write_markdown(pack: dict[str, Any], path: str | Path) -> None:
         lines.append(
             f"- Ladder: expected={row.get('expected_score')} residual={row.get('rating_residual')} opp_pre={row.get('opponent_rating_pre')}"
         )
+        teacher = row.get("teacher")
+        if isinstance(teacher, dict):
+            lines.append(
+                f"- FP teacher: top={teacher.get('top_choice')} p={teacher.get('top_prob')} "
+                f"chosen_p={teacher.get('chosen_prob')} delta={teacher.get('delta_top_minus_chosen')} "
+                f"samples={teacher.get('samples_used')} visits={teacher.get('total_visits')}"
+            )
+            distribution = teacher.get("top_distribution") or []
+            if distribution:
+                dist_text = ", ".join(
+                    f"{item.get('choice')}={item.get('prob')}" for item in distribution if isinstance(item, dict)
+                )
+                lines.append(f"- FP teacher top dist: {dist_text}")
         context = row.get("board_context") or {}
         user = context.get("user") if isinstance(context, dict) else {}
         opponent = context.get("opponent") if isinstance(context, dict) else {}
@@ -702,6 +808,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ladder-log", required=True, help="Ladder metrics JSONL for this run")
     parser.add_argument("--trace", action="append", required=True, help="Search trace JSONL path or glob")
+    parser.add_argument(
+        "--teacher",
+        action="append",
+        default=[],
+        help="Optional FP-oracle teacher PKL from training/relabel_teacher_from_fp_trace.py",
+    )
     parser.add_argument("--output-json", required=True, help="Output review JSON path")
     parser.add_argument("--output-md", default="", help="Optional Markdown review worksheet")
     parser.add_argument("--limit", type=int, default=25)
@@ -712,15 +824,18 @@ def main() -> int:
     trace_paths = _resolve_inputs(args.trace)
     if not trace_paths:
         raise SystemExit("No trace files matched --trace.")
+    teacher_paths = _resolve_inputs(args.teacher) if args.teacher else []
     ladder_rows = _metric_rows(args.ladder_log)
     if not ladder_rows:
         raise SystemExit("No metric rows found in --ladder-log.")
     trace_rows: list[dict[str, Any]] = []
     for path in trace_paths:
         trace_rows.extend(_iter_examples(path))
+    teacher_rows = _load_teacher_rows(teacher_paths) if teacher_paths else []
     pack = build_ladder_review_pack(
         ladder_rows=ladder_rows,
         trace_rows=trace_rows,
+        teacher_rows=teacher_rows,
         limit=max(1, args.limit),
         max_per_battle=max(0, args.max_per_battle),
     )
