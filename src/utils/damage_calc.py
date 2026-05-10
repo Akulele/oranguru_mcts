@@ -50,6 +50,8 @@ ITEM_EFFECTS = {
     'choicespecs': {'spa_mult': 1.5, 'locked': True},
     'choicescarf': {'spe_mult': 1.5, 'locked': True},
     'expertbelt': {'super_eff_mult': 1.2},
+    'muscleband': {'physical_mult': 1.1},
+    'wiseglasses': {'special_mult': 1.1},
 
     # Type boosters
     'charcoal': {'type_boost': 'fire', 'mult': 1.2},
@@ -68,6 +70,30 @@ ITEM_EFFECTS = {
     'dragonfang': {'type_boost': 'dragon', 'mult': 1.2},
     'blackglasses': {'type_boost': 'dark', 'mult': 1.2},
     'metalcoat': {'type_boost': 'steel', 'mult': 1.2},
+    'fairyfeather': {'type_boost': 'fairy', 'mult': 1.2},
+    'silkscarf': {'type_boost': 'normal', 'mult': 1.2},
+    'oddincense': {'type_boost': 'psychic', 'mult': 1.2},
+    'rockincense': {'type_boost': 'rock', 'mult': 1.2},
+    'roseincense': {'type_boost': 'grass', 'mult': 1.2},
+    'seaincense': {'type_boost': 'water', 'mult': 1.2},
+    'waveincense': {'type_boost': 'water', 'mult': 1.2},
+    'dracoplate': {'type_boost': 'dragon', 'mult': 1.2},
+    'dreadplate': {'type_boost': 'dark', 'mult': 1.2},
+    'earthplate': {'type_boost': 'ground', 'mult': 1.2},
+    'fistplate': {'type_boost': 'fighting', 'mult': 1.2},
+    'flameplate': {'type_boost': 'fire', 'mult': 1.2},
+    'icicleplate': {'type_boost': 'ice', 'mult': 1.2},
+    'insectplate': {'type_boost': 'bug', 'mult': 1.2},
+    'ironplate': {'type_boost': 'steel', 'mult': 1.2},
+    'meadowplate': {'type_boost': 'grass', 'mult': 1.2},
+    'mindplate': {'type_boost': 'psychic', 'mult': 1.2},
+    'pixieplate': {'type_boost': 'fairy', 'mult': 1.2},
+    'skyplate': {'type_boost': 'flying', 'mult': 1.2},
+    'splashplate': {'type_boost': 'water', 'mult': 1.2},
+    'spookyplate': {'type_boost': 'ghost', 'mult': 1.2},
+    'stoneplate': {'type_boost': 'rock', 'mult': 1.2},
+    'toxicplate': {'type_boost': 'poison', 'mult': 1.2},
+    'zapplate': {'type_boost': 'electric', 'mult': 1.2},
 
     # Defensive items
     'assaultvest': {'spd_mult': 1.5, 'no_status': True},
@@ -83,6 +109,7 @@ ITEM_EFFECTS = {
     'whiteherb': {'clears_stat_drops': True, 'one_time': True},
     'weaknesspolicy': {'triggers_on_super_eff': True, 'boost': 2},
     'throatspray': {'triggers_on_sound': True, 'spa_boost': 1},
+    'powerherb': {'skip_charge': True, 'one_time': True},
 
     # Priority/speed
     'quickclaw': {'priority_chance': 0.2},
@@ -91,6 +118,12 @@ ITEM_EFFECTS = {
     # Survival
     'focussash': {'survives_ohko_at_full': True, 'one_time': True},
     'airballoon': {'immune_ground': True, 'pops_on_hit': True},
+    'boosterenergy': {'booster_energy': True, 'one_time': True},
+    'clearamulet': {'prevents_stat_drops': True},
+    'covertcloak': {'prevents_secondary_effects': True},
+    'loadeddice': {'multi_hit_boost': True},
+    'mirrorherb': {'copies_boosts': True, 'one_time': True},
+    'redcard': {'forces_switch_on_hit': True, 'one_time': True},
 
     # Hazard boots
     'heavydutyboots': {'immune_hazards': True},
@@ -301,6 +334,10 @@ def calc_damage(
         atk_stat = int(atk_stat * 1.5)
     elif attacker_item == 'expertbelt' and type_eff > 1.0:
         modifiers *= 1.2
+    elif attacker_item == 'muscleband' and move_category.lower() == 'physical':
+        modifiers *= 1.1
+    elif attacker_item == 'wiseglasses' and move_category.lower() == 'special':
+        modifiers *= 1.1
 
     # Type-boosting items
     item_data = ITEM_EFFECTS.get(attacker_item, {})

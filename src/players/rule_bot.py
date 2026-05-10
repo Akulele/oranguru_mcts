@@ -48,7 +48,9 @@ class RuleBotPlayer(Player):
     PRIORITY_MOVES = {
         'extremespeed', 'fakeout', 'firstimpression', 'machpunch',
         'bulletpunch', 'aquajet', 'iceshard', 'shadowsneak',
-        'suckerpunch', 'accelerock', 'quickattack', 'jetpunch'
+        'suckerpunch', 'accelerock', 'quickattack', 'jetpunch',
+        'feint', 'thunderclap', 'upperhand', 'vacuumwave',
+        'watershuriken', 'zippyzap',
     }
 
     # Status moves that cripple opponents - SimpleHeuristics doesn't use or account for these!
@@ -66,7 +68,10 @@ class RuleBotPlayer(Player):
     }
 
     # Pivot moves that let us switch after attacking
-    PIVOT_MOVES = {'uturn', 'voltswitch', 'flipturn', 'partingshot', 'teleport', 'batonpass'}
+    PIVOT_MOVES = {
+        'uturn', 'voltswitch', 'flipturn', 'partingshot', 'teleport',
+        'batonpass', 'chillyreception', 'shedtail',
+    }
 
     PROTECT_MOVES = {
         "protect", "detect", "kingsshield", "spikyshield", "banefulbunker",
@@ -84,7 +89,7 @@ class RuleBotPlayer(Player):
     HIGH_RECOIL_MOVES = {
         "bravebird", "doubleedge", "flareblitz", "headcharge", "headsmash",
         "volttackle", "woodhammer", "wildcharge", "takedown", "submission",
-        "wavecrash", "chloroblast"
+        "wavecrash", "chloroblast", "lightofruin",
     }
 
     RECOVERY_MOVES = {

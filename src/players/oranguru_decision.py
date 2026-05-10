@@ -891,7 +891,7 @@ def maybe_force_finish_blow_choice(
 
     def _crash_rate(move) -> float:
         move_id = normalize_name(getattr(move, "id", ""))
-        if move_id in {"axekick", "highjumpkick", "jumpkick"}:
+        if move_id in {"axekick", "highjumpkick", "jumpkick", "supercellslam"}:
             return 0.5
         try:
             entry = self._get_move_entry(move)
