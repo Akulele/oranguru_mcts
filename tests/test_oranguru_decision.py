@@ -7,10 +7,11 @@ from src.players.oranguru_engine import OranguruEnginePlayer
 
 
 class DummyMove:
-    def __init__(self, move_id, category=None, base_power=0):
+    def __init__(self, move_id, category=None, base_power=0, accuracy=100):
         self.id = move_id
         self.category = category
         self.base_power = base_power
+        self.accuracy = accuracy
         self.damage = None
         self.boosts = {}
         self.target = None
@@ -95,6 +96,40 @@ class OranguruDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(adjusted, "earthquake")
+
+    def test_finish_blow_guard_prefers_safer_guaranteed_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.SAFE_KO_GUARD = True
+        engine.SAFE_KO_MIN_OVERKILL = 1.0
+        engine.SAFE_KO_MIN_RISK_DELTA = 0.10
+        engine.SAFE_KO_MIN_POLICY_RATIO = 0.02
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._move_recoil_rate = lambda _move: 0.0
+        engine._get_move_entry = lambda move: {"hasCrashDamage": True} if move.id == "highjumpkick" else {}
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "highjumpkick": 160.0,
+            "firepunch": 95.0,
+        }.get(move.id, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon = DummyPokemon(0.25)
+        battle.available_moves = [
+            DummyMove("highjumpkick", category=MoveCategory.PHYSICAL, base_power=130, accuracy=90),
+            DummyMove("firepunch", category=MoveCategory.PHYSICAL, base_power=75, accuracy=100),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("highjumpkick", 0.70), ("firepunch", 0.12)],
+            "highjumpkick",
+        )
+
+        self.assertEqual(adjusted, "firepunch")
+        self.assertEqual(memory["finish_blow_last"]["reason"], "take_safe_ko")
+        self.assertEqual(memory["finish_blow_last"]["finish_choice"], "firepunch")
 
     def test_setup_window_guard_prefers_setup_when_safe(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)

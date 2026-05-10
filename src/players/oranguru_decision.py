@@ -853,11 +853,169 @@ def maybe_force_finish_blow_choice(
         payload.update(extra)
         mem["finish_blow_last"] = payload
 
+    def _move_for_choice(choice: str):
+        move_id = normalize_name(choice.replace("-tera", ""))
+        for move in battle.available_moves or []:
+            if normalize_name(getattr(move, "id", "")) == move_id:
+                return move
+        return None
+
+    def _damage_score(move) -> float:
+        try:
+            return float(
+                self._calculate_move_score(
+                    move,
+                    active,
+                    opponent,
+                    battle,
+                    apply_recoil=False,
+                )
+                or 0.0
+            )
+        except TypeError:
+            try:
+                return float(self._calculate_move_score(move, active, opponent, battle) or 0.0)
+            except Exception:
+                return 0.0
+        except Exception:
+            return 0.0
+
+    def _accuracy(move) -> float:
+        raw = getattr(move, "accuracy", None)
+        if raw is None or raw is True:
+            return 1.0
+        try:
+            return max(0.0, min(1.0, float(raw) / 100.0))
+        except Exception:
+            return 1.0
+
+    def _crash_rate(move) -> float:
+        move_id = normalize_name(getattr(move, "id", ""))
+        if move_id in {"axekick", "highjumpkick", "jumpkick"}:
+            return 0.5
+        try:
+            entry = self._get_move_entry(move)
+        except Exception:
+            entry = {}
+        crash = entry.get("crash") if isinstance(entry, dict) else None
+        if isinstance(crash, list) and len(crash) == 2:
+            try:
+                return float(crash[0]) / max(float(crash[1]), 1.0)
+            except Exception:
+                return 0.5
+        if isinstance(entry, dict) and entry.get("hasCrashDamage"):
+            return 0.5
+        return 0.0
+
+    def _recoil_rate(move) -> float:
+        try:
+            return max(0.0, float(self._move_recoil_rate(move) or 0.0))
+        except Exception:
+            return 0.0
+
+    def _finish_risk(move) -> float:
+        acc = _accuracy(move)
+        return max(0.0, 1.0 - acc) + _crash_rate(move) + _recoil_rate(move)
+
+    def _maybe_take_safer_ko(
+        active: Pokemon,
+        opponent: Pokemon,
+        opp_hp: float,
+        ko_threshold: float,
+    ) -> str:
+        if not bool(getattr(self, "SAFE_KO_GUARD", True)):
+            _record("chosen_damaging")
+            return chosen_choice
+        chosen_move = _move_for_choice(chosen_choice)
+        if chosen_move is None:
+            _record("chosen_damaging")
+            return chosen_choice
+        chosen_score = _damage_score(chosen_move)
+        if chosen_score < ko_threshold:
+            _record(
+                "chosen_damaging",
+                opp_hp=float(opp_hp),
+                chosen_damage_score=float(chosen_score),
+                ko_threshold=float(ko_threshold),
+            )
+            return chosen_choice
+
+        weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+        chosen_weight = weights.get(chosen_choice, 0.0)
+        chosen_risk = _finish_risk(chosen_move)
+        min_overkill = float(getattr(self, "SAFE_KO_MIN_OVERKILL", 1.0))
+        min_risk_delta = float(getattr(self, "SAFE_KO_MIN_RISK_DELTA", 0.10))
+        min_policy_ratio = float(getattr(self, "SAFE_KO_MIN_POLICY_RATIO", 0.02))
+        best_choice = chosen_choice
+        best_move = chosen_move
+        best_score = chosen_score
+        best_risk = chosen_risk
+        best_weight = chosen_weight
+
+        candidate_choices = list(ordered)
+        seen = {choice for choice, _ in candidate_choices}
+        for move in battle.available_moves or []:
+            candidate = normalize_name(getattr(move, "id", ""))
+            if candidate and candidate not in seen:
+                candidate_choices.append((candidate, 0.0))
+
+        for choice, weight in candidate_choices:
+            if choice == chosen_choice or choice.startswith("switch "):
+                continue
+            if not self._is_damaging_move_choice(battle, choice):
+                continue
+            move = _move_for_choice(choice)
+            if move is None:
+                continue
+            score = _damage_score(move)
+            if score < ko_threshold * min_overkill:
+                continue
+            candidate_weight = float(weight or 0.0)
+            if chosen_weight > 0.0 and candidate_weight / max(chosen_weight, 1e-6) < min_policy_ratio:
+                continue
+            risk = _finish_risk(move)
+            risk_delta = chosen_risk - risk
+            if risk_delta < min_risk_delta:
+                continue
+            if (
+                best_choice == chosen_choice
+                or (risk, -score, -candidate_weight) < (best_risk, -best_score, -best_weight)
+            ):
+                best_choice = choice
+                best_move = move
+                best_score = score
+                best_risk = risk
+                best_weight = candidate_weight
+
+        if best_choice == chosen_choice:
+            _record(
+                "chosen_damaging",
+                opp_hp=float(opp_hp),
+                chosen_damage_score=float(chosen_score),
+                ko_threshold=float(ko_threshold),
+                chosen_accuracy=float(_accuracy(chosen_move)),
+                chosen_finish_risk=float(chosen_risk),
+            )
+            return chosen_choice
+
+        _record(
+            "take_safe_ko",
+            opp_hp=float(opp_hp),
+            ko_threshold=float(ko_threshold),
+            chosen_damage_score=float(chosen_score),
+            safe_damage_score=float(best_score),
+            chosen_accuracy=float(_accuracy(chosen_move)),
+            safe_accuracy=float(_accuracy(best_move)),
+            chosen_finish_risk=float(chosen_risk),
+            safe_finish_risk=float(best_risk),
+            chosen_weight=float(chosen_weight),
+            safe_weight=float(best_weight),
+            finish_choice=best_choice,
+        )
+        return best_choice
+
     if not chosen_choice or getattr(battle, "force_switch", False):
         _record("forced_or_empty")
-        return chosen_choice
-    if self._is_damaging_move_choice(battle, chosen_choice):
-        _record("chosen_damaging")
         return chosen_choice
 
     active = battle.active_pokemon
@@ -867,8 +1025,11 @@ def maybe_force_finish_blow_choice(
         return chosen_choice
 
     opp_hp = opponent.current_hp_fraction or 0.0
-    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
     ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    if self._is_damaging_move_choice(battle, chosen_choice):
+        return _maybe_take_safer_ko(active, opponent, opp_hp, ko_threshold)
+
+    best_damage_score = float(self._estimate_best_damage_score(active, opponent, battle) or 0.0)
     if best_damage_score < ko_threshold:
         _record(
             "no_ko_window",

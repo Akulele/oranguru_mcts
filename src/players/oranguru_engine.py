@@ -112,6 +112,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SPEED_BOUNDS_ENABLED = bool(int(os.getenv("ORANGURU_SPEED_BOUNDS", "1")))
     MOVE_SAFETY_GUARD = bool(int(os.getenv("ORANGURU_MOVE_SAFETY_GUARD", "1")))
     TACTICAL_KO_THRESHOLD = float(os.getenv("ORANGURU_TACTICAL_KO_THRESHOLD", "220.0"))
+    SAFE_KO_GUARD = bool(int(os.getenv("ORANGURU_SAFE_KO_GUARD", "1")))
+    SAFE_KO_MIN_OVERKILL = float(os.getenv("ORANGURU_SAFE_KO_MIN_OVERKILL", "1.0"))
+    SAFE_KO_MIN_RISK_DELTA = float(os.getenv("ORANGURU_SAFE_KO_MIN_RISK_DELTA", "0.10"))
+    SAFE_KO_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SAFE_KO_MIN_POLICY_RATIO", "0.02"))
     STATUS_STALL_MAX = int(os.getenv("ORANGURU_STATUS_STALL_MAX", "2"))
     RL_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_RL_PRIOR", "0")))
     RL_PRIOR_CHECKPOINT = os.getenv(
