@@ -165,6 +165,9 @@ class RuleBotPlayer(Player):
     SWITCH_HAZARD_MULT = float(os.getenv("ORANGURU_SWITCH_HAZARD_MULT", "1.35"))
     SWITCH_STREAK_PENALTY = float(os.getenv("ORANGURU_SWITCH_STREAK_PENALTY", "0.18"))
     SWITCH_LOW_GAIN_PENALTY = float(os.getenv("ORANGURU_SWITCH_LOW_GAIN_PENALTY", "1.25"))
+    SWITCH_CHURN_MIN_STREAK = int(os.getenv("ORANGURU_SWITCH_CHURN_MIN_STREAK", "1"))
+    SWITCH_CHURN_MIN_DAMAGE = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_DAMAGE", "40.0"))
+    SWITCH_CHURN_MIN_HAZARD_HP = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_HAZARD_HP", "0.08"))
     TEMPO_PRESSURE_REPLY = float(os.getenv("ORANGURU_TEMPO_PRESSURE_REPLY", "180.0"))
     TEMPO_PRESSURE_MATCHUP = float(os.getenv("ORANGURU_TEMPO_PRESSURE_MATCHUP", "-0.05"))
     TEMPO_DAMAGE_RATIO = float(os.getenv("ORANGURU_TEMPO_DAMAGE_RATIO", "0.45"))
@@ -2481,7 +2484,7 @@ class RuleBotPlayer(Player):
 
         mem = self._get_battle_memory(battle)
         switch_streak = int(mem.get("self_switch_streak", 0) or 0)
-        if switch_streak < 2:
+        if switch_streak < max(1, int(getattr(self, "SWITCH_CHURN_MIN_STREAK", 1))):
             return False
 
         last_opp = normalize_name(mem.get("last_opponent_species"))
@@ -2496,6 +2499,14 @@ class RuleBotPlayer(Player):
         if abs(current_opp_hp - last_opp_hp) > 0.05:
             return False
 
+        current_best_damage = self._estimate_best_damage_score(active, opponent, battle)
+        hazard_pressure = self._side_hazard_pressure(battle, "self")
+        if (
+            current_best_damage >= max(0.0, float(getattr(self, "SWITCH_CHURN_MIN_DAMAGE", 40.0)))
+            or hazard_pressure >= max(0.0, float(getattr(self, "SWITCH_CHURN_MIN_HAZARD_HP", 0.08)))
+        ):
+            return True
+
         current_matchup = self._estimate_matchup(active, opponent)
         current_reply = self._estimate_best_reply_score(opponent, active, battle)
         active_hp = active.current_hp_fraction if active.current_hp_fraction is not None else 0.5
@@ -2506,8 +2517,8 @@ class RuleBotPlayer(Player):
         speed_boost = int((opponent.boosts or {}).get("spe", 0) or 0) >= 2
         speed_gap = self._get_effective_speed(opponent) > self._get_effective_speed(active) * 1.05
         setup_threat = self._opponent_is_set_up(opponent)
-        # Only break switch loops for true speed-control snowballs where switching
-        # no longer meaningfully improves the position.
+        # If no move can make progress and no hazards punish cycling, only break
+        # loops for true speed-control snowballs where switching no longer helps.
         return no_real_upgrade and (speed_boost or (setup_threat and speed_gap))
 
     def _choose_emergency_non_switch_order(

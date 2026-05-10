@@ -67,6 +67,60 @@ class DummyPokemon:
         return get_type_effectiveness(move_id, def_types)
 
 
+class SwitchChurnHeuristicTests(unittest.TestCase):
+    def _bot_with_memory(self, mem, *, damage=0.0, hazard_pressure=0.0):
+        bot = RuleBotPlayer.__new__(RuleBotPlayer)
+        bot.ANTI_SWITCH_CHURN = True
+        bot.SWITCH_CHURN_MIN_STREAK = 1
+        bot.SWITCH_CHURN_MIN_DAMAGE = 40.0
+        bot.SWITCH_CHURN_MIN_HAZARD_HP = 0.08
+        bot._get_battle_memory = lambda _battle: mem
+        bot._estimate_best_damage_score = lambda *_args: damage
+        bot._side_hazard_pressure = lambda *_args: hazard_pressure
+        bot._estimate_matchup = lambda *_args: 0.0
+        bot._estimate_best_reply_score = lambda *_args: 0.0
+        bot._score_switch = lambda *_args: 0.0
+        bot._get_effective_speed = lambda *_args: 100
+        bot._opponent_is_set_up = lambda *_args: False
+        return bot
+
+    def _same_board_battle(self, move):
+        active = DummyPokemon(current_hp_fraction=0.8)
+        active.species = "heracross"
+        opponent = DummyPokemon(current_hp_fraction=0.7)
+        opponent.species = "grumpig"
+        return SimpleNamespace(
+            force_switch=False,
+            available_switches=[SimpleNamespace(species="toxapex", current_hp_fraction=0.8)],
+            available_moves=[move],
+            active_pokemon=active,
+            opponent_active_pokemon=opponent,
+            battle_tag="switch-churn-test",
+        )
+
+    def test_switch_churn_detects_repeated_switch_into_same_board_with_damage_available(self):
+        mem = {
+            "self_switch_streak": 1,
+            "last_opponent_species": "grumpig",
+            "last_opponent_hp": 0.7,
+        }
+        bot = self._bot_with_memory(mem, damage=75.0)
+        battle = self._same_board_battle(DummyMove("megahorn", category=MoveCategory.PHYSICAL, base_power=120))
+
+        self.assertTrue(bot._is_switch_churn_risk(battle))
+
+    def test_switch_churn_detects_repeated_switch_when_hazards_punish_cycling(self):
+        mem = {
+            "self_switch_streak": 1,
+            "last_opponent_species": "grumpig",
+            "last_opponent_hp": 0.7,
+        }
+        bot = self._bot_with_memory(mem, damage=5.0, hazard_pressure=0.125)
+        battle = self._same_board_battle(DummyMove("tackle", category=MoveCategory.PHYSICAL, base_power=40))
+
+        self.assertTrue(bot._is_switch_churn_risk(battle))
+
+
 class RuleBotHeuristicTests(unittest.TestCase):
     def setUp(self):
         self.bot = RuleBotPlayer(start_listening=False)
