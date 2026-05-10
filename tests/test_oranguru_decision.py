@@ -203,6 +203,72 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "thunderbolt")
         self.assertEqual(memory["late_game_attack_guard_last"]["reason"], "take_late_attack")
 
+    def test_lategame_attack_guard_prefers_damage_selected_attack_over_raw_heuristic(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.PROTECT_MOVES = set()
+        engine.LATEGAME_ATTACK_MIN_TURN = 12
+        engine.LATEGAME_ATTACK_ALLOW_HIDDEN = False
+        engine.LATEGAME_ATTACK_MIN_BASE_POWER = 50.0
+        engine.LATEGAME_ATTACK_MIN_HEURISTIC = 0.75
+        engine.LATEGAME_ATTACK_MIN_POLICY_RATIO = 0.05
+        engine.LATEGAME_ATTACK_MAX_SCORE_DROP = 0.40
+        engine.LATEGAME_ATTACK_MAX_RISK = 35.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_recovery_move = lambda move: move.id == "rest"
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._adaptive_choice_risk_penalty = lambda *_args: 0.0
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "rest": 115.1,
+            "psychocut": 2.945,
+            "knockoff": 2.735,
+            "superpower": 2.726,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.turn = 36
+        battle.active_pokemon = DummyPokemon(0.178)
+        battle.active_pokemon.boosts = {"attack": 2, "defense": 2}
+        battle.opponent_active_pokemon = DummyPokemon(1.0)
+        battle.team = {
+            "malamar": battle.active_pokemon,
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+            "fainted3": DummyPokemon(0.0),
+            "fainted4": DummyPokemon(0.0),
+            "fainted5": DummyPokemon(0.0),
+        }
+        battle.opponent_team = {
+            "arceusgrass": battle.opponent_active_pokemon,
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+            "fainted3": DummyPokemon(0.0),
+            "fainted4": DummyPokemon(0.0),
+            "fainted5": DummyPokemon(0.0),
+        }
+        knockoff = DummyMove("knockoff", category=MoveCategory.PHYSICAL, base_power=65)
+        battle.available_moves = [
+            DummyMove("superpower", category=MoveCategory.PHYSICAL, base_power=120),
+            knockoff,
+            DummyMove("psychocut", category=MoveCategory.PHYSICAL, base_power=70),
+            DummyMove("rest", category=MoveCategory.STATUS, base_power=0),
+        ]
+        engine._best_damaging_move = lambda *_args: (knockoff, 100.0)
+
+        adjusted = engine._maybe_commit_late_game_attack_choice(
+            battle,
+            [
+                ("rest", 0.3258),
+                ("psychocut", 0.2296),
+                ("knockoff", 0.2258),
+                ("superpower", 0.2189),
+            ],
+            "rest",
+        )
+
+        self.assertEqual(adjusted, "knockoff")
+        self.assertEqual(memory["late_game_attack_guard_last"]["reason"], "take_late_attack")
+        self.assertEqual(memory["late_game_attack_guard_last"]["attack_damage_score"], 100.0)
+
     def test_lategame_attack_guard_ignores_hidden_opponents_by_default(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.PROTECT_MOVES = set()

@@ -480,18 +480,54 @@ def maybe_commit_late_game_attack_choice(
     chosen_weight = weights.get(chosen_choice, 0.0)
     chosen_heur = float(self._heuristic_action_score(battle, chosen_choice) or 0.0)
 
-    best_choice = ""
-    best_weight = 0.0
-    best_heur = 0.0
+    direct_candidates: Dict[str, Dict[str, float]] = {}
     for choice, weight in ordered:
         if not _is_direct_attack_choice(choice):
             continue
         heur = float(self._heuristic_action_score(battle, choice) or 0.0)
         candidate_weight = float(weight or 0.0)
-        if not best_choice or (heur, candidate_weight) > (best_heur, best_weight):
-            best_choice = choice
-            best_weight = candidate_weight
-            best_heur = heur
+        direct_candidates[choice] = {
+            "weight": candidate_weight,
+            "heuristic": heur,
+        }
+
+    best_choice = ""
+    best_weight = 0.0
+    best_heur = 0.0
+    selected_damage_score = 0.0
+
+    try:
+        best_damage_move, best_damage_score = self._best_damaging_move(battle, active, opponent)
+    except Exception:
+        best_damage_move = None
+        best_damage_score = 0.0
+    if best_damage_move is not None:
+        best_damage_id = normalize_name(getattr(best_damage_move, "id", ""))
+        matching_choices = [
+            choice
+            for choice in (best_damage_id, f"{best_damage_id}-tera")
+            if choice in direct_candidates
+        ]
+        if matching_choices:
+            best_choice = max(
+                matching_choices,
+                key=lambda choice: (
+                    float(direct_candidates[choice]["heuristic"]),
+                    float(direct_candidates[choice]["weight"]),
+                ),
+            )
+            best_weight = float(direct_candidates[best_choice]["weight"])
+            best_heur = float(direct_candidates[best_choice]["heuristic"])
+            selected_damage_score = float(best_damage_score or 0.0)
+
+    if not best_choice:
+        for choice, candidate in direct_candidates.items():
+            candidate_weight = float(candidate["weight"])
+            heur = float(candidate["heuristic"])
+            if not best_choice or (heur, candidate_weight) > (best_heur, best_weight):
+                best_choice = choice
+                best_weight = candidate_weight
+                best_heur = heur
 
     if not best_choice:
         _record(
@@ -563,6 +599,7 @@ def maybe_commit_late_game_attack_choice(
         score_drop=float(score_drop),
         chosen_heuristic=float(chosen_heur),
         attack_heuristic=float(best_heur),
+        attack_damage_score=float(selected_damage_score),
         attack_risk=float(attack_risk),
     )
     return best_choice
