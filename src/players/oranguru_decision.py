@@ -455,7 +455,7 @@ def maybe_commit_late_game_attack_choice(
     turn = int(getattr(battle, "turn", 0) or 0)
     min_turn = int(getattr(self, "LATEGAME_ATTACK_MIN_TURN", 12))
 
-    known_endgame = opp_hidden == 0 and (my_alive <= 2 or opp_alive <= 2)
+    known_endgame = opp_hidden == 0 and my_alive <= 2 and opp_alive <= 2
     late_known_close = (
         opp_hidden == 0
         and turn >= min_turn
