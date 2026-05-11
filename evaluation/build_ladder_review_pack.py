@@ -408,10 +408,12 @@ def _priority(
     opp_alive = board.get("opp_alive")
     opp_hidden_estimate = int(board.get("opp_hidden_estimate") or 0)
     user_low_remaining = isinstance(user_alive, int) and user_alive <= 2
+    opp_total_remaining = None
+    if isinstance(opp_alive, int):
+        opp_total_remaining = opp_alive + max(0, opp_hidden_estimate)
     opp_low_remaining = (
-        isinstance(opp_alive, int)
-        and opp_alive <= 2
-        and opp_hidden_estimate == 0
+        isinstance(opp_total_remaining, int)
+        and opp_total_remaining <= 2
     )
     result = str((ladder or {}).get("result", "") or "")
     residual = _safe_float((ladder or {}).get("rating_residual"), 0.0)
@@ -437,13 +439,20 @@ def _priority(
     if turn >= 20:
         score += min(14.0, (turn - 19) * 0.7)
         reasons.append("late-game turn")
-    if phase == "end" and (user_low_remaining or opp_low_remaining):
+    mutual_low_remaining = user_low_remaining and opp_low_remaining
+    if phase == "end" and mutual_low_remaining:
         score += 8.0
         reasons.append("endgame phase")
 
-    if user_low_remaining or opp_low_remaining:
+    if mutual_low_remaining:
         score += 8.0
         reasons.append("low remaining mons")
+    elif user_low_remaining:
+        score += 4.0
+        reasons.append("our low remaining mons")
+    elif opp_low_remaining:
+        score += 4.0
+        reasons.append("opponent low remaining mons")
     if board["active_hp"] is not None and float(board["active_hp"]) <= 0.35:
         score += 5.0
         reasons.append("active low HP")

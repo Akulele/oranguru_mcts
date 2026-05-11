@@ -108,6 +108,9 @@ class LadderReviewPackTests(unittest.TestCase):
         self.assertEqual(pack["rows"][0]["nearby_turns"][0]["turn"], 28)
         self.assertEqual(pack["rows"][0]["teacher"]["source"], "fp_oracle")
         self.assertEqual(pack["rows"][0]["teacher"]["top_choice"], "earthquake")
+        self.assertNotIn("endgame phase", pack["rows"][0]["reasons"])
+        self.assertNotIn("low remaining mons", pack["rows"][0]["reasons"])
+        self.assertIn("our low remaining mons", pack["rows"][0]["reasons"])
         self.assertEqual(pack["summary"]["teacher_rows"], 1)
         self.assertEqual(pack["summary"]["teacher_disagreements"], 1)
 
