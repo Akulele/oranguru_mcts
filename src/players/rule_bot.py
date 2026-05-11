@@ -2500,7 +2500,26 @@ class RuleBotPlayer(Player):
             return False
 
         current_best_damage = self._estimate_best_damage_score(active, opponent, battle)
-        hazard_pressure = self._side_hazard_pressure(battle, "self")
+        hazard_pressure = 0.0
+        side_hazard_pressure = getattr(self, "_side_hazard_pressure", None)
+        if callable(side_hazard_pressure):
+            try:
+                hazard_pressure = float(side_hazard_pressure(battle))
+            except TypeError:
+                try:
+                    hazard_pressure = float(side_hazard_pressure(battle, "self"))
+                except Exception:
+                    hazard_pressure = 0.0
+            except Exception:
+                hazard_pressure = 0.0
+        if hazard_pressure <= 0.0:
+            try:
+                hazard_pressure = max(
+                    (self._hazard_switch_penalty(battle, sw) / 2.2 for sw in battle.available_switches),
+                    default=0.0,
+                )
+            except Exception:
+                hazard_pressure = 0.0
         if (
             current_best_damage >= max(0.0, float(getattr(self, "SWITCH_CHURN_MIN_DAMAGE", 40.0)))
             or hazard_pressure >= max(0.0, float(getattr(self, "SWITCH_CHURN_MIN_HAZARD_HP", 0.08)))

@@ -486,6 +486,10 @@ class OranguruDecisionTests(unittest.TestCase):
     def test_negative_matchup_switch_guard_allows_low_hp_escape(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.SWITCH_GUARD_MIN_ACTIVE_HP = 0.45
+        engine.SWITCH_GUARD_LOW_HP_TARGET_MIN_HP = 0.35
+        engine.SWITCH_GUARD_LOW_HP_MIN_HP_GAIN = 0.15
+        engine.SWITCH_GUARD_LOW_HP_POLICY_RATIO = 0.45
+        engine.SWITCH_GUARD_LOW_HP_HEUR_FLOOR = 0.0
         engine.SWITCH_GUARD_POLICY_RATIO = 0.70
         engine.SWITCH_GUARD_HEUR_GAIN = 1.0
         engine.SWITCH_GUARD_RISK_POLICY_RATIO = 0.60
@@ -506,6 +510,31 @@ class OranguruDecisionTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "switch skarmory")
         self.assertEqual(memory["switch_guard_last"]["reason"], "low_active_hp")
+
+    def test_negative_matchup_switch_guard_rejects_low_hp_chain_switch(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.SWITCH_GUARD_MIN_ACTIVE_HP = 0.45
+        engine.SWITCH_GUARD_LOW_HP_TARGET_MIN_HP = 0.35
+        engine.SWITCH_GUARD_LOW_HP_MIN_HP_GAIN = 0.15
+        engine.SWITCH_GUARD_LOW_HP_POLICY_RATIO = 0.45
+        engine.SWITCH_GUARD_LOW_HP_HEUR_FLOOR = 0.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._heuristic_action_score = lambda _battle, choice: 10.0 if choice.startswith("switch ") else 20.0
+        engine._adaptive_choice_risk_penalty = lambda _battle, choice: 0.0
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.2)
+        battle.available_switches = [SimpleNamespace(species="skarmory", current_hp_fraction=0.25)]
+
+        adjusted = engine._maybe_reduce_negative_matchup_switch(
+            battle,
+            [("switch skarmory", 100.0), ("earthquake", 50.0)],
+            "switch skarmory",
+        )
+
+        self.assertEqual(adjusted, "earthquake")
+        self.assertEqual(memory["switch_guard_last"]["reason"], "take_low_hp_attack")
+        self.assertLess(memory["switch_guard_last"]["switch_target_hp"], 0.35)
 
     def test_progress_window_takes_setup_when_behind_and_safe(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)

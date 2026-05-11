@@ -302,6 +302,16 @@ def maybe_reduce_negative_matchup_switch(
     else:
         weight_ratio = best_move_weight / max(switch_weight, 1e-6)
 
+    def _chosen_switch_target():
+        try:
+            switch_name = normalize_name(chosen_choice.split("switch ", 1)[1])
+        except Exception:
+            return None
+        for sw in getattr(battle, "available_switches", None) or []:
+            if normalize_name(getattr(sw, "species", "")) == switch_name:
+                return sw
+        return None
+
     def _details(**extra) -> dict:
         payload = {
             "active_hp": float(active_hp),
@@ -321,7 +331,54 @@ def maybe_reduce_negative_matchup_switch(
 
     min_active_hp = float(getattr(self, "SWITCH_GUARD_MIN_ACTIVE_HP", 0.45))
     if active_hp < min_active_hp:
-        _record("low_active_hp", **_details(min_active_hp=min_active_hp))
+        switch_target = _chosen_switch_target()
+        target_hp = getattr(switch_target, "current_hp_fraction", None) if switch_target is not None else None
+        if not isinstance(target_hp, (int, float)):
+            _record("low_active_hp", **_details(min_active_hp=min_active_hp))
+            return chosen_choice
+        min_target_hp = float(getattr(self, "SWITCH_GUARD_LOW_HP_TARGET_MIN_HP", 0.35))
+        min_hp_gain = float(getattr(self, "SWITCH_GUARD_LOW_HP_MIN_HP_GAIN", 0.15))
+        hp_gain = float(target_hp) - float(active_hp)
+        if target_hp >= min_target_hp and hp_gain >= min_hp_gain:
+            _record(
+                "low_active_hp",
+                **_details(
+                    min_active_hp=min_active_hp,
+                    switch_target_hp=float(target_hp),
+                    switch_hp_gain=float(hp_gain),
+                    min_target_hp=min_target_hp,
+                    min_hp_gain=min_hp_gain,
+                ),
+            )
+            return chosen_choice
+
+        low_hp_policy_ratio = float(getattr(self, "SWITCH_GUARD_LOW_HP_POLICY_RATIO", 0.45))
+        low_hp_heur_floor = float(getattr(self, "SWITCH_GUARD_LOW_HP_HEUR_FLOOR", 0.0))
+        if weight_ratio >= low_hp_policy_ratio and move_heur >= low_hp_heur_floor:
+            _record(
+                "take_low_hp_attack",
+                **_details(
+                    min_active_hp=min_active_hp,
+                    switch_target_hp=float(target_hp),
+                    switch_hp_gain=float(hp_gain),
+                    min_target_hp=min_target_hp,
+                    min_hp_gain=min_hp_gain,
+                    min_policy_ratio=low_hp_policy_ratio,
+                    min_attack_heuristic=low_hp_heur_floor,
+                ),
+            )
+            return best_move_choice
+
+        _record(
+            "low_active_hp",
+            **_details(
+                min_active_hp=min_active_hp,
+                switch_target_hp=float(target_hp),
+                switch_hp_gain=float(hp_gain),
+                min_target_hp=min_target_hp,
+                min_hp_gain=min_hp_gain,
+            ),
+        )
         return chosen_choice
 
     heur_delta = move_heur - switch_heur
