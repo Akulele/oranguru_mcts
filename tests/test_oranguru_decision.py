@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from poke_env.battle import MoveCategory
+from poke_env.battle import MoveCategory, PokemonType
 
 from src.players.oranguru_engine import OranguruEnginePlayer
 
@@ -130,6 +130,99 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "firepunch")
         self.assertEqual(memory["finish_blow_last"]["reason"], "take_safe_ko")
         self.assertEqual(memory["finish_blow_last"]["finish_choice"], "firepunch")
+
+    def test_fatal_reply_guard_switches_when_attack_does_not_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.FATAL_REPLY_GUARD_ENABLED = True
+        engine.FATAL_REPLY_KO_THRESHOLD = 185.0
+        engine.FATAL_REPLY_MIN_REPLY = 45.0
+        engine.FATAL_REPLY_MIN_POLICY_RATIO = 0.10
+        engine.FATAL_REPLY_MIN_SWITCH_SCORE = 0.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.PROTECT_MOVES = set()
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: 150.0 if move.id == "fireblast" else 0.0
+        engine._estimate_best_reply_score = lambda *_args: 240.0
+        engine._switch_faints_to_entry_hazards = lambda *_args: False
+        engine._score_switch = lambda sw, *_args: 85.0 if sw.species == "screamtail" else 10.0
+        engine._is_recovery_move = lambda _move: False
+        engine._should_use_protect = lambda *_args: False
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(1.0)
+        battle.opponent_active_pokemon = DummyPokemon(0.8)
+        battle.available_moves = [DummyMove("fireblast", category=MoveCategory.SPECIAL, base_power=110)]
+        battle.available_switches = [SimpleNamespace(species="screamtail")]
+
+        adjusted = engine._maybe_avoid_fatal_reply_choice(
+            battle,
+            [("fireblast", 0.70), ("switch screamtail", 0.12)],
+            "fireblast",
+        )
+
+        self.assertEqual(adjusted, "switch screamtail")
+        self.assertEqual(memory["fatal_reply_last"]["reason"], "avoid_fatal_reply")
+
+    def test_contact_risk_guard_prefers_close_non_contact_attack(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.CONTACT_RISK_GUARD_ENABLED = True
+        engine.CONTACT_RISK_MIN_RISK = 0.12
+        engine.CONTACT_RISK_MIN_DAMAGE_RATIO = 0.85
+        engine.CONTACT_RISK_MIN_POLICY_RATIO = 0.30
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._move_makes_contact = OranguruEnginePlayer._move_makes_contact.__get__(engine)
+        engine._contact_punish_risk = OranguruEnginePlayer._contact_punish_risk.__get__(engine)
+        engine._get_ability_id = lambda _mon: "flamebody"
+        engine._get_move_entry = lambda move: {
+            "megahorn": {"flags": {"contact": 1}},
+            "stoneedge": {"flags": {}},
+        }.get(move.id, {})
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "megahorn": 100.0,
+            "stoneedge": 92.0,
+        }.get(move.id, 0.0)
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "megahorn": 100.0,
+            "stoneedge": 96.0,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.7)
+        battle.opponent_active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon.ability = "flamebody"
+        battle.available_moves = [
+            DummyMove("megahorn", category=MoveCategory.PHYSICAL, base_power=120),
+            DummyMove("stoneedge", category=MoveCategory.PHYSICAL, base_power=100),
+        ]
+
+        adjusted = engine._maybe_avoid_contact_risk_choice(
+            battle,
+            [("megahorn", 0.55), ("stoneedge", 0.28)],
+            "megahorn",
+        )
+
+        self.assertEqual(adjusted, "stoneedge")
+        self.assertEqual(memory["contact_risk_last"]["reason"], "avoid_contact_risk")
+
+    def test_tera_sanity_rejects_new_stab_weakness_without_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TERA_DEFENSIVE_SANITY_ENABLED = True
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._calculate_move_score = lambda *_args, **_kwargs: 40.0
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+        battle.active_pokemon.types = [PokemonType.PSYCHIC]
+        battle.active_pokemon.tera_type = PokemonType.FIGHTING
+        battle.opponent_active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon.types = [PokemonType.DARK, PokemonType.FLYING]
+        move = DummyMove("psychicfangs", category=MoveCategory.PHYSICAL, base_power=85)
+
+        self.assertTrue(engine._tera_defensive_sanity_reject(battle, move))
+        self.assertEqual(memory["tera_sanity_last"]["stab_type"], "flying")
 
     def test_setup_window_guard_prefers_setup_when_safe(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)

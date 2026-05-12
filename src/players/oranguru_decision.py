@@ -732,7 +732,11 @@ def maybe_take_progress_when_behind_choice(
         _record("opponent_low", active_hp=float(active_hp), opp_hp=float(opp_hp), min_opp_hp=min_opp_hp)
         return chosen_choice
 
-    reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    try:
+        reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    except Exception:
+        _record("reply_estimate_failed")
+        return chosen_choice
     max_reply = float(getattr(self, "PROGRESS_WINDOW_MAX_REPLY", 110.0))
     if reply_score > max_reply:
         _record(
@@ -1208,7 +1212,11 @@ def maybe_take_setup_window_choice(
         _record("low_hp", active_hp=float(active_hp), min_hp=float(self.SETUP_WINDOW_MIN_HP))
         return chosen_choice
 
-    reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    try:
+        reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    except Exception:
+        _record("reply_estimate_failed")
+        return chosen_choice
     if reply_score > self.SETUP_WINDOW_MAX_REPLY:
         _record(
             "unsafe_reply",
@@ -1670,6 +1678,330 @@ def maybe_take_critical_recovery_choice(
     return best_recovery_choice
 
 
+def _choice_move(battle: Battle, choice: str):
+    move_id = normalize_name(str(choice or "").replace("-tera", ""))
+    if not move_id:
+        return None
+    for move in battle.available_moves or []:
+        if normalize_name(getattr(move, "id", "")) == move_id:
+            return move
+    return None
+
+
+def _move_damage_score(self, battle: Battle, active: Pokemon, opponent: Pokemon, move) -> float:
+    try:
+        return float(
+            self._calculate_move_score(
+                move,
+                active,
+                opponent,
+                battle,
+                apply_recoil=False,
+            )
+            or 0.0
+        )
+    except TypeError:
+        try:
+            return float(self._calculate_move_score(move, active, opponent, battle) or 0.0)
+        except Exception:
+            return 0.0
+    except Exception:
+        return 0.0
+
+
+def move_makes_contact(self, move) -> bool:
+    try:
+        entry = self._get_move_entry(move)
+    except Exception:
+        entry = {}
+    flags = entry.get("flags", {}) if isinstance(entry, dict) else {}
+    if isinstance(flags, dict) and flags.get("contact"):
+        return True
+    return bool(getattr(move, "makes_contact", False))
+
+
+def contact_punish_risk(self, active: Pokemon, opponent: Pokemon) -> float:
+    """Return approximate contact downside as an HP fraction/risk score."""
+    if active is None or opponent is None:
+        return 0.0
+    ability_id = None
+    try:
+        ability_id = self._get_ability_id(opponent)
+    except Exception:
+        ability_id = normalize_name(str(getattr(opponent, "ability", "") or "")) or None
+    possible = set()
+    if ability_id:
+        possible.add(ability_id)
+    else:
+        try:
+            possible = set(self._possible_abilities(opponent) or set())
+        except Exception:
+            possible = set()
+
+    risk = 0.0
+    known_mult = 1.0 if ability_id else 0.55
+    if {"flamebody", "static"} & possible:
+        risk = max(risk, 0.30 * known_mult)
+    if {"roughskin", "ironbarbs"} & possible:
+        risk = max(risk, 0.125 * known_mult)
+
+    item = normalize_name(str(getattr(opponent, "item", "") or ""))
+    if item == "rockyhelmet":
+        risk = max(risk, 1.0 / 6.0)
+
+    active_hp = active.current_hp_fraction or 0.0
+    if risk > 0.0 and active_hp <= risk + 0.03:
+        risk += 0.35
+    return risk
+
+
+def maybe_avoid_contact_risk_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {"reason": reason, "chosen_choice": str(chosen_choice or "")}
+        payload.update(extra)
+        mem["contact_risk_last"] = payload
+
+    if not bool(getattr(self, "CONTACT_RISK_GUARD_ENABLED", False)):
+        return chosen_choice
+    if not chosen_choice or chosen_choice.startswith("switch ") or getattr(battle, "force_switch", False):
+        _record("not_attack")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    chosen_move = _choice_move(battle, chosen_choice)
+    if chosen_move is None or not self._is_damaging_move_choice(battle, chosen_choice):
+        _record("not_damaging")
+        return chosen_choice
+    if not self._move_makes_contact(chosen_move):
+        _record("non_contact")
+        return chosen_choice
+
+    risk = float(self._contact_punish_risk(active, opponent) or 0.0)
+    min_risk = float(getattr(self, "CONTACT_RISK_MIN_RISK", 0.12))
+    if risk < min_risk:
+        _record("low_risk", contact_risk=float(risk), min_risk=float(min_risk))
+        return chosen_choice
+
+    chosen_damage = _move_damage_score(self, battle, active, opponent, chosen_move)
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    min_damage_ratio = float(getattr(self, "CONTACT_RISK_MIN_DAMAGE_RATIO", 0.85))
+    min_policy_ratio = float(getattr(self, "CONTACT_RISK_MIN_POLICY_RATIO", 0.35))
+
+    best_choice = ""
+    best_score = -1.0
+    best_damage = 0.0
+    best_weight = 0.0
+    candidate_choices = list(ordered)
+    seen = {choice for choice, _ in candidate_choices}
+    for move in battle.available_moves or []:
+        candidate = normalize_name(getattr(move, "id", ""))
+        if candidate and candidate not in seen:
+            candidate_choices.append((candidate, 0.0))
+
+    for choice, weight in candidate_choices:
+        if choice == chosen_choice or choice.startswith("switch "):
+            continue
+        move = _choice_move(battle, choice)
+        if move is None or not self._is_damaging_move_choice(battle, choice):
+            continue
+        if self._move_makes_contact(move):
+            continue
+        damage = _move_damage_score(self, battle, active, opponent, move)
+        if chosen_damage > 0.0 and damage < chosen_damage * min_damage_ratio:
+            continue
+        candidate_weight = float(weight or 0.0)
+        if chosen_weight > 0.0 and candidate_weight < chosen_weight * min_policy_ratio:
+            continue
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        score = heur + 0.02 * damage + 10.0 * risk
+        if score > best_score:
+            best_choice = choice
+            best_score = score
+            best_damage = damage
+            best_weight = candidate_weight
+
+    if not best_choice:
+        _record(
+            "no_non_contact_candidate",
+            contact_risk=float(risk),
+            chosen_damage=float(chosen_damage),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+
+    _record(
+        "avoid_contact_risk",
+        contact_risk=float(risk),
+        chosen_damage=float(chosen_damage),
+        safe_damage=float(best_damage),
+        chosen_weight=float(chosen_weight),
+        safe_weight=float(best_weight),
+        safe_choice=best_choice,
+    )
+    return best_choice
+
+
+def maybe_avoid_fatal_reply_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {"reason": reason, "chosen_choice": str(chosen_choice or "")}
+        payload.update(extra)
+        mem["fatal_reply_last"] = payload
+
+    if not bool(getattr(self, "FATAL_REPLY_GUARD_ENABLED", False)):
+        return chosen_choice
+    if not chosen_choice or chosen_choice.startswith("switch ") or getattr(battle, "force_switch", False):
+        _record("not_attack")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    chosen_move = _choice_move(battle, chosen_choice)
+    if chosen_move is None or not self._is_damaging_move_choice(battle, chosen_choice):
+        _record("not_damaging")
+        return chosen_choice
+
+    active_hp = active.current_hp_fraction or 0.0
+    opp_hp = opponent.current_hp_fraction or 0.0
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+    chosen_damage = _move_damage_score(self, battle, active, opponent, chosen_move)
+    if chosen_damage >= ko_threshold:
+        _record("chosen_kos", chosen_damage=float(chosen_damage), ko_threshold=float(ko_threshold))
+        return chosen_choice
+
+    try:
+        reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
+    except Exception:
+        _record("reply_estimate_failed")
+        return chosen_choice
+    fatal_threshold = float(getattr(self, "FATAL_REPLY_KO_THRESHOLD", 185.0)) * max(active_hp, 0.05)
+    min_reply = float(getattr(self, "FATAL_REPLY_MIN_REPLY", 45.0))
+    if reply_score < max(min_reply, fatal_threshold):
+        _record(
+            "reply_not_fatal",
+            active_hp=float(active_hp),
+            reply_score=float(reply_score),
+            fatal_threshold=float(fatal_threshold),
+            chosen_damage=float(chosen_damage),
+            ko_threshold=float(ko_threshold),
+        )
+        return chosen_choice
+
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    min_policy_ratio = float(getattr(self, "FATAL_REPLY_MIN_POLICY_RATIO", 0.10))
+    min_switch_score = float(getattr(self, "FATAL_REPLY_MIN_SWITCH_SCORE", 0.0))
+    best_choice = ""
+    best_score = -999.0
+    best_weight = 0.0
+    best_kind = ""
+
+    for choice, weight in ordered:
+        candidate_weight = float(weight or 0.0)
+        if choice == chosen_choice:
+            continue
+        if chosen_weight > 0.0 and candidate_weight < chosen_weight * min_policy_ratio:
+            continue
+        score = -999.0
+        kind = ""
+        if choice.startswith("switch "):
+            switch_name = normalize_name(choice.split("switch ", 1)[1])
+            switch_mon = None
+            for sw in battle.available_switches or []:
+                if normalize_name(getattr(sw, "species", "")) == switch_name:
+                    switch_mon = sw
+                    break
+            if switch_mon is None or self._switch_faints_to_entry_hazards(battle, switch_mon):
+                continue
+            score = float(self._score_switch(switch_mon, opponent, battle) or 0.0)
+            if score < min_switch_score:
+                continue
+            kind = "switch"
+        else:
+            move = _choice_move(battle, choice)
+            if move is None:
+                continue
+            if move.id in self.PROTECT_MOVES:
+                if not self._should_use_protect(battle, reply_score):
+                    continue
+                score = float(self._heuristic_action_score(battle, choice) or 0.0) + 30.0
+                kind = "protect"
+            elif self._is_recovery_move(move):
+                # Recovery only helps if the obvious reply is not also fatal after a heal.
+                healed_threshold = float(getattr(self, "FATAL_REPLY_HEALED_KO_THRESHOLD", 185.0)) * 0.70
+                if reply_score >= healed_threshold:
+                    continue
+                score = float(self._heuristic_action_score(battle, choice) or 0.0)
+                kind = "recovery"
+            else:
+                continue
+        if score > best_score:
+            best_choice = choice
+            best_score = score
+            best_weight = candidate_weight
+            best_kind = kind
+
+    if not best_choice:
+        _record(
+            "no_safe_candidate",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            fatal_threshold=float(fatal_threshold),
+            chosen_damage=float(chosen_damage),
+            ko_threshold=float(ko_threshold),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+
+    _record(
+        "avoid_fatal_reply",
+        active_hp=float(active_hp),
+        opp_hp=float(opp_hp),
+        reply_score=float(reply_score),
+        fatal_threshold=float(fatal_threshold),
+        chosen_damage=float(chosen_damage),
+        ko_threshold=float(ko_threshold),
+        chosen_weight=float(chosen_weight),
+        safe_choice=best_choice,
+        safe_weight=float(best_weight),
+        safe_score=float(best_score),
+        safe_kind=best_kind,
+    )
+    return best_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -1784,6 +2116,12 @@ def select_move_from_results(
 
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
+        if chosen_choice and bool(getattr(self, "FATAL_REPLY_GUARD_ENABLED", False)):
+            chosen_choice, path = _apply_rerank_candidate(
+                chosen_choice,
+                path,
+                self._maybe_avoid_fatal_reply_choice,
+            )
         if chosen_choice and bool(getattr(self, "CRITICAL_RECOVERY_GUARD_ENABLED", False)):
             chosen_choice, path = _apply_rerank_candidate(
                 chosen_choice,
@@ -1816,6 +2154,12 @@ def select_move_from_results(
             )
         if chosen_choice and finish_blow_guard_enabled:
             chosen_choice, path = _apply_finish_blow_guard(chosen_choice, path)
+        if chosen_choice and bool(getattr(self, "CONTACT_RISK_GUARD_ENABLED", False)):
+            chosen_choice, path = _apply_rerank_candidate(
+                chosen_choice,
+                path,
+                self._maybe_avoid_contact_risk_choice,
+            )
         if chosen_choice and bool(getattr(self, "LATEGAME_ATTACK_GUARD_ENABLED", False)):
             adjusted_choice = self._maybe_commit_late_game_attack_choice(
                 battle,
@@ -2130,5 +2474,7 @@ def choose_adaptive_fallback_order(self, battle: Battle, active: Pokemon, oppone
     move_id = normalize_name(selected)
     for move in battle.available_moves or []:
         if normalize_name(getattr(move, "id", "")) == move_id:
+            if tera and self._tera_defensive_sanity_reject(battle, move):
+                tera = False
             return self.create_order(move, terastallize=tera)
     return None

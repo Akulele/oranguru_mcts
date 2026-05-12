@@ -3136,6 +3136,88 @@ class RuleBotPlayer(Player):
             return None
         return ability_id
 
+    def _type_id(self, type_obj) -> str:
+        if type_obj is None:
+            return ""
+        name = type_obj.name if hasattr(type_obj, "name") else str(type_obj)
+        return normalize_name(name)
+
+    def _defensive_type_ids(self, mon: Pokemon, tera_override: Optional[str] = None) -> List[str]:
+        if mon is None:
+            return []
+        if tera_override:
+            return [normalize_name(tera_override)]
+        terastallized = getattr(mon, "terastallized", None)
+        if terastallized:
+            return [normalize_name(str(terastallized))]
+        if getattr(mon, "is_terastallized", False):
+            tera_type = getattr(mon, "tera_type", None)
+            if tera_type is not None:
+                return [self._type_id(tera_type)]
+        return [self._type_id(t) for t in (getattr(mon, "types", None) or []) if self._type_id(t)]
+
+    def _opponent_likely_stab_type_ids(self, opponent: Pokemon) -> List[str]:
+        if opponent is None:
+            return []
+        stab = []
+        for type_obj in (getattr(opponent, "types", None) or []):
+            type_id = self._type_id(type_obj)
+            if type_id and type_id not in stab:
+                stab.append(type_id)
+        tera_type = getattr(opponent, "tera_type", None)
+        if getattr(opponent, "is_terastallized", False) and tera_type is not None:
+            type_id = self._type_id(tera_type)
+            if type_id and type_id not in stab:
+                stab.append(type_id)
+        terastallized = getattr(opponent, "terastallized", None)
+        if terastallized:
+            type_id = normalize_name(str(terastallized))
+            if type_id and type_id not in stab:
+                stab.append(type_id)
+        return stab
+
+    def _tera_defensive_sanity_reject(self, battle: Battle, move: Optional[Move] = None) -> bool:
+        if not bool(getattr(self, "TERA_DEFENSIVE_SANITY_ENABLED", True)):
+            return False
+        active = getattr(battle, "active_pokemon", None)
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        if active is None or opponent is None:
+            return False
+        tera_type = getattr(active, "tera_type", None)
+        tera_id = self._type_id(tera_type)
+        if not tera_id or tera_id == "stellar":
+            return False
+
+        try:
+            if move is not None:
+                damage = self._calculate_move_score(move, active, opponent, battle, apply_recoil=False)
+                if damage >= self.TACTICAL_KO_THRESHOLD * max(opponent.current_hp_fraction or 0.0, 0.05):
+                    return False
+        except Exception:
+            pass
+
+        current_types = self._defensive_type_ids(active)
+        if not current_types:
+            return False
+        for stab_type in self._opponent_likely_stab_type_ids(opponent):
+            current_mult = get_type_effectiveness(stab_type, current_types)
+            tera_mult = get_type_effectiveness(stab_type, [tera_id])
+            if current_mult < 2.0 and tera_mult >= 2.0:
+                try:
+                    mem = self._get_battle_memory(battle)
+                    if isinstance(mem, dict):
+                        mem["tera_sanity_last"] = {
+                            "reason": "new_stab_weakness",
+                            "tera_type": tera_id,
+                            "stab_type": stab_type,
+                            "current_multiplier": float(current_mult),
+                            "tera_multiplier": float(tera_mult),
+                        }
+                except Exception:
+                    pass
+                return True
+        return False
+
     def _possible_abilities(self, opponent: Pokemon) -> set:
         species = normalize_name(getattr(opponent, "species", ""))
         if not species:
@@ -3281,6 +3363,9 @@ class RuleBotPlayer(Player):
             move, active, opponent, battle, apply_recoil=False
         )
         likely_ko = move_damage >= 220 * opponent.current_hp_fraction
+
+        if self._tera_defensive_sanity_reject(battle, move):
+            return False
 
         # Calculate offensive and defensive tera value
         try:

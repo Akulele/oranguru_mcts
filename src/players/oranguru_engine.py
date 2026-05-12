@@ -116,6 +116,17 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SAFE_KO_MIN_OVERKILL = float(os.getenv("ORANGURU_SAFE_KO_MIN_OVERKILL", "1.0"))
     SAFE_KO_MIN_RISK_DELTA = float(os.getenv("ORANGURU_SAFE_KO_MIN_RISK_DELTA", "0.10"))
     SAFE_KO_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SAFE_KO_MIN_POLICY_RATIO", "0.02"))
+    FATAL_REPLY_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_FATAL_REPLY_GUARD", "1")))
+    FATAL_REPLY_KO_THRESHOLD = float(os.getenv("ORANGURU_FATAL_REPLY_KO_THRESHOLD", "185.0"))
+    FATAL_REPLY_MIN_REPLY = float(os.getenv("ORANGURU_FATAL_REPLY_MIN_REPLY", "45.0"))
+    FATAL_REPLY_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_FATAL_REPLY_MIN_POLICY_RATIO", "0.10"))
+    FATAL_REPLY_MIN_SWITCH_SCORE = float(os.getenv("ORANGURU_FATAL_REPLY_MIN_SWITCH_SCORE", "0.0"))
+    FATAL_REPLY_HEALED_KO_THRESHOLD = float(os.getenv("ORANGURU_FATAL_REPLY_HEALED_KO_THRESHOLD", "185.0"))
+    CONTACT_RISK_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_CONTACT_RISK_GUARD", "1")))
+    CONTACT_RISK_MIN_RISK = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_RISK", "0.12"))
+    CONTACT_RISK_MIN_DAMAGE_RATIO = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_DAMAGE_RATIO", "0.85"))
+    CONTACT_RISK_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_POLICY_RATIO", "0.35"))
+    TERA_DEFENSIVE_SANITY_ENABLED = bool(int(os.getenv("ORANGURU_TERA_DEFENSIVE_SANITY", "1")))
     STATUS_STALL_MAX = int(os.getenv("ORANGURU_STATUS_STALL_MAX", "2"))
     RL_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_RL_PRIOR", "0")))
     RL_PRIOR_CHECKPOINT = os.getenv(
@@ -1150,6 +1161,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
     _maybe_commit_late_game_attack_choice = oranguru_decision.maybe_commit_late_game_attack_choice
+    _maybe_avoid_fatal_reply_choice = oranguru_decision.maybe_avoid_fatal_reply_choice
+    _maybe_avoid_contact_risk_choice = oranguru_decision.maybe_avoid_contact_risk_choice
+    _move_makes_contact = oranguru_decision.move_makes_contact
+    _contact_punish_risk = oranguru_decision.contact_punish_risk
 
     def _adaptive_rerank_choice(
         self,

@@ -15,10 +15,12 @@ from typing import Iterable, Mapping, Optional
 RERANK_WINDOWS = (
     ("finish_blow", "finish_blow"),
     ("critical_recovery", "critical_recovery"),
+    ("fatal_reply", "fatal_reply"),
     ("setup_window", "setup_window"),
     ("recovery_window", "recovery_window"),
     ("progress_window", "progress_window"),
     ("switch_guard", "switch_guard"),
+    ("contact_risk", "contact_risk"),
     ("passive_breaker", "passive_breaker"),
 )
 
@@ -27,6 +29,7 @@ TAKE_TARGET_KEYS = (
     "setup_choice",
     "recovery_choice",
     "progress_choice",
+    "safe_choice",
     "attack_choice",
     "passive_choice",
 )

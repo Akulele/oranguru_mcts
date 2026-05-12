@@ -238,18 +238,19 @@ def _resolve_choice_to_order(self, battle: Battle, choice: str, active, opponent
     move_id = normalize_name(choice)
     for move in battle.available_moves:
         if move.id == move_id:
+            auto_tera = (
+                self.AUTO_TERA
+                and getattr(battle, "can_tera", False)
+                and self._should_terastallize(battle, move)
+            )
+            terastallize = tera or auto_tera
+            if terastallize and self._tera_defensive_sanity_reject(battle, move):
+                terastallize = False
             return self._commit_order(
                 battle,
                 self.create_order(
                     move,
-                    terastallize=(
-                        tera
-                        or (
-                            self.AUTO_TERA
-                            and getattr(battle, "can_tera", False)
-                            and self._should_terastallize(battle, move)
-                        )
-                    ),
+                    terastallize=terastallize,
                     dynamax=self._should_dynamax(battle, len([m for m in battle.team.values() if not m.fainted])),
                 ),
             )
