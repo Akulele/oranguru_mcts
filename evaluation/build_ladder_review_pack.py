@@ -51,6 +51,11 @@ LABEL_SCHEMA = {
     ],
 }
 
+TEACHER_STRONG_DELTA = 0.25
+TEACHER_AGREE_MIN_PROB = 0.25
+DAMAGE_KINDS = {"attack", "tera_attack"}
+RECOVERY_SETUP_ISSUES = {"ignored_safe_recovery", "underused_setup_window"}
+
 
 def _load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -119,6 +124,40 @@ def _choice_action(row: dict[str, Any], choice: str) -> dict[str, Any] | None:
         if str(action.get("choice", "") or "") == choice:
             return action
     return None
+
+
+def _kind_for_choice(actions: Iterable[dict[str, Any]], choice: str) -> str:
+    normalized = str(choice or "")
+    for action in actions:
+        if str(action.get("choice", "") or "") == normalized:
+            return str(action.get("kind", "") or "")
+    if normalized.startswith("switch "):
+        return "switch"
+    if normalized.endswith("-tera"):
+        return "tera_attack"
+    return ""
+
+
+def _teacher_suppresses_issue(
+    issue: dict[str, Any] | None,
+    teacher: dict[str, Any] | None,
+    choice: str,
+    actions: Iterable[dict[str, Any]],
+) -> bool:
+    if not issue or not teacher:
+        return False
+    teacher_top = str(teacher.get("top_choice", "") or "")
+    if not teacher_top:
+        return False
+    teacher_top_prob = _safe_float(teacher.get("top_prob"), 0.0)
+    if teacher_top == choice and teacher_top_prob >= TEACHER_AGREE_MIN_PROB:
+        return True
+    teacher_delta = _safe_float(teacher.get("delta_top_minus_chosen"), 0.0)
+    if teacher_delta < TEACHER_STRONG_DELTA:
+        return False
+    issue_category = str(issue.get("category", "") or "")
+    teacher_kind = _kind_for_choice(actions, teacher_top)
+    return issue_category in RECOVERY_SETUP_ISSUES and teacher_kind in DAMAGE_KINDS
 
 
 def _teacher_lookup(teacher_rows: list[dict[str, Any]]) -> dict[tuple[str, int], dict[str, Any]]:
@@ -476,6 +515,7 @@ def _priority(
         score += 8.0
         reasons.append("rerank decision")
 
+    teacher_suppresses_issue = _teacher_suppresses_issue(issue, teacher, choice, actions)
     if teacher:
         teacher_top = str(teacher.get("top_choice", "") or "")
         teacher_delta = _safe_float(teacher.get("delta_top_minus_chosen"), 0.0)
@@ -495,7 +535,7 @@ def _priority(
         score += 5.0
         reasons.append(f"loss with {chosen_kind} choice")
 
-    if issue:
+    if issue and not teacher_suppresses_issue:
         issue_priority = float(issue.get("priority", 0.0) or 0.0)
         score += min(50.0, issue_priority * 0.6)
         category = str(issue.get("category", "") or "")
@@ -510,6 +550,42 @@ def _review_prompt(item: dict[str, Any]) -> str:
     opp = item.get("opponent_species") or "opponent"
     choice = item.get("choice") or "unknown"
     top = item.get("top_choice") or ""
+    teacher = item.get("teacher") if isinstance(item.get("teacher"), dict) else None
+    if teacher:
+        teacher_top = str(teacher.get("top_choice", "") or "")
+        teacher_delta = _safe_float(teacher.get("delta_top_minus_chosen"), 0.0)
+        teacher_top_prob = _safe_float(teacher.get("top_prob"), 0.0)
+        if teacher_top and teacher_top != choice and teacher_delta >= TEACHER_STRONG_DELTA:
+            teacher_kind = _kind_for_choice(item.get("top_actions") or [], teacher_top)
+            if teacher_kind in DAMAGE_KINDS:
+                return (
+                    f"{active} into {opp}: FP teacher strongly prefers direct damage "
+                    f"{teacher_top} over {choice}; review damage/KO progress instead of recovery/setup."
+                )
+            if teacher_kind == "recovery":
+                return (
+                    f"{active} into {opp}: FP teacher strongly prefers recovery "
+                    f"{teacher_top} over {choice}; review whether staying healthy was mandatory."
+                )
+            if teacher_kind == "setup":
+                return (
+                    f"{active} into {opp}: FP teacher strongly prefers setup "
+                    f"{teacher_top} over {choice}; review whether this was a safe win-con window."
+                )
+            if teacher_kind == "switch":
+                return (
+                    f"{active} into {opp}: FP teacher strongly prefers switching via "
+                    f"{teacher_top} over {choice}; review whether active should be preserved."
+                )
+            return (
+                f"{active} into {opp}: FP teacher strongly prefers {teacher_top} "
+                f"over {choice}; review this disagreement."
+            )
+        if teacher_top == choice and teacher_top_prob >= TEACHER_AGREE_MIN_PROB:
+            return (
+                f"{active} into {opp}: FP teacher agrees with {choice}; "
+                "review only if board context suggests a strategic issue."
+            )
     if item.get("issue_blurb"):
         return str(item["issue_blurb"])
     if top and top != choice:
@@ -587,6 +663,7 @@ def build_ladder_review_pack(
         if priority <= 0.0:
             continue
         actions = _top_actions(row)
+        effective_issue = None if _teacher_suppresses_issue(issue, teacher, choice, actions) else issue
         top = actions[0] if actions else None
         chosen_action = _choice_action(row, choice)
         board = _board_summary(row)
@@ -611,9 +688,9 @@ def build_ladder_review_pack(
             "best_reply_score": round(_safe_float(row.get("best_reply_score"), 0.0), 3),
             "top_actions": _top_action_payload(row),
             "reasons": reasons[:8],
-            "issue_category": None if issue is None else issue.get("category"),
-            "issue_blurb": None if issue is None else issue.get("review_blurb"),
-            "issue_priority": None if issue is None else issue.get("priority"),
+            "issue_category": None if effective_issue is None else effective_issue.get("category"),
+            "issue_blurb": None if effective_issue is None else effective_issue.get("review_blurb"),
+            "issue_priority": None if effective_issue is None else effective_issue.get("priority"),
             "teacher": teacher,
             "human_label": "",
             "human_category": "",

@@ -1,6 +1,10 @@
 import unittest
 
-from evaluation.build_ladder_review_pack import build_ladder_review_pack
+from evaluation.build_ladder_review_pack import (
+    _review_prompt,
+    _teacher_suppresses_issue,
+    build_ladder_review_pack,
+)
 
 
 class LadderReviewPackTests(unittest.TestCase):
@@ -113,6 +117,49 @@ class LadderReviewPackTests(unittest.TestCase):
         self.assertIn("our low remaining mons", pack["rows"][0]["reasons"])
         self.assertEqual(pack["summary"]["teacher_rows"], 1)
         self.assertEqual(pack["summary"]["teacher_disagreements"], 1)
+
+    def test_fp_teacher_overrides_misleading_recovery_prompt(self):
+        prompt = _review_prompt(
+            {
+                "active_species": "bombirdier",
+                "opponent_species": "grimmsnarl",
+                "choice": "knockoff",
+                "top_choice": "roost",
+                "issue_blurb": "bombirdier into grimmsnarl: skipped recovery at low HP.",
+                "top_actions": [
+                    {"choice": "roost", "kind": "recovery"},
+                    {"choice": "knockoff", "kind": "attack"},
+                    {"choice": "bravebird", "kind": "attack"},
+                ],
+                "teacher": {
+                    "top_choice": "bravebird",
+                    "top_prob": 0.9762,
+                    "chosen_prob": 0.0068,
+                    "delta_top_minus_chosen": 0.9693,
+                },
+            }
+        )
+
+        self.assertIn("FP teacher strongly prefers direct damage bravebird", prompt)
+        self.assertNotIn("skipped recovery", prompt)
+
+    def test_fp_teacher_agreement_suppresses_mined_recovery_issue(self):
+        issue = {
+            "category": "ignored_safe_recovery",
+            "review_blurb": "regigigas into ditto: skipped recovery at low HP.",
+        }
+        teacher = {
+            "top_choice": "bodyslam",
+            "top_prob": 0.3292,
+            "chosen_prob": 0.3292,
+            "delta_top_minus_chosen": 0.0,
+        }
+        actions = [
+            {"choice": "rest", "kind": "recovery"},
+            {"choice": "bodyslam", "kind": "attack"},
+        ]
+
+        self.assertTrue(_teacher_suppresses_issue(issue, teacher, "bodyslam", actions))
 
 
 if __name__ == "__main__":
