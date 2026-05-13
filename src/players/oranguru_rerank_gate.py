@@ -585,6 +585,35 @@ def maybe_accept_rerank_choice(
 ) -> str:
     if candidate_choice == current_choice:
         return candidate_choice
+    if ordered:
+        top1_choice, top1_weight = ordered[0]
+        candidate_weight = next((weight for choice, weight in ordered if choice == candidate_choice), 0.0)
+        max_drop = float(getattr(self, "TACTICAL_RERANK_MAX_TOP1_DROP", 0.35))
+        source_reason, _payload = _last_take_source(self, battle, candidate_choice)
+        source = str(source_reason or "").split(":", 1)[0]
+        uncapped_sources = {"finish_blow", "fatal_reply"}
+        if (
+            source not in uncapped_sources
+            and top1_choice != candidate_choice
+            and max_drop >= 0.0
+            and float(top1_weight or 0.0) - float(candidate_weight or 0.0) > max_drop
+        ):
+            try:
+                _record_gate(
+                    self,
+                    battle,
+                    "block_top1_drop",
+                    source=source_reason,
+                    current_choice=current_choice,
+                    candidate_choice=candidate_choice,
+                    top1_choice=top1_choice,
+                    top1_weight=float(top1_weight or 0.0),
+                    candidate_weight=float(candidate_weight or 0.0),
+                    max_drop=float(max_drop),
+                )
+            except Exception:
+                pass
+            return current_choice
     if self._rerank_gate_allows(battle, ordered, current_choice, candidate_choice, confidence, threshold):
         return candidate_choice
     return current_choice

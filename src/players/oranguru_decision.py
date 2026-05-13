@@ -1888,15 +1888,16 @@ def maybe_avoid_fatal_reply_choice(
         return chosen_choice
 
     chosen_move = _choice_move(battle, chosen_choice)
-    if chosen_move is None or not self._is_damaging_move_choice(battle, chosen_choice):
-        _record("not_damaging")
+    if chosen_move is None:
+        _record("missing_move")
         return chosen_choice
 
     active_hp = active.current_hp_fraction or 0.0
     opp_hp = opponent.current_hp_fraction or 0.0
     ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
-    chosen_damage = _move_damage_score(self, battle, active, opponent, chosen_move)
-    if chosen_damage >= ko_threshold:
+    chosen_is_damage = self._is_damaging_move_choice(battle, chosen_choice)
+    chosen_damage = _move_damage_score(self, battle, active, opponent, chosen_move) if chosen_is_damage else 0.0
+    if chosen_is_damage and chosen_damage >= ko_threshold:
         _record("chosen_kos", chosen_damage=float(chosen_damage), ko_threshold=float(ko_threshold))
         return chosen_choice
 
@@ -1952,7 +1953,14 @@ def maybe_avoid_fatal_reply_choice(
             move = _choice_move(battle, choice)
             if move is None:
                 continue
-            if move.id in self.PROTECT_MOVES:
+            if (
+                not chosen_is_damage
+                and self._is_damaging_move_choice(battle, choice)
+                and choice != chosen_choice
+            ):
+                score = _move_damage_score(self, battle, active, opponent, move)
+                kind = "attack"
+            elif move.id in self.PROTECT_MOVES:
                 if not self._should_use_protect(battle, reply_score):
                     continue
                 score = float(self._heuristic_action_score(battle, choice) or 0.0) + 30.0

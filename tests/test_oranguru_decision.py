@@ -164,6 +164,74 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "switch screamtail")
         self.assertEqual(memory["fatal_reply_last"]["reason"], "avoid_fatal_reply")
 
+    def test_fatal_reply_guard_attacks_over_low_hp_setup(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.FATAL_REPLY_GUARD_ENABLED = True
+        engine.FATAL_REPLY_KO_THRESHOLD = 185.0
+        engine.FATAL_REPLY_MIN_REPLY = 45.0
+        engine.FATAL_REPLY_MIN_POLICY_RATIO = 0.10
+        engine.FATAL_REPLY_MIN_SWITCH_SCORE = 0.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.PROTECT_MOVES = set()
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "focusblast": 80.0,
+            "thunderbolt": 70.0,
+        }.get(move.id, 0.0)
+        engine._estimate_best_reply_score = lambda *_args: 80.0
+        engine._switch_faints_to_entry_hazards = lambda *_args: False
+        engine._score_switch = lambda *_args: -10.0
+        engine._is_recovery_move = lambda _move: False
+        engine._should_use_protect = lambda *_args: False
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.054)
+        battle.opponent_active_pokemon = DummyPokemon(1.0)
+        setup = DummyMove("nastyplot", category=MoveCategory.STATUS)
+        setup.boosts = {"spa": 2}
+        setup.target = "self"
+        battle.available_moves = [
+            DummyMove("focusblast", category=MoveCategory.SPECIAL, base_power=120),
+            DummyMove("thunderbolt", category=MoveCategory.SPECIAL, base_power=90),
+            setup,
+        ]
+        battle.available_switches = []
+
+        adjusted = engine._maybe_avoid_fatal_reply_choice(
+            battle,
+            [("focusblast", 0.29), ("thunderbolt", 0.25), ("nastyplot", 0.23)],
+            "nastyplot",
+        )
+
+        self.assertEqual(adjusted, "focusblast")
+        self.assertEqual(memory["fatal_reply_last"]["safe_kind"], "attack")
+
+    def test_tactical_rerank_blocks_huge_top1_policy_drop(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_RERANK_MAX_TOP1_DROP = 0.35
+        engine.RERANK_GATE_ENABLED = False
+        engine._rerank_gate_allows = OranguruEnginePlayer._rerank_gate_allows.__get__(engine)
+        engine._get_battle_memory = lambda _battle: {
+            "recovery_window_last": {
+                "reason": "take_recovery",
+                "chosen_choice": "scald",
+                "recovery_choice": "rest",
+            }
+        }
+        battle = DummyBattle()
+
+        adjusted = engine._maybe_accept_rerank_choice(
+            battle,
+            [("scald", 0.7797), ("rest", 0.0278)],
+            "scald",
+            "rest",
+            0.7,
+            0.6,
+        )
+
+        self.assertEqual(adjusted, "scald")
+
     def test_contact_risk_guard_prefers_close_non_contact_attack(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.CONTACT_RISK_GUARD_ENABLED = True

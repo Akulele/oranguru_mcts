@@ -324,6 +324,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     RECOVERY_WINDOW_ENABLED = bool(int(os.getenv("ORANGURU_RECOVERY_WINDOW", os.getenv("ORANGURU_TACTICAL_RERANKS", "1"))))
     PROGRESS_WINDOW_ENABLED = bool(int(os.getenv("ORANGURU_PROGRESS_WINDOW", os.getenv("ORANGURU_TACTICAL_RERANKS", "1"))))
     SWITCH_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_SWITCH_GUARD", os.getenv("ORANGURU_TACTICAL_RERANKS", "1"))))
+    TACTICAL_RERANK_MAX_TOP1_DROP = float(os.getenv("ORANGURU_TACTICAL_RERANK_MAX_TOP1_DROP", "0.35"))
     RERANK_GATE_ENABLED = bool(int(os.getenv("ORANGURU_RERANK_GATE", "0")))
     RERANK_GATE_MODEL = os.getenv("ORANGURU_RERANK_GATE_MODEL", "checkpoints/rl/rerank_gate.json")
     RERANK_GATE_THRESHOLD = float(os.getenv("ORANGURU_RERANK_GATE_THRESHOLD", "0.50"))
