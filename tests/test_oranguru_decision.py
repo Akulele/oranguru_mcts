@@ -131,6 +131,96 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(memory["finish_blow_last"]["reason"], "take_safe_ko")
         self.assertEqual(memory["finish_blow_last"]["finish_choice"], "firepunch")
 
+    def test_finish_blow_guard_attacks_critical_hp_target_over_recovery(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.FINISH_BLOW_CRITICAL_OPP_HP = 0.10
+        engine.FINISH_BLOW_THREAT_OPP_HP = 0.35
+        engine.FINISH_BLOW_THREAT_BOOSTS = 2.0
+        engine.FINISH_BLOW_CRITICAL_MIN_POLICY_RATIO = 0.05
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._move_recoil_rate = lambda _move: 0.0
+        engine._get_move_entry = lambda _move: {}
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "superpower": 5.0,
+            "leafstorm": 4.0,
+        }.get(move.id, 0.0)
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "superpower": 46.8,
+            "leafstorm": 4.2,
+            "synthesis": 0.0,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.742)
+        battle.opponent_active_pokemon = DummyPokemon(0.03)
+        battle.available_moves = [
+            DummyMove("synthesis", category=MoveCategory.STATUS),
+            DummyMove("superpower", category=MoveCategory.PHYSICAL, base_power=120),
+            DummyMove("leafstorm", category=MoveCategory.SPECIAL, base_power=130),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("synthesis", 0.447), ("superpower", 0.257), ("leafstorm", 0.154)],
+            "synthesis",
+        )
+
+        self.assertEqual(adjusted, "superpower")
+        self.assertEqual(memory["finish_blow_last"]["reason"], "take_critical_hp_attack")
+
+    def test_finish_blow_guard_attacks_boosted_low_target_over_switch(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.FINISH_BLOW_CRITICAL_OPP_HP = 0.10
+        engine.FINISH_BLOW_THREAT_OPP_HP = 0.35
+        engine.FINISH_BLOW_THREAT_BOOSTS = 2.0
+        engine.FINISH_BLOW_CRITICAL_MIN_POLICY_RATIO = 0.05
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._move_recoil_rate = lambda _move: 0.0
+        engine._get_move_entry = lambda _move: {}
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "playrough": 8.0,
+            "behemothblade": 6.0,
+            "closecombat": 7.0,
+        }.get(move.id, 0.0)
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "playrough": 4.8,
+            "behemothblade": 3.0,
+            "closecombat": 1.4,
+            "switch gholdengo": 1.0,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.191)
+        battle.opponent_active_pokemon = DummyPokemon(0.28)
+        battle.opponent_active_pokemon.boosts = {
+            "attack": 2,
+            "special-attack": 2,
+            "speed": 2,
+        }
+        battle.available_moves = [
+            DummyMove("playrough", category=MoveCategory.PHYSICAL, base_power=90),
+            DummyMove("behemothblade", category=MoveCategory.PHYSICAL, base_power=100),
+            DummyMove("closecombat", category=MoveCategory.PHYSICAL, base_power=120),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [
+                ("playrough", 0.346),
+                ("behemothblade", 0.198),
+                ("closecombat", 0.194),
+                ("switch gholdengo", 0.036),
+            ],
+            "switch gholdengo",
+        )
+
+        self.assertEqual(adjusted, "playrough")
+        self.assertEqual(memory["finish_blow_last"]["reason"], "take_boosted_threat_attack")
+
     def test_fatal_reply_guard_switches_when_attack_does_not_ko(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.FATAL_REPLY_GUARD_ENABLED = True

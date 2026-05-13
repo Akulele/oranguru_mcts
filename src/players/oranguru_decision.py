@@ -1087,6 +1087,98 @@ def maybe_force_finish_blow_choice(
 
     opp_hp = opponent.current_hp_fraction or 0.0
     ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05)
+
+    def _positive_boost_pressure(pokemon: Pokemon) -> float:
+        total = 0.0
+        boosts = getattr(pokemon, "boosts", {}) or {}
+        if not isinstance(boosts, dict):
+            return 0.0
+        for stat in ("attack", "special-attack", "speed", "atk", "spa", "spe"):
+            try:
+                total += max(0.0, float(boosts.get(stat, 0) or 0.0))
+            except Exception:
+                continue
+        return total
+
+    def _best_attack_choice_for_critical_target(min_policy_ratio: float) -> Tuple[str, float, float, float]:
+        weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+        chosen_weight = weights.get(chosen_choice, 0.0)
+        candidate_choices = list(ordered)
+        seen = {choice for choice, _ in candidate_choices}
+        for move in battle.available_moves or []:
+            candidate = normalize_name(getattr(move, "id", ""))
+            if candidate and candidate not in seen:
+                candidate_choices.append((candidate, 0.0))
+                seen.add(candidate)
+
+        best_choice = ""
+        best_key: Optional[Tuple[float, float, float, float]] = None
+        best_heur = 0.0
+        best_damage = 0.0
+        best_weight = 0.0
+        for choice, weight in candidate_choices:
+            if choice.startswith("switch ") or not self._is_damaging_move_choice(battle, choice):
+                continue
+            move = _move_for_choice(choice)
+            if move is None:
+                continue
+            candidate_weight = float(weight or weights.get(choice, 0.0) or 0.0)
+            if chosen_weight > 0.0 and candidate_weight / max(chosen_weight, 1e-6) < min_policy_ratio:
+                continue
+            heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+            damage = _damage_score(move)
+            if heur <= 0.0 and damage <= 0.0:
+                continue
+            risk = _finish_risk(move)
+            key = (heur, damage, candidate_weight, -risk)
+            if best_key is None or key > best_key:
+                best_choice = choice
+                best_key = key
+                best_heur = heur
+                best_damage = damage
+                best_weight = candidate_weight
+        return best_choice, best_heur, best_damage, best_weight
+
+    if not self._is_damaging_move_choice(battle, chosen_choice):
+        min_ratio = float(getattr(self, "FINISH_BLOW_CRITICAL_MIN_POLICY_RATIO", 0.05))
+        critical_hp = float(getattr(self, "FINISH_BLOW_CRITICAL_OPP_HP", 0.10))
+        threat_hp = float(getattr(self, "FINISH_BLOW_THREAT_OPP_HP", 0.35))
+        threat_boosts = float(getattr(self, "FINISH_BLOW_THREAT_BOOSTS", 2.0))
+        boost_pressure = _positive_boost_pressure(opponent)
+        if opp_hp <= critical_hp:
+            attack_choice, attack_heur, attack_damage, attack_weight = _best_attack_choice_for_critical_target(
+                min_ratio
+            )
+            if attack_choice:
+                _record(
+                    "take_critical_hp_attack",
+                    active_hp=float(active.current_hp_fraction or 0.0),
+                    opp_hp=float(opp_hp),
+                    critical_hp=float(critical_hp),
+                    finish_choice=attack_choice,
+                    finish_heuristic=float(attack_heur),
+                    finish_damage_score=float(attack_damage),
+                    finish_weight=float(attack_weight),
+                )
+                return attack_choice
+        if opp_hp <= threat_hp and boost_pressure >= threat_boosts:
+            attack_choice, attack_heur, attack_damage, attack_weight = _best_attack_choice_for_critical_target(
+                min_ratio
+            )
+            if attack_choice:
+                _record(
+                    "take_boosted_threat_attack",
+                    active_hp=float(active.current_hp_fraction or 0.0),
+                    opp_hp=float(opp_hp),
+                    threat_hp=float(threat_hp),
+                    boost_pressure=float(boost_pressure),
+                    finish_choice=attack_choice,
+                    finish_heuristic=float(attack_heur),
+                    finish_damage_score=float(attack_damage),
+                    finish_weight=float(attack_weight),
+                )
+                return attack_choice
+
     if self._is_damaging_move_choice(battle, chosen_choice):
         return _maybe_take_safer_ko(active, opponent, opp_hp, ko_threshold)
 
