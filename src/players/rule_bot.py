@@ -63,31 +63,9 @@ class RuleBotPlayer(Player):
         'spore': 'sleep',        # Puts to sleep
         'sleeppowder': 'sleep',
         'hypnosis': 'sleep',
-        'sing': 'sleep',
-        'grasswhistle': 'sleep',
-        'lovelykiss': 'sleep',
         'darkvoid': 'sleep',
         'yawn': 'yawn',          # Forces switch or sleep
     }
-    POWDER_SPORE_MOVES = {
-        "cottonspore",
-        "magicpowder",
-        "poisonpowder",
-        "powder",
-        "ragepowder",
-        "sleeppowder",
-        "spore",
-        "stunspore",
-    }
-    SLEEP_BLOCKING_ABILITIES = {
-        "comatose",
-        "insomnia",
-        "purifyingsalt",
-        "sweetveil",
-        "vitalspirit",
-    }
-    STATUS_BLOCKING_ABILITIES = {"goodasgold"}
-    STATUS_REFLECTING_ABILITIES = {"magicbounce"}
 
     # Pivot moves that let us switch after attacking
     PIVOT_MOVES = {
@@ -2752,8 +2730,6 @@ class RuleBotPlayer(Player):
         # Don't status already statused Pokemon (except seed/taunt/encore)
         if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
             return 0.0
-        if self._status_move_blocked_by_target(battle, move, opponent, status_type):
-            return 0.0
 
         if getattr(self, "STATUS_KO_GUARD", False) and battle is not None:
             best_damage = self._estimate_best_damage_score(active, opponent, battle)
@@ -3066,96 +3042,6 @@ class RuleBotPlayer(Player):
         if name == "strengthsap":
             return "sap"
         return None
-
-    def _known_item_id_for_mon(self, mon: Pokemon, battle: Optional[Battle] = None, side: str = "opp") -> str:
-        item = getattr(mon, "item", None)
-        if item:
-            return normalize_name(str(item))
-        if battle is None or side != "opp":
-            return ""
-        try:
-            species = normalize_name(getattr(mon, "species", "") or getattr(mon, "name", ""))
-            flags = self._get_battle_memory(battle).get("opponent_item_flags", {}).get(species, {})
-            return normalize_name(flags.get("known_item") or flags.get("removed_item") or "")
-        except Exception:
-            return ""
-
-    def _pokemon_has_substitute(self, battle: Optional[Battle], mon: Pokemon, side: str = "opp") -> bool:
-        try:
-            if Effect.SUBSTITUTE in (getattr(mon, "effects", None) or {}):
-                return True
-        except Exception:
-            pass
-        if battle is None:
-            return False
-        try:
-            species = normalize_name(getattr(mon, "species", "") or getattr(mon, "name", ""))
-            state = self._get_battle_memory(battle).get("substitute_state", {})
-            return bool(state.get(side, {}).get(species, {}).get("has"))
-        except Exception:
-            return False
-
-    def _pokemon_is_grounded(self, mon: Pokemon, battle: Optional[Battle] = None, side: str = "opp") -> bool:
-        if self._opponent_has_type(mon, "flying"):
-            return False
-        ability_id = self._get_ability_id(mon)
-        if ability_id == "levitate":
-            return False
-        if self._known_item_id_for_mon(mon, battle, side) == "airballoon":
-            return False
-        return True
-
-    def _terrain_blocks_status(self, battle: Optional[Battle], opponent: Pokemon, status_type: str) -> bool:
-        if battle is None or not self._pokemon_is_grounded(opponent, battle, "opp"):
-            return False
-        fields = getattr(battle, "fields", None) or {}
-        if Field.MISTY_TERRAIN in fields and status_type in {"burn", "para", "poison", "sleep", "yawn"}:
-            return True
-        if Field.ELECTRIC_TERRAIN in fields and status_type in {"sleep", "yawn"}:
-            return True
-        return False
-
-    def _move_is_powder_or_spore(self, move: Move) -> bool:
-        if move is None:
-            return False
-        move_id = normalize_name(getattr(move, "id", ""))
-        if move_id in self.POWDER_SPORE_MOVES:
-            return True
-        entry = self._get_move_entry(move)
-        flags = entry.get("flags", {}) if isinstance(entry, dict) else {}
-        return bool(isinstance(flags, dict) and flags.get("powder"))
-
-    def _status_move_blocked_by_target(
-        self,
-        battle: Optional[Battle],
-        move: Move,
-        opponent: Pokemon,
-        status_type: str,
-    ) -> bool:
-        ability_id = self._get_ability_id(opponent)
-        item_id = self._known_item_id_for_mon(opponent, battle, "opp")
-        if self._terrain_blocks_status(battle, opponent, status_type):
-            return True
-        if ability_id in self.STATUS_REFLECTING_ABILITIES:
-            return True
-        if ability_id in self.STATUS_BLOCKING_ABILITIES:
-            return True
-        if status_type in {"sleep", "yawn"}:
-            if battle is not None and hasattr(self, "_sleep_clause_blocked") and self._sleep_clause_blocked(battle):
-                return True
-            if ability_id in self.SLEEP_BLOCKING_ABILITIES:
-                return True
-            if self._pokemon_has_substitute(battle, opponent, "opp"):
-                entry = self._get_move_entry(move)
-                flags = entry.get("flags", {}) if isinstance(entry, dict) else {}
-                if not (isinstance(flags, dict) and flags.get("bypasssub")):
-                    return True
-        if self._move_is_powder_or_spore(move):
-            if self._opponent_has_type(opponent, "grass"):
-                return True
-            if ability_id == "overcoat" or item_id == "safetygoggles":
-                return True
-        return False
 
     def _canonicalize_move_id(self, move_id: str) -> str:
         if not move_id:

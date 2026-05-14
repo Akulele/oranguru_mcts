@@ -2,7 +2,6 @@ import unittest
 from types import SimpleNamespace
 
 from poke_env.battle import MoveCategory, PokemonType
-from poke_env.battle.field import Field
 
 from src.players.oranguru_engine import OranguruEnginePlayer
 
@@ -19,25 +18,11 @@ class DummyMove:
 
 
 class DummyPokemon:
-    def __init__(
-        self,
-        current_hp_fraction=1.0,
-        status=None,
-        species="dummy",
-        types=None,
-        ability=None,
-        item=None,
-    ):
+    def __init__(self, current_hp_fraction=1.0, status=None):
         self.current_hp_fraction = current_hp_fraction
         self.status = status
         self.boosts = {}
         self.fainted = current_hp_fraction <= 0.0
-        self.species = species
-        self.name = species
-        self.types = list(types or [])
-        self.ability = ability
-        self.item = item
-        self.effects = {}
 
 
 class DummyBattle:
@@ -50,7 +35,6 @@ class DummyBattle:
         self.team = {"active": self.active_pokemon}
         self.opponent_team = {"active": self.opponent_active_pokemon}
         self.opponent_side_conditions = {}
-        self.fields = {}
         self.turn = 1
 
 
@@ -236,83 +220,6 @@ class OranguruDecisionTests(unittest.TestCase):
 
         self.assertEqual(adjusted, "playrough")
         self.assertEqual(memory["finish_blow_last"]["reason"], "take_boosted_threat_attack")
-
-    def test_sleep_tempo_guard_uses_spore_vs_recovering_endgame_wall(self):
-        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
-        engine.SLEEP_TEMPO_MIN_TURN = 12
-        engine.SLEEP_TEMPO_MAX_MY_ALIVE = 2
-        engine.SLEEP_TEMPO_MAX_OPP_ALIVE = 3
-        engine.SLEEP_TEMPO_MIN_POLICY_RATIO = 0.45
-        engine.SLEEP_TEMPO_MAX_SCORE_DROP = 0.20
-        engine.TACTICAL_KO_THRESHOLD = 220.0
-        engine.RECOVERY_MOVES = OranguruEnginePlayer.RECOVERY_MOVES
-        engine.PROTECT_MOVES = OranguruEnginePlayer.PROTECT_MOVES
-        memory = {}
-        engine._get_battle_memory = lambda _battle: memory
-        engine._status_choice_is_obviously_bad = lambda *_args: False
-        engine._should_use_status_move = lambda move, *_args: 200.0 if move.id == "spore" else 0.0
-        engine._get_move_entry = lambda move: (
-            {"status": "slp", "flags": {"powder": 1}, "accuracy": 100}
-            if move.id == "spore"
-            else {}
-        )
-        engine._status_from_move_entry = OranguruEnginePlayer._status_from_move_entry.__get__(engine)
-        engine._estimate_best_damage_score = lambda *_args: 4.0
-        engine._opponent_known_move_ids = lambda _opponent: {"softboiled", "seismictoss"}
-        battle = DummyBattle()
-        battle.turn = 88
-        battle.active_pokemon = DummyPokemon(0.165, species="amoonguss")
-        battle.opponent_active_pokemon = DummyPokemon(0.09, species="chansey")
-        battle.available_moves = [
-            DummyMove("sludgebomb", category=MoveCategory.SPECIAL, base_power=90),
-            DummyMove("spore", category=MoveCategory.STATUS),
-        ]
-        battle.team = {"amoonguss": battle.active_pokemon}
-        battle.opponent_team = {
-            "chansey": battle.opponent_active_pokemon,
-            "pelipper": DummyPokemon(0.74, species="pelipper"),
-            "eelektross": DummyPokemon(0.0, species="eelektross"),
-            "clodsire": DummyPokemon(0.0, species="clodsire"),
-            "qwilfish": DummyPokemon(0.0, species="qwilfish"),
-            "toedscruel": DummyPokemon(0.0, species="toedscruel"),
-        }
-
-        adjusted = engine._maybe_take_sleep_tempo_choice(
-            battle,
-            [("spore", 0.5239), ("sludgebomb", 0.4761)],
-            "sludgebomb",
-        )
-
-        self.assertEqual(adjusted, "spore")
-        self.assertEqual(memory["sleep_tempo_last"]["reason"], "take_sleep_tempo")
-
-    def test_sleep_status_blocked_by_powder_immunities_and_terrain(self):
-        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
-        memory = {}
-        engine._get_battle_memory = lambda _battle: memory
-        engine._sleep_clause_blocked = lambda _battle: False
-        engine._get_move_entry = lambda move: {"status": "slp", "flags": {"powder": 1}}
-        spore = DummyMove("spore", category=MoveCategory.STATUS)
-        battle = DummyBattle()
-
-        grass_target = DummyPokemon(1.0, species="venusaur", types=[PokemonType.GRASS])
-        self.assertTrue(engine._status_move_blocked_by_target(battle, spore, grass_target, "sleep"))
-
-        overcoat_target = DummyPokemon(1.0, species="kommoo", ability="overcoat")
-        self.assertTrue(engine._status_move_blocked_by_target(battle, spore, overcoat_target, "sleep"))
-
-        goggles_target = DummyPokemon(1.0, species="chansey", item="safetygoggles")
-        self.assertTrue(engine._status_move_blocked_by_target(battle, spore, goggles_target, "sleep"))
-
-        insomnia_target = DummyPokemon(1.0, species="honchkrow", ability="insomnia")
-        self.assertTrue(engine._status_move_blocked_by_target(battle, spore, insomnia_target, "sleep"))
-
-        grounded_target = DummyPokemon(1.0, species="chansey")
-        battle.fields = {Field.ELECTRIC_TERRAIN: 3}
-        self.assertTrue(engine._status_move_blocked_by_target(battle, spore, grounded_target, "sleep"))
-
-        flying_target = DummyPokemon(1.0, species="noctowl", types=[PokemonType.FLYING])
-        self.assertFalse(engine._status_move_blocked_by_target(battle, spore, flying_target, "sleep"))
 
     def test_fatal_reply_guard_switches_when_attack_does_not_ko(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
