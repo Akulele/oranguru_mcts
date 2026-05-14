@@ -317,6 +317,12 @@ class OranguruEnginePlayer(RuleBotPlayer):
     PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO", "0.45"))
     PROGRESS_WINDOW_MIN_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_MIN_HEUR_GAIN", "1.0"))
     PROGRESS_WINDOW_HIGH_HEUR_GAIN = float(os.getenv("ORANGURU_PROGRESS_WINDOW_HIGH_HEUR_GAIN", "10.0"))
+    SLEEP_TEMPO_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_SLEEP_TEMPO_GUARD", "1")))
+    SLEEP_TEMPO_MIN_TURN = int(os.getenv("ORANGURU_SLEEP_TEMPO_MIN_TURN", "12"))
+    SLEEP_TEMPO_MAX_MY_ALIVE = int(os.getenv("ORANGURU_SLEEP_TEMPO_MAX_MY_ALIVE", "2"))
+    SLEEP_TEMPO_MAX_OPP_ALIVE = int(os.getenv("ORANGURU_SLEEP_TEMPO_MAX_OPP_ALIVE", "3"))
+    SLEEP_TEMPO_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SLEEP_TEMPO_MIN_POLICY_RATIO", "0.45"))
+    SLEEP_TEMPO_MAX_SCORE_DROP = float(os.getenv("ORANGURU_SLEEP_TEMPO_MAX_SCORE_DROP", "0.20"))
     TACTICAL_RERANKS_ENABLED = bool(int(os.getenv("ORANGURU_TACTICAL_RERANKS", "1")))
     TACTICAL_SHADOW_WINDOWS_ENABLED = bool(int(os.getenv("ORANGURU_TACTICAL_SHADOW_WINDOWS", "0")))
     FINISH_BLOW_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_FINISH_BLOW_GUARD", "1")))
@@ -1166,6 +1172,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_take_safe_recovery_choice = oranguru_decision.maybe_take_safe_recovery_choice
     _maybe_take_critical_recovery_choice = oranguru_decision.maybe_take_critical_recovery_choice
     _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
+    _maybe_take_sleep_tempo_choice = oranguru_decision.maybe_take_sleep_tempo_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
     _maybe_commit_late_game_attack_choice = oranguru_decision.maybe_commit_late_game_attack_choice
     _maybe_avoid_fatal_reply_choice = oranguru_decision.maybe_avoid_fatal_reply_choice

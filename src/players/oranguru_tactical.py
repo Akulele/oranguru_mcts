@@ -151,6 +151,8 @@ def status_choice_is_obviously_bad(
 
     if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
         return True
+    if self._status_move_blocked_by_target(battle, move, opponent, status_type):
+        return True
     if status_type == "sleep" and self._sleep_clause_blocked(battle):
         return True
     if status_type == "poison" and (
