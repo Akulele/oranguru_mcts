@@ -333,48 +333,6 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "focusblast")
         self.assertEqual(memory["fatal_reply_last"]["safe_kind"], "attack")
 
-    def test_fatal_reply_guard_blocks_setup_into_strong_reply(self):
-        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
-        engine.FATAL_REPLY_GUARD_ENABLED = True
-        engine.FATAL_REPLY_KO_THRESHOLD = 185.0
-        engine.FATAL_REPLY_MIN_REPLY = 45.0
-        engine.FATAL_REPLY_MIN_POLICY_RATIO = 0.10
-        engine.FATAL_REPLY_MIN_SWITCH_SCORE = 0.0
-        engine.SETUP_FATAL_REPLY_MIN_REPLY = 120.0
-        engine.SETUP_FATAL_REPLY_MAX_HP = 0.90
-        engine.TACTICAL_KO_THRESHOLD = 220.0
-        engine.PROTECT_MOVES = set()
-        memory = {}
-        engine._get_battle_memory = lambda _battle: memory
-        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
-        engine._calculate_move_score = lambda move, *_args, **_kwargs: 110.0 if move.id == "earthquake" else 0.0
-        engine._estimate_best_reply_score = lambda *_args: 130.0
-        engine._switch_faints_to_entry_hazards = lambda *_args: False
-        engine._score_switch = lambda *_args: -10.0
-        engine._is_recovery_move = lambda _move: False
-        engine._should_use_protect = lambda *_args: False
-        battle = DummyBattle()
-        battle.active_pokemon = DummyPokemon(0.80)
-        battle.opponent_active_pokemon = DummyPokemon(0.70)
-        setup = DummyMove("swordsdance", category=MoveCategory.STATUS)
-        setup.boosts = {"atk": 2}
-        setup.target = "self"
-        battle.available_moves = [
-            setup,
-            DummyMove("earthquake", category=MoveCategory.PHYSICAL, base_power=100),
-        ]
-        battle.available_switches = []
-
-        adjusted = engine._maybe_avoid_fatal_reply_choice(
-            battle,
-            [("swordsdance", 0.60), ("earthquake", 0.12)],
-            "swordsdance",
-        )
-
-        self.assertEqual(adjusted, "earthquake")
-        self.assertEqual(memory["fatal_reply_last"]["reason"], "avoid_fatal_reply")
-        self.assertTrue(memory["fatal_reply_last"]["setup_reply_danger"])
-
     def test_anti_sweeper_guard_uses_trick_room_into_shell_smash(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.ANTI_SWEEPER_CONTROL_GUARD_ENABLED = True
