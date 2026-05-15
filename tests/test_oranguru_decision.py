@@ -221,6 +221,42 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "playrough")
         self.assertEqual(memory["finish_blow_last"]["reason"], "take_boosted_threat_attack")
 
+    def test_finish_blow_guard_preserves_strong_protect_over_low_policy_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.FINISH_BLOW_CRITICAL_OPP_HP = 0.10
+        engine.FINISH_BLOW_THREAT_OPP_HP = 0.35
+        engine.FINISH_BLOW_THREAT_BOOSTS = 2.0
+        engine.FINISH_BLOW_CRITICAL_MIN_POLICY_RATIO = 0.05
+        engine.FINISH_BLOW_PASSIVE_MAX_SCORE_DROP = 0.28
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._estimate_best_damage_score = lambda *_args: 60.0
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: 60.0 if move.id == "aurawheel" else 0.0
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "protect": 0.0,
+            "aurawheel": 8.6,
+            "rapidspin": 1.3,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.184)
+        battle.opponent_active_pokemon = DummyPokemon(0.20)
+        battle.available_moves = [
+            DummyMove("protect", category=MoveCategory.STATUS),
+            DummyMove("aurawheel", category=MoveCategory.PHYSICAL, base_power=110),
+            DummyMove("rapidspin", category=MoveCategory.PHYSICAL, base_power=50),
+        ]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("protect", 0.4656), ("rapidspin", 0.1907), ("aurawheel", 0.1819)],
+            "protect",
+        )
+
+        self.assertEqual(adjusted, "protect")
+        self.assertEqual(memory["finish_blow_last"]["reason"], "passive_policy_drop")
+
     def test_fatal_reply_guard_switches_when_attack_does_not_ko(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.FATAL_REPLY_GUARD_ENABLED = True
@@ -404,6 +440,45 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "dragontail")
         self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_anti_sweeper_control")
         self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "phaze")
+
+    def test_recovery_guard_blocks_large_policy_drop_from_top_attack(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.RECOVERY_WINDOW_MAX_HP = 0.40
+        engine.RECOVERY_WINDOW_MIN_OPP_HP = 0.25
+        engine.RECOVERY_WINDOW_MAX_REPLY = 110.0
+        engine.RECOVERY_WINDOW_MIN_POLICY_RATIO = 0.65
+        engine.RECOVERY_WINDOW_HIGH_GAIN_MIN_POLICY_RATIO = 0.55
+        engine.RECOVERY_WINDOW_CRITICAL_HP = 0.30
+        engine.RECOVERY_WINDOW_CRITICAL_MIN_POLICY_RATIO = 0.33
+        engine.RECOVERY_WINDOW_MIN_HEUR_GAIN = 1.0
+        engine.RECOVERY_WINDOW_HIGH_HEUR_GAIN = 10.0
+        engine.RECOVERY_WINDOW_MAX_SCORE_DROP = 0.28
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._estimate_best_reply_score = lambda *_args: 40.0
+        engine._estimate_best_damage_score = lambda *_args: 80.0
+        engine._is_recovery_move = lambda move: move.id == "synthesis"
+        engine._heuristic_action_score = lambda _battle, choice: {
+            "bodypress": 0.0,
+            "synthesis": 115.4,
+        }.get(choice, 0.0)
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.175)
+        battle.opponent_active_pokemon = DummyPokemon(0.53)
+        battle.available_moves = [
+            DummyMove("bodypress", category=MoveCategory.PHYSICAL, base_power=80),
+            DummyMove("synthesis", category=MoveCategory.STATUS),
+        ]
+
+        adjusted = engine._maybe_take_safe_recovery_choice(
+            battle,
+            [("bodypress", 0.5529), ("synthesis", 0.2081)],
+            "bodypress",
+        )
+
+        self.assertEqual(adjusted, "bodypress")
+        self.assertEqual(memory["recovery_window_last"]["reason"], "score_drop")
 
     def test_tactical_rerank_blocks_huge_top1_policy_drop(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)

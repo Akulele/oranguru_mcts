@@ -1140,6 +1140,28 @@ def maybe_force_finish_blow_choice(
         return best_choice, best_heur, best_damage, best_weight
 
     if not self._is_damaging_move_choice(battle, chosen_choice):
+        weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+        chosen_weight = weights.get(chosen_choice, 0.0)
+
+        def _policy_drop_allows(attack_weight: float, max_drop: float, reason: str) -> bool:
+            active_hp = active.current_hp_fraction or 0.0
+            guard_max_hp = float(getattr(self, "FINISH_BLOW_PASSIVE_POLICY_GUARD_MAX_HP", 0.45))
+            if active_hp > guard_max_hp:
+                return True
+            score_drop = max(0.0, float(chosen_weight) - float(attack_weight or 0.0))
+            if max_drop >= 0.0 and score_drop > max_drop:
+                _record(
+                    reason,
+                    active_hp=float(active_hp),
+                    opp_hp=float(opp_hp),
+                    chosen_weight=float(chosen_weight),
+                    attack_weight=float(attack_weight or 0.0),
+                    score_drop=float(score_drop),
+                    max_score_drop=float(max_drop),
+                )
+                return False
+            return True
+
         min_ratio = float(getattr(self, "FINISH_BLOW_CRITICAL_MIN_POLICY_RATIO", 0.05))
         critical_hp = float(getattr(self, "FINISH_BLOW_CRITICAL_OPP_HP", 0.10))
         threat_hp = float(getattr(self, "FINISH_BLOW_THREAT_OPP_HP", 0.35))
@@ -1149,7 +1171,11 @@ def maybe_force_finish_blow_choice(
             attack_choice, attack_heur, attack_damage, attack_weight = _best_attack_choice_for_critical_target(
                 min_ratio
             )
-            if attack_choice:
+            if attack_choice and _policy_drop_allows(
+                attack_weight,
+                float(getattr(self, "FINISH_BLOW_CRITICAL_MAX_SCORE_DROP", 0.35)),
+                "critical_policy_drop",
+            ):
                 _record(
                     "take_critical_hp_attack",
                     active_hp=float(active.current_hp_fraction or 0.0),
@@ -1165,7 +1191,11 @@ def maybe_force_finish_blow_choice(
             attack_choice, attack_heur, attack_damage, attack_weight = _best_attack_choice_for_critical_target(
                 min_ratio
             )
-            if attack_choice:
+            if attack_choice and _policy_drop_allows(
+                attack_weight,
+                float(getattr(self, "FINISH_BLOW_THREAT_MAX_SCORE_DROP", 0.35)),
+                "threat_policy_drop",
+            ):
                 _record(
                     "take_boosted_threat_attack",
                     active_hp=float(active.current_hp_fraction or 0.0),
@@ -1227,6 +1257,27 @@ def maybe_force_finish_blow_choice(
             opp_hp=float(opp_hp),
             best_damage_score=float(best_damage_score),
             ko_threshold=float(ko_threshold),
+        )
+        return chosen_choice
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    attack_weight = weights.get(best_damage_choice, 0.0)
+    max_drop = float(getattr(self, "FINISH_BLOW_PASSIVE_MAX_SCORE_DROP", 0.28))
+    score_drop = max(0.0, chosen_weight - attack_weight)
+    active_hp = active.current_hp_fraction or 0.0
+    guard_max_hp = float(getattr(self, "FINISH_BLOW_PASSIVE_POLICY_GUARD_MAX_HP", 0.45))
+    if active_hp <= guard_max_hp and max_drop >= 0.0 and score_drop > max_drop:
+        _record(
+            "passive_policy_drop",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            best_damage_score=float(best_damage_score),
+            ko_threshold=float(ko_threshold),
+            finish_choice=best_damage_choice,
+            finish_weight=float(attack_weight),
+            chosen_weight=float(chosen_weight),
+            score_drop=float(score_drop),
+            max_score_drop=float(max_drop),
         )
         return chosen_choice
     if chosen_choice.startswith("switch "):
@@ -1581,6 +1632,26 @@ def maybe_take_safe_recovery_choice(
             high_gain=bool(high_gain),
             critical_hp=bool(critical_hp),
             min_policy_ratio=float(min_ratio),
+        )
+        return chosen_choice
+
+    score_drop = max(0.0, chosen_weight - best_recovery_weight)
+    max_score_drop = float(getattr(self, "RECOVERY_WINDOW_MAX_SCORE_DROP", 0.28))
+    if max_score_drop >= 0.0 and score_drop > max_score_drop:
+        _record(
+            "score_drop",
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            reply_score=float(reply_score),
+            chosen_weight=float(chosen_weight),
+            recovery_choice=best_recovery_choice,
+            recovery_weight=float(best_recovery_weight),
+            chosen_heuristic=float(chosen_heur),
+            recovery_heuristic=float(best_recovery_heur),
+            high_gain=bool(high_gain),
+            critical_hp=bool(critical_hp),
+            score_drop=float(score_drop),
+            max_score_drop=float(max_score_drop),
         )
         return chosen_choice
 
