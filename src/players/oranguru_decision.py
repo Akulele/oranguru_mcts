@@ -2063,6 +2063,10 @@ def maybe_avoid_fatal_reply_choice(
     if chosen_is_damage and chosen_damage >= ko_threshold:
         _record("chosen_kos", chosen_damage=float(chosen_damage), ko_threshold=float(ko_threshold))
         return chosen_choice
+    chosen_boosts = getattr(chosen_move, "boosts", None) or {}
+    chosen_is_setup = bool(chosen_boosts) and bool(
+        getattr(chosen_move, "target", None) and "self" in str(getattr(chosen_move, "target", "")).lower()
+    )
 
     try:
         reply_score = float(self._estimate_best_reply_score(opponent, active, battle) or 0.0)
@@ -2071,7 +2075,12 @@ def maybe_avoid_fatal_reply_choice(
         return chosen_choice
     fatal_threshold = float(getattr(self, "FATAL_REPLY_KO_THRESHOLD", 185.0)) * max(active_hp, 0.05)
     min_reply = float(getattr(self, "FATAL_REPLY_MIN_REPLY", 45.0))
-    if reply_score < max(min_reply, fatal_threshold):
+    setup_reply_danger = (
+        chosen_is_setup
+        and active_hp <= float(getattr(self, "SETUP_FATAL_REPLY_MAX_HP", 0.90))
+        and reply_score >= float(getattr(self, "SETUP_FATAL_REPLY_MIN_REPLY", 120.0))
+    )
+    if not setup_reply_danger and reply_score < max(min_reply, fatal_threshold):
         _record(
             "reply_not_fatal",
             active_hp=float(active_hp),
@@ -2162,6 +2171,7 @@ def maybe_avoid_fatal_reply_choice(
         opp_hp=float(opp_hp),
         reply_score=float(reply_score),
         fatal_threshold=float(fatal_threshold),
+        setup_reply_danger=bool(setup_reply_danger),
         chosen_damage=float(chosen_damage),
         ko_threshold=float(ko_threshold),
         chosen_weight=float(chosen_weight),
