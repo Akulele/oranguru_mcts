@@ -2102,6 +2102,216 @@ def maybe_avoid_fatal_reply_choice(
     return best_choice
 
 
+def maybe_take_anti_sweeper_control_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {"reason": reason, "chosen_choice": str(chosen_choice or "")}
+        payload.update(extra)
+        mem["anti_sweeper_last"] = payload
+
+    def _alive_count(team: object) -> int:
+        if not isinstance(team, dict):
+            return 0
+        return sum(1 for mon in team.values() if mon is not None and not bool(getattr(mon, "fainted", False)))
+
+    def _boost_pressure(pokemon: Pokemon) -> tuple[float, float, float]:
+        boosts = getattr(pokemon, "boosts", {}) or {}
+        if not isinstance(boosts, dict):
+            return 0.0, 0.0, 0.0
+
+        def _boost(*keys: str) -> float:
+            for key in keys:
+                try:
+                    return max(0.0, float(boosts.get(key, 0) or 0.0))
+                except Exception:
+                    continue
+            return 0.0
+
+        attack = _boost("attack", "atk")
+        special_attack = _boost("special-attack", "spa")
+        speed = _boost("speed", "spe")
+        return attack + special_attack + speed, max(attack, special_attack), speed
+
+    def _control_kind(move, speed_pressure: bool, opp_alive: int) -> str:
+        move_id = normalize_name(getattr(move, "id", ""))
+        if not move_id:
+            return ""
+        if move_id == "trickroom" and speed_pressure:
+            return "trickroom"
+        if move_id in {"haze", "clearsmog", "topsyturvy"}:
+            return "boost_reset"
+        if move_id in {"roar", "whirlwind", "dragontail", "circlethrow"} and opp_alive > 1:
+            return "phaze"
+        if move_id in {"encore", "taunt"}:
+            return move_id
+
+        try:
+            entry = self._get_move_entry(move)
+        except Exception:
+            entry = {}
+        status_type = self.STATUS_MOVES.get(move_id)
+        if status_type is None:
+            status_type = self._status_from_move_entry(entry)
+        if status_type in {"para", "burn", "yawn"}:
+            return str(status_type)
+        return ""
+
+    if not bool(getattr(self, "ANTI_SWEEPER_CONTROL_GUARD_ENABLED", False)):
+        return chosen_choice
+    if not chosen_choice or getattr(battle, "force_switch", False):
+        _record("forced_or_empty")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    turn = int(getattr(battle, "turn", 0) or 0)
+    min_turn = int(getattr(self, "ANTI_SWEEPER_CONTROL_MIN_TURN", 8))
+    boost_pressure, offensive_boost, speed_boost = _boost_pressure(opponent)
+    min_boost_pressure = float(getattr(self, "ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE", 2.0))
+    if turn < min_turn and boost_pressure < min_boost_pressure + 2.0:
+        _record("too_early", turn=int(turn), min_turn=int(min_turn), boost_pressure=float(boost_pressure))
+        return chosen_choice
+    if boost_pressure < min_boost_pressure:
+        _record(
+            "low_boost_pressure",
+            boost_pressure=float(boost_pressure),
+            min_boost_pressure=float(min_boost_pressure),
+        )
+        return chosen_choice
+
+    my_alive = _alive_count(getattr(battle, "team", {}) or {})
+    opp_alive = _alive_count(getattr(battle, "opponent_team", {}) or {})
+    if my_alive <= 0:
+        my_alive = 1 + sum(1 for sw in (battle.available_switches or []) if not bool(getattr(sw, "fainted", False)))
+    if opp_alive <= 0:
+        opp_alive = 1
+
+    max_my_alive = int(getattr(self, "ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE", 3))
+    max_opp_alive = int(getattr(self, "ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE", 3))
+    high_pressure = boost_pressure >= float(getattr(self, "ANTI_SWEEPER_CONTROL_HIGH_PRESSURE", 5.0))
+    if my_alive > max_my_alive and opp_alive > max_opp_alive and not high_pressure:
+        _record(
+            "not_endgame_or_high_pressure",
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            boost_pressure=float(boost_pressure),
+            high_pressure=bool(high_pressure),
+        )
+        return chosen_choice
+
+    speed_pressure = speed_boost >= 2.0
+    try:
+        speed_pressure = speed_pressure or self._get_effective_speed(opponent) > self._get_effective_speed(active) * 1.05
+    except Exception:
+        pass
+
+    chosen_move = None if chosen_choice.startswith("switch ") else _choice_move(battle, chosen_choice)
+    if chosen_move is not None and _control_kind(chosen_move, speed_pressure, opp_alive):
+        _record("chosen_control", control_choice=chosen_choice)
+        return chosen_choice
+
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    min_policy_ratio = float(getattr(self, "ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO", 0.35))
+    max_score_drop = float(getattr(self, "ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP", 0.35))
+
+    best_choice = ""
+    best_weight = 0.0
+    best_score = -1.0
+    best_kind = ""
+
+    candidate_choices = list(ordered)
+    seen = {choice for choice, _ in candidate_choices}
+    for move in battle.available_moves or []:
+        candidate = normalize_name(getattr(move, "id", ""))
+        if candidate and candidate not in seen:
+            candidate_choices.append((candidate, 0.0))
+            seen.add(candidate)
+
+    for choice, weight in candidate_choices:
+        if choice == chosen_choice or choice.startswith("switch "):
+            continue
+        move = _choice_move(battle, choice)
+        if move is None:
+            continue
+        kind = _control_kind(move, speed_pressure, opp_alive)
+        if not kind:
+            continue
+        if kind in {"para", "burn", "yawn", "taunt", "encore"} and self._status_choice_is_obviously_bad(
+            battle,
+            move,
+            active,
+            opponent,
+        ):
+            continue
+        if self._sleep_clause_blocked(battle) and self._move_inflicts_sleep(move):
+            continue
+        candidate_weight = float(weight or weights.get(choice, 0.0) or 0.0)
+        if chosen_weight > 0.0 and candidate_weight < chosen_weight * min_policy_ratio:
+            continue
+        if chosen_weight > 0.0 and chosen_weight - candidate_weight > max_score_drop:
+            continue
+        heur = float(self._heuristic_action_score(battle, choice) or 0.0)
+        kind_bonus = {
+            "trickroom": 60.0,
+            "boost_reset": 55.0,
+            "phaze": 45.0,
+            "para": 35.0,
+            "encore": 30.0,
+            "taunt": 24.0,
+            "burn": 22.0,
+            "yawn": 18.0,
+        }.get(kind, 0.0)
+        score = candidate_weight + 0.001 * heur + 0.01 * kind_bonus
+        if score > best_score:
+            best_choice = choice
+            best_weight = candidate_weight
+            best_score = score
+            best_kind = kind
+
+    if not best_choice:
+        _record(
+            "no_control_candidate",
+            turn=int(turn),
+            my_alive=int(my_alive),
+            opp_alive=int(opp_alive),
+            boost_pressure=float(boost_pressure),
+            offensive_boost=float(offensive_boost),
+            speed_boost=float(speed_boost),
+            chosen_weight=float(chosen_weight),
+        )
+        return chosen_choice
+
+    _record(
+        "take_anti_sweeper_control",
+        turn=int(turn),
+        my_alive=int(my_alive),
+        opp_alive=int(opp_alive),
+        boost_pressure=float(boost_pressure),
+        offensive_boost=float(offensive_boost),
+        speed_boost=float(speed_boost),
+        chosen_weight=float(chosen_weight),
+        control_choice=best_choice,
+        control_weight=float(best_weight),
+        control_kind=best_kind,
+    )
+    return best_choice
+
+
 def aggregate_policy_from_results(
     self,
     results: List[Tuple[object, float]],
@@ -2221,6 +2431,12 @@ def select_move_from_results(
                 chosen_choice,
                 path,
                 self._maybe_avoid_fatal_reply_choice,
+            )
+        if chosen_choice and bool(getattr(self, "ANTI_SWEEPER_CONTROL_GUARD_ENABLED", False)):
+            chosen_choice, path = _apply_rerank_candidate(
+                chosen_choice,
+                path,
+                self._maybe_take_anti_sweeper_control_choice,
             )
         if chosen_choice and bool(getattr(self, "CRITICAL_RECOVERY_GUARD_ENABLED", False)):
             chosen_choice, path = _apply_rerank_candidate(

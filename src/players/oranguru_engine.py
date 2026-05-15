@@ -122,6 +122,22 @@ class OranguruEnginePlayer(RuleBotPlayer):
     FATAL_REPLY_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_FATAL_REPLY_MIN_POLICY_RATIO", "0.10"))
     FATAL_REPLY_MIN_SWITCH_SCORE = float(os.getenv("ORANGURU_FATAL_REPLY_MIN_SWITCH_SCORE", "0.0"))
     FATAL_REPLY_HEALED_KO_THRESHOLD = float(os.getenv("ORANGURU_FATAL_REPLY_HEALED_KO_THRESHOLD", "185.0"))
+    ANTI_SWEEPER_CONTROL_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_GUARD", "1")))
+    ANTI_SWEEPER_CONTROL_MIN_TURN = int(os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MIN_TURN", "8"))
+    ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE = float(
+        os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE", "2.0")
+    )
+    ANTI_SWEEPER_CONTROL_HIGH_PRESSURE = float(
+        os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_HIGH_PRESSURE", "5.0")
+    )
+    ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE = int(os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE", "3"))
+    ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE = int(os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE", "3"))
+    ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO = float(
+        os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO", "0.35")
+    )
+    ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP = float(
+        os.getenv("ORANGURU_ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP", "0.35")
+    )
     CONTACT_RISK_GUARD_ENABLED = bool(int(os.getenv("ORANGURU_CONTACT_RISK_GUARD", "1")))
     CONTACT_RISK_MIN_RISK = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_RISK", "0.12"))
     CONTACT_RISK_MIN_DAMAGE_RATIO = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_DAMAGE_RATIO", "0.85"))
@@ -1169,6 +1185,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
     _maybe_commit_late_game_attack_choice = oranguru_decision.maybe_commit_late_game_attack_choice
     _maybe_avoid_fatal_reply_choice = oranguru_decision.maybe_avoid_fatal_reply_choice
+    _maybe_take_anti_sweeper_control_choice = oranguru_decision.maybe_take_anti_sweeper_control_choice
     _maybe_avoid_contact_risk_choice = oranguru_decision.maybe_avoid_contact_risk_choice
     _move_makes_contact = oranguru_decision.move_makes_contact
     _contact_punish_risk = oranguru_decision.contact_punish_risk

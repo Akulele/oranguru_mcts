@@ -16,6 +16,7 @@ RERANK_WINDOWS = (
     ("finish_blow", "finish_blow"),
     ("critical_recovery", "critical_recovery"),
     ("fatal_reply", "fatal_reply"),
+    ("anti_sweeper", "anti_sweeper"),
     ("setup_window", "setup_window"),
     ("recovery_window", "recovery_window"),
     ("progress_window", "progress_window"),
@@ -31,6 +32,7 @@ TAKE_TARGET_KEYS = (
     "progress_choice",
     "safe_choice",
     "attack_choice",
+    "control_choice",
     "passive_choice",
 )
 

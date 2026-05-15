@@ -297,6 +297,114 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "focusblast")
         self.assertEqual(memory["fatal_reply_last"]["safe_kind"], "attack")
 
+    def test_anti_sweeper_guard_uses_trick_room_into_shell_smash(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.ANTI_SWEEPER_CONTROL_GUARD_ENABLED = True
+        engine.ANTI_SWEEPER_CONTROL_MIN_TURN = 8
+        engine.ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE = 2.0
+        engine.ANTI_SWEEPER_CONTROL_HIGH_PRESSURE = 5.0
+        engine.ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO = 0.35
+        engine.ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP = 0.35
+        engine.STATUS_MOVES = OranguruEnginePlayer.STATUS_MOVES
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._get_effective_speed = lambda mon: 50 if mon is battle.active_pokemon else 400
+        engine._get_move_entry = lambda _move: {}
+        engine._status_from_move_entry = lambda _entry: None
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._sleep_clause_blocked = lambda _battle: False
+        engine._move_inflicts_sleep = lambda _move: False
+        engine._heuristic_action_score = lambda _battle, choice: 0.0 if choice == "trickroom" else 4.0
+        battle = DummyBattle()
+        battle.turn = 22
+        battle.active_pokemon = DummyPokemon(1.0)
+        battle.opponent_active_pokemon = DummyPokemon(0.18)
+        battle.opponent_active_pokemon.boosts = {
+            "attack": 2,
+            "special-attack": 2,
+            "speed": 2,
+        }
+        battle.team = {
+            "active": battle.active_pokemon,
+            "fainted1": DummyPokemon(0.0),
+            "fainted2": DummyPokemon(0.0),
+        }
+        battle.opponent_team = {
+            "active": battle.opponent_active_pokemon,
+            "bench": DummyPokemon(1.0),
+        }
+        battle.available_moves = [
+            DummyMove("trickroom", category=MoveCategory.STATUS),
+            DummyMove("psychic", category=MoveCategory.SPECIAL, base_power=90),
+            DummyMove("bugbuzz", category=MoveCategory.SPECIAL, base_power=90),
+        ]
+
+        adjusted = engine._maybe_take_anti_sweeper_control_choice(
+            battle,
+            [("trickroom", 0.4805), ("psychic", 0.1312), ("bugbuzz", 0.1308)],
+            "psychic",
+        )
+
+        self.assertEqual(adjusted, "trickroom")
+        self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_anti_sweeper_control")
+        self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "trickroom")
+
+    def test_anti_sweeper_guard_phazes_boosted_multi_mon_threat(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.ANTI_SWEEPER_CONTROL_GUARD_ENABLED = True
+        engine.ANTI_SWEEPER_CONTROL_MIN_TURN = 8
+        engine.ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE = 2.0
+        engine.ANTI_SWEEPER_CONTROL_HIGH_PRESSURE = 5.0
+        engine.ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO = 0.35
+        engine.ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP = 0.35
+        engine.STATUS_MOVES = OranguruEnginePlayer.STATUS_MOVES
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._get_effective_speed = lambda _mon: 100
+        engine._get_move_entry = lambda _move: {}
+        engine._status_from_move_entry = lambda _entry: None
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._sleep_clause_blocked = lambda _battle: False
+        engine._move_inflicts_sleep = lambda _move: False
+        engine._heuristic_action_score = lambda _battle, choice: 3.0 if choice == "dragontail" else 1.0
+        battle = DummyBattle()
+        battle.turn = 21
+        battle.active_pokemon = DummyPokemon(0.30)
+        battle.opponent_active_pokemon = DummyPokemon(1.0)
+        battle.opponent_active_pokemon.boosts = {
+            "defense": 4,
+            "special-attack": 2,
+            "special-defense": 2,
+            "speed": 4,
+        }
+        battle.team = {
+            "active": battle.active_pokemon,
+            "bench": DummyPokemon(1.0),
+        }
+        battle.opponent_team = {
+            "active": battle.opponent_active_pokemon,
+            "bench": DummyPokemon(1.0),
+        }
+        battle.available_moves = [
+            DummyMove("dragontail", category=MoveCategory.PHYSICAL, base_power=60),
+            DummyMove("flashcannon", category=MoveCategory.SPECIAL, base_power=80),
+        ]
+        battle.available_switches = [SimpleNamespace(species="wugtrio")]
+
+        adjusted = engine._maybe_take_anti_sweeper_control_choice(
+            battle,
+            [("dragontail", 0.4262), ("flashcannon", 0.4168), ("switch wugtrio", 0.1286)],
+            "switch wugtrio",
+        )
+
+        self.assertEqual(adjusted, "dragontail")
+        self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_anti_sweeper_control")
+        self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "phaze")
+
     def test_tactical_rerank_blocks_huge_top1_policy_drop(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.TACTICAL_RERANK_MAX_TOP1_DROP = 0.35
