@@ -21,10 +21,12 @@ def _prepare_turn_state(self, battle: Battle):
     self._update_immunity_memory(battle)
     self._update_active_turns(battle)
     self._update_battle_memory(battle)
+    self._update_status_pivot_absorber_memory(battle)
     self._update_speed_order_memory(battle)
     self._update_switch_in_memory(battle)
     self._update_opponent_item_memory(battle)
     self._update_opponent_move_history(battle)
+    self._update_opponent_behavior(battle)
     self._update_opponent_ability_memory(battle)
     self._update_opponent_ability_constraints(battle)
     if self.IMMUNITY_INFER:

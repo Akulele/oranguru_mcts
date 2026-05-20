@@ -156,6 +156,18 @@ class RuleBotPlayer(Player):
     DEBUG_STATUS = True
     STATUS_SKIP_COUNTS = {"skipped": 0, "available": 0}
     STATUS_AVAILABLE_TURNS = 0
+    POWDER_MOVES = {"spore", "sleeppowder", "stunspore", "poisonpowder", "powder", "ragepowder", "cottonspore"}
+    PRANKSTER_ENCORE_SPECIES = {
+        "whimsicott",
+        "klefki",
+        "sableye",
+        "grimmsnarl",
+        "murkrow",
+        "liepard",
+        "riolu",
+        "volbeat",
+        "illumise",
+    }
     ANTI_SWITCH_CHURN = bool(int(os.getenv("ORANGURU_ANTI_SWITCH_CHURN", "1")))
     PARA_FINISH_GUARD = bool(int(os.getenv("ORANGURU_PARA_FINISH_GUARD", "1")))
     PARA_FINISH_MAX_OPP_HP = float(os.getenv("ORANGURU_PARA_FINISH_MAX_OPP_HP", "0.6"))
@@ -168,6 +180,10 @@ class RuleBotPlayer(Player):
     SWITCH_CHURN_MIN_STREAK = int(os.getenv("ORANGURU_SWITCH_CHURN_MIN_STREAK", "1"))
     SWITCH_CHURN_MIN_DAMAGE = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_DAMAGE", "40.0"))
     SWITCH_CHURN_MIN_HAZARD_HP = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_HAZARD_HP", "0.08"))
+    ENCORE_SETUP_GUARD = bool(int(os.getenv("ORANGURU_ENCORE_SETUP_GUARD", "1")))
+    PASSIVE_TERA_SANITY_GUARD = bool(int(os.getenv("ORANGURU_PASSIVE_TERA_SANITY_GUARD", "1")))
+    PHASE_ENDGAME_GUARD = bool(int(os.getenv("ORANGURU_PHASE_ENDGAME_GUARD", "1")))
+    ENCORE_CONVERSION_GUARD = bool(int(os.getenv("ORANGURU_ENCORE_CONVERSION_GUARD", "1")))
     TEMPO_PRESSURE_REPLY = float(os.getenv("ORANGURU_TEMPO_PRESSURE_REPLY", "180.0"))
     TEMPO_PRESSURE_MATCHUP = float(os.getenv("ORANGURU_TEMPO_PRESSURE_MATCHUP", "-0.05"))
     TEMPO_DAMAGE_RATIO = float(os.getenv("ORANGURU_TEMPO_DAMAGE_RATIO", "0.45"))
@@ -211,6 +227,7 @@ class RuleBotPlayer(Player):
         mem.setdefault("last_move_category", None)
         mem.setdefault("last_opponent_species", None)
         mem.setdefault("last_opponent_hp", None)
+        mem.setdefault("status_pivot_absorbers", {})
         mem.setdefault("active_species", None)
         mem.setdefault("active_turns", 0)
         mem.setdefault("immune_moves", {})
@@ -239,6 +256,8 @@ class RuleBotPlayer(Player):
         mem.setdefault("opp_moves_since_switch", {})
         mem.setdefault("last_switch_turn", -1)
         mem.setdefault("last_opp_move_turn", -1)
+        mem.setdefault("opp_behavior_scalar", 0.5)
+        mem.setdefault("opp_behavior_last_turn", -1)
         mem.setdefault("self_switch_streak", 0)
         mem.setdefault("switch_churn_breaks", 0)
         return mem
@@ -393,6 +412,205 @@ class RuleBotPlayer(Player):
             if mon is None:
                 continue
             mem["team_hp"][mon.species] = mon.current_hp_fraction
+
+    @staticmethod
+    def _pokemon_status_id(mon: Pokemon) -> str:
+        status = getattr(mon, "status", None)
+        status_id = RuleBotPlayer._canon_id(status)
+        aliases = {
+            "paralysis": "par",
+            "burn": "brn",
+            "poison": "psn",
+            "toxic": "tox",
+            "sleep": "slp",
+            "freeze": "frz",
+        }
+        return aliases.get(status_id, status_id)
+
+    @staticmethod
+    def _pokemon_is_alive(mon: Pokemon) -> bool:
+        if mon is None or bool(getattr(mon, "fainted", False)):
+            return False
+        hp = getattr(mon, "current_hp_fraction", None)
+        return hp is None or hp > 0.0
+
+    def _status_type_for_move_id(self, move_id: str) -> Optional[str]:
+        move_id = normalize_name(move_id)
+        if not move_id:
+            return None
+        status_type = self.STATUS_MOVES.get(move_id)
+        if status_type is not None:
+            return status_type
+        return self._status_from_move_entry(self._get_move_entry_by_id(move_id))
+
+    def _update_status_pivot_absorber_memory(self, battle: Battle) -> None:
+        if not bool(getattr(self, "STATUS_PIVOT_ABSORBER_GUARD", False)):
+            return
+        mem = self._get_battle_memory(battle)
+        if mem.get("last_action") != "move" or mem.get("last_move_category") != "status":
+            return
+        last_turn = int(mem.get("last_action_turn", -1) or -1)
+        if last_turn < 0 or int(getattr(battle, "turn", 0) or 0) <= last_turn:
+            return
+        move_id = normalize_name(str(mem.get("last_move_id", "") or ""))
+        status_type = self._status_type_for_move_id(move_id)
+        if status_type not in {"poison", "burn", "para", "sleep", "yawn"}:
+            return
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        if opponent is None:
+            return
+        last_species = normalize_name(str(mem.get("last_opponent_species", "") or ""))
+        cur_species = normalize_name(str(getattr(opponent, "species", "") or ""))
+        if not cur_species or cur_species == last_species:
+            return
+        status_id = self._pokemon_status_id(opponent)
+        if not status_id:
+            return
+        payload = {"species": cur_species, "status": status_id, "turn": int(getattr(battle, "turn", 0) or 0)}
+        absorbers = mem.setdefault("status_pivot_absorbers", {})
+        absorbers[move_id] = payload
+        absorbers[f"type:{status_type}"] = payload
+
+    def _status_pivot_absorber_blocks(self, battle: Battle, move: Move, status_type: str, opponent: Pokemon) -> bool:
+        if not bool(getattr(self, "STATUS_PIVOT_ABSORBER_GUARD", False)):
+            return False
+        if battle is None or status_type not in {"poison", "burn", "para", "sleep", "yawn"}:
+            return False
+        mem = self._get_battle_memory(battle)
+        absorbers = mem.get("status_pivot_absorbers", {}) or {}
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        payload = absorbers.get(move_id) or absorbers.get(f"type:{status_type}")
+        if not isinstance(payload, dict):
+            return False
+        turn = int(getattr(battle, "turn", 0) or 0)
+        last_turn = int(payload.get("turn", -99) or -99)
+        horizon = int(getattr(self, "STATUS_PIVOT_ABSORBER_TURNS", 8) or 8)
+        if turn - last_turn > horizon:
+            return False
+        absorber_species = normalize_name(str(payload.get("species", "") or ""))
+        target_species = normalize_name(str(getattr(opponent, "species", "") or ""))
+        if not absorber_species or absorber_species == target_species:
+            return False
+        for mon in getattr(battle, "opponent_team", {}).values():
+            if normalize_name(str(getattr(mon, "species", "") or "")) != absorber_species:
+                continue
+            return self._pokemon_is_alive(mon) and bool(self._pokemon_status_id(mon))
+        return False
+
+    def _target_blocks_status_move(self, move: Move, opponent: Pokemon) -> bool:
+        """Return True for non-damaging status moves blocked by target mechanics."""
+        if move is None or opponent is None:
+            return False
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        if move_id in self.POWDER_MOVES:
+            if self._opponent_has_type(opponent, "grass"):
+                return True
+            if self._get_ability_id(opponent) == "overcoat":
+                return True
+            item_id = self._canon_id(getattr(opponent, "item", None))
+            if item_id == "safetygoggles":
+                return True
+        return False
+
+    @staticmethod
+    def _has_effect(mon: Pokemon, effect_id: str) -> bool:
+        if mon is None:
+            return False
+        wanted = normalize_name(effect_id)
+        effects = getattr(mon, "effects", None) or {}
+        if isinstance(effects, dict):
+            values = list(effects.keys())
+        else:
+            values = list(effects)
+        return any(RuleBotPlayer._canon_id(effect) == wanted for effect in values)
+
+    def _opponent_has_known_move_id(self, opponent: Pokemon, move_id: str) -> bool:
+        move_id = normalize_name(move_id)
+        if not move_id:
+            return False
+        return move_id in {normalize_name(getattr(m, "id", "") or "") for m in self._get_known_moves(opponent)}
+
+    def _known_encore_threat(self, active: Pokemon, opponent: Pokemon) -> bool:
+        if not bool(getattr(self, "ENCORE_SETUP_GUARD", False)):
+            return False
+        if active is None or opponent is None:
+            return False
+        if not self._opponent_has_known_move_id(opponent, "encore"):
+            return False
+        if self._opponent_has_type(active, "dark"):
+            species = normalize_name(str(getattr(opponent, "species", "") or ""))
+            ability_id = self._get_ability_id(opponent)
+            if ability_id == "prankster" or species in self.PRANKSTER_ENCORE_SPECIES:
+                return False
+        species = normalize_name(str(getattr(opponent, "species", "") or ""))
+        if species in self.PRANKSTER_ENCORE_SPECIES:
+            return True
+        if self._get_ability_id(opponent) == "prankster":
+            return True
+        return self._get_effective_speed(opponent) >= self._get_effective_speed(active) * 0.9
+
+    def _setup_move_is_encore_bait(self, move: Move, active: Pokemon, opponent: Pokemon) -> bool:
+        if move is None or active is None or opponent is None:
+            return False
+        if not bool(getattr(move, "boosts", None) or {}):
+            return False
+        if not getattr(move, "target", None) or "self" not in str(move.target).lower():
+            return False
+        return self._known_encore_threat(active, opponent)
+
+    def _tera_has_immediate_defensive_gain(self, battle: Battle) -> bool:
+        active = getattr(battle, "active_pokemon", None)
+        opponent = getattr(battle, "opponent_active_pokemon", None)
+        if active is None or opponent is None:
+            return False
+        tera_id = self._type_id(getattr(active, "tera_type", None))
+        current_types = self._defensive_type_ids(active)
+        if not tera_id or tera_id == "stellar" or not current_types:
+            return False
+        best_current = 1.0
+        best_tera = 1.0
+        for attack_type in self._opponent_likely_stab_type_ids(opponent):
+            best_current = max(best_current, get_type_effectiveness(attack_type, current_types))
+            best_tera = max(best_tera, get_type_effectiveness(attack_type, [tera_id]))
+        return best_tera < best_current and best_tera <= 1.0
+
+    def _passive_tera_is_bad(self, battle: Battle, move: Move) -> bool:
+        if not bool(getattr(self, "PASSIVE_TERA_SANITY_GUARD", True)):
+            return False
+        if battle is None or move is None:
+            return False
+        try:
+            is_status = move.category == MoveCategory.STATUS
+        except Exception:
+            is_status = False
+        if not is_status:
+            return False
+        if self._is_recovery_move(move) or normalize_name(getattr(move, "id", "") or "") in self.PROTECT_MOVES:
+            return not self._tera_has_immediate_defensive_gain(battle)
+        return False
+
+    def _bad_endgame_phaze(self, battle: Battle, move: Move, opponent: Pokemon) -> bool:
+        if not bool(getattr(self, "PHASE_ENDGAME_GUARD", True)):
+            return False
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        if move_id not in {"roar", "whirlwind", "dragontail", "circlethrow"}:
+            return False
+        if battle is None or opponent is None:
+            return False
+        opp_alive = len([m for m in getattr(battle, "opponent_team", {}).values() if self._pokemon_is_alive(m)])
+        if opp_alive > 2:
+            return False
+        boosts = getattr(opponent, "boosts", {}) or {}
+        boost_pressure = 0.0
+        if isinstance(boosts, dict):
+            for value in boosts.values():
+                try:
+                    boost_pressure += max(0.0, float(value or 0.0))
+                except Exception:
+                    continue
+        if boost_pressure >= 2.0 or self._has_effect(opponent, "substitute"):
+            return False
+        return True
 
     def _cleanup_battle_memory(self, battle: Battle) -> None:
         if not hasattr(self, "_battle_memory"):
@@ -1360,7 +1578,15 @@ class RuleBotPlayer(Player):
             return 0.0
         # Scale from mild disadvantage to hard counters.
         raw = (-matchup - 0.5) / 2.5
-        return max(0.0, min(raw * self.OPP_SWITCH_MAX_WEIGHT, self.OPP_SWITCH_MAX_WEIGHT))
+        likelihood = max(0.0, min(raw * self.OPP_SWITCH_MAX_WEIGHT, self.OPP_SWITCH_MAX_WEIGHT))
+        behavior_fn = getattr(self, "_opponent_behavior_scalar", None)
+        if callable(behavior_fn):
+            try:
+                scalar = max(0.0, min(1.0, float(behavior_fn(battle))))
+                likelihood *= 1.25 - (0.50 * scalar)
+            except Exception:
+                pass
+        return max(0.0, min(likelihood, self.OPP_SWITCH_MAX_WEIGHT))
 
     def _classify_status_entry(self, entry: dict) -> str:
         if not entry:
@@ -1490,6 +1716,13 @@ class RuleBotPlayer(Player):
         candidates: List[dict] = []
         known_moves = self._get_known_moves(opponent)
         known_ids = {m.id for m in known_moves}
+        behavior_scalar = 0.5
+        behavior_fn = getattr(self, "_opponent_behavior_scalar", None)
+        if callable(behavior_fn):
+            try:
+                behavior_scalar = max(0.0, min(1.0, float(behavior_fn(battle))))
+            except Exception:
+                behavior_scalar = 0.5
 
         for move in known_moves:
             entry = self._get_move_entry(move)
@@ -1506,6 +1739,10 @@ class RuleBotPlayer(Player):
             if base <= 0:
                 continue
             weight = max(base, 1.0) * self.OPP_KNOWN_MOVE_WEIGHT
+            if kind == "damage":
+                weight *= 0.75 + (0.50 * behavior_scalar)
+            else:
+                weight *= 1.25 - (0.50 * behavior_scalar)
             if locked and locked_move:
                 if move.id == locked_move:
                     weight *= 1.6
@@ -1542,6 +1779,10 @@ class RuleBotPlayer(Player):
                     continue
                 weight_factor = 0.5 + 0.5 * (count / max_count)
                 weight = max(base, 1.0) * weight_factor * self.OPP_MOVE_PRIOR_WEIGHT
+                if kind == "damage":
+                    weight *= 0.75 + (0.50 * behavior_scalar)
+                else:
+                    weight *= 1.25 - (0.50 * behavior_scalar)
                 if locked and locked_move:
                     if move_id == locked_move:
                         weight *= 1.6
@@ -1573,7 +1814,7 @@ class RuleBotPlayer(Player):
                 {
                     "type": "switch",
                     "switch": switch_target,
-                    "weight": switch_chance * avg_weight,
+                    "weight": switch_chance * avg_weight * (1.25 - (0.50 * behavior_scalar)),
                 }
             )
 
@@ -2334,6 +2575,89 @@ class RuleBotPlayer(Player):
 
         return score
 
+    def _estimate_best_available_or_prior_damage_score(
+        self,
+        attacker: Pokemon,
+        defender: Pokemon,
+        battle: Optional[Battle] = None,
+    ) -> float:
+        """Estimate the best damage this mon can likely apply, including known/prior moves."""
+        if attacker is None or defender is None:
+            return 0.0
+        best = 0.0
+        for move in self._get_known_moves(attacker):
+            try:
+                if move.category == MoveCategory.STATUS:
+                    continue
+            except Exception:
+                continue
+            try:
+                best = max(best, float(self._calculate_move_score(move, attacker, defender, battle) or 0.0))
+            except Exception:
+                continue
+        for move_id, _count in self._get_prior_moves(attacker):
+            entry = self._get_move_entry_by_id(move_id)
+            try:
+                best = max(best, float(self._estimate_entry_damage_score(entry, attacker, defender) or 0.0))
+            except Exception:
+                continue
+        return best
+
+    @staticmethod
+    def _boost_value(mon: Pokemon, *names: str) -> float:
+        boosts = getattr(mon, "boosts", {}) or {}
+        if not isinstance(boosts, dict):
+            return 0.0
+        best = 0.0
+        for name in names:
+            try:
+                best = max(best, float(boosts.get(name, 0) or 0.0))
+            except Exception:
+                continue
+        return best
+
+    def _high_defense_counter_switch(
+        self,
+        battle: Battle,
+        active: Pokemon,
+        opponent: Pokemon,
+        current_best_damage: float,
+    ) -> Optional[Pokemon]:
+        """Find a bench counter when a boosted defensive/stall target walls the active."""
+        if not bool(getattr(self, "HIGH_DEFENSE_COUNTER_GUARD", False)):
+            return None
+        if battle is None or active is None or opponent is None or not getattr(battle, "available_switches", None):
+            return None
+        def_boost = self._boost_value(opponent, "def", "defense")
+        spd_boost = self._boost_value(opponent, "spd", "special-defense", "special_defense")
+        defensive_boost = max(def_boost, spd_boost)
+        min_boost = float(getattr(self, "HIGH_DEFENSE_COUNTER_MIN_BOOST", 3.0))
+        if defensive_boost < min_boost:
+            return None
+        max_current_damage = float(getattr(self, "HIGH_DEFENSE_COUNTER_MAX_DAMAGE", 80.0))
+        if current_best_damage > max_current_damage:
+            return None
+        min_gain = float(getattr(self, "HIGH_DEFENSE_COUNTER_MIN_SWITCH_DAMAGE_GAIN", 35.0))
+        min_switch_score = float(getattr(self, "HIGH_DEFENSE_COUNTER_MIN_SWITCH_SCORE", -0.35))
+        best_switch = None
+        best_key = None
+        for switch in battle.available_switches or []:
+            if self._switch_faints_to_entry_hazards(battle, switch):
+                continue
+            switch_score = float(self._score_switch(switch, opponent, battle) or 0.0)
+            if switch_score < min_switch_score:
+                continue
+            damage = self._estimate_best_available_or_prior_damage_score(switch, opponent, battle)
+            gain = damage - current_best_damage
+            if gain < min_gain:
+                continue
+            hp = switch.current_hp_fraction if switch.current_hp_fraction is not None else 0.5
+            key = (gain, damage, switch_score, hp)
+            if best_key is None or key > best_key:
+                best_key = key
+                best_switch = switch
+        return best_switch
+
     def _opponent_is_stallish(self, opponent: Pokemon) -> bool:
         """Heuristic: detect stall tendencies based on known moves and bulk."""
         if opponent is None:
@@ -2396,7 +2720,7 @@ class RuleBotPlayer(Player):
 
         # Apply boosts
         if mon.boosts:
-            boost = mon.boosts.get('spe', 0)
+            boost = mon.boosts.get("spe", mon.boosts.get("speed", 0))
             if boost > 0:
                 base_speed = int(base_speed * (2 + boost) / 2)
             elif boost < 0:
@@ -2428,6 +2752,8 @@ class RuleBotPlayer(Player):
     def _should_setup_move(self, move: Move, active: Pokemon, opponent: Pokemon) -> bool:
         """Return True if a boosting move is still worth using."""
         if move is None or not move.boosts or active is None:
+            return False
+        if self._setup_move_is_encore_bait(move, active, opponent):
             return False
         if move.id == "noretreat":
             effects = getattr(active, "effects", None) or {}
@@ -2658,10 +2984,20 @@ class RuleBotPlayer(Player):
 
         # Apply boosts
         boost = 0
+        aliases = {
+            "atk": ("atk", "attack"),
+            "def": ("def", "defense"),
+            "spa": ("spa", "special-attack", "special_attack"),
+            "spd": ("spd", "special-defense", "special_defense"),
+            "spe": ("spe", "speed"),
+        }
         try:
             boosts = mon.boosts or {}
             if isinstance(boosts, dict):
-                boost = boosts.get(stat, 0) or 0
+                for key in aliases.get(stat, (stat,)):
+                    if key in boosts:
+                        boost = boosts.get(key, 0) or 0
+                        break
             boost = int(boost)
         except Exception:
             boost = 0
@@ -2727,8 +3063,15 @@ class RuleBotPlayer(Player):
         if status_type is None:
             return 0.0
 
+        if self._ability_blocks_move(move, opponent):
+            return 0.0
+        if self._target_blocks_status_move(move, opponent):
+            return 0.0
+
         # Don't status already statused Pokemon (except seed/taunt/encore)
         if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
+            return 0.0
+        if self._status_pivot_absorber_blocks(battle, move, status_type, opponent):
             return 0.0
 
         if getattr(self, "STATUS_KO_GUARD", False) and battle is not None:
@@ -2917,12 +3260,30 @@ class RuleBotPlayer(Player):
         else:
             stat_ratio = self._stat_estimation(active, "spa") / max(self._stat_estimation(opponent, "spd"), 1)
 
-        # STAB bonus
-        stab = 1.5 if move.type and active.types and move.type in active.types else 1.0
+        move_type_id = self._move_type_id(move)
+
+        # STAB bonus, including Gen 9 defensive/offensive Tera state.
+        active_type_ids = self._defensive_type_ids(active)
+        original_type_ids = [
+            self._type_id(t)
+            for t in (getattr(active, "types", None) or [])
+            if self._type_id(t)
+        ]
+        tera_type_id = self._type_id(getattr(active, "tera_type", None))
+        if getattr(active, "terastallized", None):
+            tera_type_id = normalize_name(str(getattr(active, "terastallized")))
+        if move_type_id and tera_type_id and move_type_id == tera_type_id and move_type_id in original_type_ids:
+            stab = 2.0
+        elif move_type_id and (move_type_id in active_type_ids or move_type_id in original_type_ids):
+            stab = 1.5
+        else:
+            stab = 1.0
 
         # Type effectiveness
         if opponent and self._opponent_is_stellar_tera(opponent):
             type_mult = 1.0
+        elif opponent and move_type_id:
+            type_mult = get_type_effectiveness(move_type_id, self._defensive_type_ids(opponent))
         else:
             type_mult = opponent.damage_multiplier(move) if opponent else 1.0
 
@@ -3363,6 +3724,25 @@ class RuleBotPlayer(Player):
             move, active, opponent, battle, apply_recoil=False
         )
         likely_ko = move_damage >= 220 * opponent.current_hp_fraction
+        if (
+            bool(getattr(self, "NO_UNNECESSARY_TERA_KO_GUARD", True))
+            and likely_ko
+            and (opponent.current_hp_fraction or 0.0) <= float(getattr(self, "NO_UNNECESSARY_TERA_KO_MAX_HP", 0.15))
+            and self._estimate_best_reply_score(opponent, active, battle)
+            < float(getattr(self, "NO_UNNECESSARY_TERA_REPLY_KO", 185.0))
+            * max(active.current_hp_fraction or 0.0, 0.05)
+        ):
+            try:
+                mem = self._get_battle_memory(battle)
+                mem["tera_sanity_last"] = {
+                    "reason": "strip_unnecessary_low_hp_ko_tera",
+                    "move": normalize_name(getattr(move, "id", "") or ""),
+                    "opp_hp": float(opponent.current_hp_fraction or 0.0),
+                    "move_damage": float(move_damage),
+                }
+            except Exception:
+                pass
+            return False
 
         if self._tera_defensive_sanity_reject(battle, move):
             return False
@@ -3393,6 +3773,13 @@ class RuleBotPlayer(Player):
                 if endgame or likely_ko or n_remaining < n_opp_remaining:
                     return True
 
+            low_hp_defensive_tera_blocked = (
+                bool(getattr(self, "LOW_HP_DEFENSIVE_TERA_GUARD", True))
+                and (active.current_hp_fraction or 0.0)
+                <= float(getattr(self, "LOW_HP_DEFENSIVE_TERA_MAX_HP", 0.35))
+                and not likely_ko
+            )
+
             # Defensive tera: gain immunity or strong resistance to opponent's likely types
             if active.tera_type is not None:
                 try:
@@ -3407,7 +3794,7 @@ class RuleBotPlayer(Player):
                         get_type_effectiveness(opp_type_name, [active.tera_type.name.lower()])
                     )
 
-                    if max_incoming >= 2.0 and max_incoming_tera <= 0.5:
+                    if max_incoming >= 2.0 and max_incoming_tera <= 0.5 and not low_hp_defensive_tera_blocked:
                         if endgame or active.current_hp_fraction < 0.55:
                             return True
                 except Exception:
@@ -3415,7 +3802,7 @@ class RuleBotPlayer(Player):
 
             # Fallback: if tera type is hidden, allow it for big swings
             if active.tera_type is None:
-                if endgame and (likely_ko or active.current_hp_fraction < 0.35):
+                if endgame and (likely_ko or (active.current_hp_fraction < 0.35 and not low_hp_defensive_tera_blocked)):
                     return True
                 if n_remaining < n_opp_remaining and (likely_ko or current_offensive >= 1.5):
                     return True

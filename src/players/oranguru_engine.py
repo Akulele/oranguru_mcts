@@ -116,6 +116,9 @@ class OranguruEnginePlayer(RuleBotPlayer):
     SAFE_KO_MIN_OVERKILL = float(os.getenv("ORANGURU_SAFE_KO_MIN_OVERKILL", "1.0"))
     SAFE_KO_MIN_RISK_DELTA = float(os.getenv("ORANGURU_SAFE_KO_MIN_RISK_DELTA", "0.10"))
     SAFE_KO_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_SAFE_KO_MIN_POLICY_RATIO", "0.02"))
+    EFFICIENT_KO_GUARD = bool(int(os.getenv("ORANGURU_EFFICIENT_KO_GUARD", "1")))
+    EFFICIENT_KO_MAX_OPP_HP = float(os.getenv("ORANGURU_EFFICIENT_KO_MAX_OPP_HP", "0.12"))
+    EFFICIENT_KO_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_EFFICIENT_KO_MIN_POLICY_RATIO", "0.0"))
     FINISH_BLOW_PASSIVE_MAX_SCORE_DROP = float(os.getenv("ORANGURU_FINISH_BLOW_PASSIVE_MAX_SCORE_DROP", "0.28"))
     FINISH_BLOW_PASSIVE_POLICY_GUARD_MAX_HP = float(
         os.getenv("ORANGURU_FINISH_BLOW_PASSIVE_POLICY_GUARD_MAX_HP", "0.45")
@@ -149,7 +152,56 @@ class OranguruEnginePlayer(RuleBotPlayer):
     CONTACT_RISK_MIN_DAMAGE_RATIO = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_DAMAGE_RATIO", "0.85"))
     CONTACT_RISK_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_CONTACT_RISK_MIN_POLICY_RATIO", "0.35"))
     TERA_DEFENSIVE_SANITY_ENABLED = bool(int(os.getenv("ORANGURU_TERA_DEFENSIVE_SANITY", "1")))
+    OPP_BEHAVIOR_MODEL = bool(int(os.getenv("ORANGURU_OPP_BEHAVIOR_MODEL", "1")))
+    OPP_BEHAVIOR_ALPHA = float(os.getenv("ORANGURU_OPP_BEHAVIOR_ALPHA", "0.25"))
+    OPP_BEHAVIOR_DAMAGE_STEP = float(os.getenv("ORANGURU_OPP_BEHAVIOR_DAMAGE_STEP", "0.15"))
+    OPP_BEHAVIOR_STATUS_STEP = float(os.getenv("ORANGURU_OPP_BEHAVIOR_STATUS_STEP", "0.07"))
+    OPP_BEHAVIOR_SWITCH_STEP = float(os.getenv("ORANGURU_OPP_BEHAVIOR_SWITCH_STEP", "0.10"))
     STATUS_STALL_MAX = int(os.getenv("ORANGURU_STATUS_STALL_MAX", "2"))
+    STATUS_PIVOT_ABSORBER_GUARD = bool(int(os.getenv("ORANGURU_STATUS_PIVOT_ABSORBER_GUARD", "1")))
+    STATUS_PIVOT_ABSORBER_TURNS = int(os.getenv("ORANGURU_STATUS_PIVOT_ABSORBER_TURNS", "8"))
+    ENCORE_SETUP_GUARD = bool(int(os.getenv("ORANGURU_ENCORE_SETUP_GUARD", "1")))
+    PASSIVE_TERA_SANITY_GUARD = bool(int(os.getenv("ORANGURU_PASSIVE_TERA_SANITY_GUARD", "1")))
+    PHASE_ENDGAME_GUARD = bool(int(os.getenv("ORANGURU_PHASE_ENDGAME_GUARD", "1")))
+    ENCORE_CONVERSION_GUARD = bool(int(os.getenv("ORANGURU_ENCORE_CONVERSION_GUARD", "1")))
+    BAD_ENCORE_ATTACK_LOCK_GUARD = bool(int(os.getenv("ORANGURU_BAD_ENCORE_ATTACK_LOCK_GUARD", "1")))
+    BAD_ENCORE_ATTACK_LOCK_REPLY_KO = float(os.getenv("ORANGURU_BAD_ENCORE_ATTACK_LOCK_REPLY_KO", "185.0"))
+    BAD_ENCORE_ATTACK_LOCK_MIN_DAMAGE = float(os.getenv("ORANGURU_BAD_ENCORE_ATTACK_LOCK_MIN_DAMAGE", "20.0"))
+    RECHARGE_MOVE_GUARD = bool(int(os.getenv("ORANGURU_RECHARGE_MOVE_GUARD", "1")))
+    RECHARGE_MOVE_MIN_ALT_RATIO = float(os.getenv("ORANGURU_RECHARGE_MOVE_MIN_ALT_RATIO", "0.35"))
+    NO_UNNECESSARY_TERA_KO_GUARD = bool(int(os.getenv("ORANGURU_NO_UNNECESSARY_TERA_KO_GUARD", "1")))
+    NO_UNNECESSARY_TERA_KO_MAX_HP = float(os.getenv("ORANGURU_NO_UNNECESSARY_TERA_KO_MAX_HP", "0.15"))
+    NO_UNNECESSARY_TERA_REPLY_KO = float(os.getenv("ORANGURU_NO_UNNECESSARY_TERA_REPLY_KO", "185.0"))
+    LOW_HP_DEFENSIVE_TERA_GUARD = bool(int(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TERA_GUARD", "1")))
+    LOW_HP_DEFENSIVE_TERA_MAX_HP = float(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TERA_MAX_HP", "0.35"))
+    BOOSTED_FOE_SETUP_RACE_GUARD = bool(int(os.getenv("ORANGURU_BOOSTED_FOE_SETUP_RACE_GUARD", "1")))
+    BOOSTED_FOE_SETUP_RACE_MIN_PRESSURE = float(os.getenv("ORANGURU_BOOSTED_FOE_SETUP_RACE_MIN_PRESSURE", "2.0"))
+    BOOSTED_FOE_SETUP_RACE_MIN_REPLY = float(os.getenv("ORANGURU_BOOSTED_FOE_SETUP_RACE_MIN_REPLY", "70.0"))
+    BOOSTED_FOE_DAMAGE_DOMINANCE_GUARD = bool(
+        int(os.getenv("ORANGURU_BOOSTED_FOE_DAMAGE_DOMINANCE_GUARD", "1"))
+    )
+    BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_PRESSURE = float(
+        os.getenv("ORANGURU_BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_PRESSURE", "4.0")
+    )
+    BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_DAMAGE = float(
+        os.getenv("ORANGURU_BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_DAMAGE", "28.0")
+    )
+    BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_REPLY = float(
+        os.getenv("ORANGURU_BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_REPLY", "85.0")
+    )
+    LATEGAME_SACK_SWITCH_GUARD = bool(int(os.getenv("ORANGURU_LATEGAME_SACK_SWITCH_GUARD", "1")))
+    LATEGAME_SACK_SWITCH_MAX_MY_ALIVE = int(os.getenv("ORANGURU_LATEGAME_SACK_SWITCH_MAX_MY_ALIVE", "3"))
+    LATEGAME_SACK_SWITCH_REPLY_KO = float(os.getenv("ORANGURU_LATEGAME_SACK_SWITCH_REPLY_KO", "185.0"))
+    LATEGAME_SACK_SWITCH_MIN_DAMAGE = float(os.getenv("ORANGURU_LATEGAME_SACK_SWITCH_MIN_DAMAGE", "20.0"))
+    LATEGAME_SACK_SWITCH_MIN_GAIN = float(os.getenv("ORANGURU_LATEGAME_SACK_SWITCH_MIN_GAIN", "0.35"))
+    LATEGAME_BAD_SWITCH_REPLY = float(os.getenv("ORANGURU_LATEGAME_BAD_SWITCH_REPLY", "120.0"))
+    HIGH_DEFENSE_COUNTER_GUARD = bool(int(os.getenv("ORANGURU_HIGH_DEFENSE_COUNTER_GUARD", "1")))
+    HIGH_DEFENSE_COUNTER_MIN_BOOST = float(os.getenv("ORANGURU_HIGH_DEFENSE_COUNTER_MIN_BOOST", "3.0"))
+    HIGH_DEFENSE_COUNTER_MAX_DAMAGE = float(os.getenv("ORANGURU_HIGH_DEFENSE_COUNTER_MAX_DAMAGE", "80.0"))
+    HIGH_DEFENSE_COUNTER_MIN_SWITCH_DAMAGE_GAIN = float(
+        os.getenv("ORANGURU_HIGH_DEFENSE_COUNTER_MIN_SWITCH_DAMAGE_GAIN", "35.0")
+    )
+    HIGH_DEFENSE_COUNTER_MIN_SWITCH_SCORE = float(os.getenv("ORANGURU_HIGH_DEFENSE_COUNTER_MIN_SWITCH_SCORE", "-0.35"))
     RL_PRIOR_ENABLED = bool(int(os.getenv("ORANGURU_RL_PRIOR", "0")))
     RL_PRIOR_CHECKPOINT = os.getenv(
         "ORANGURU_RL_PRIOR_CHECKPOINT",
@@ -1112,6 +1164,8 @@ class OranguruEnginePlayer(RuleBotPlayer):
 
     _record_last_action = oranguru_memory.record_last_action
     _update_damage_observation = oranguru_memory.update_damage_observation
+    _update_opponent_behavior = oranguru_memory.update_opponent_behavior
+    _opponent_behavior_scalar = oranguru_memory.opponent_behavior_scalar
     _parse_hp_fraction = staticmethod(oranguru_memory.parse_hp_fraction)
     _ensure_randbats_sets = oranguru_state.ensure_randbats_sets
     _sanitize_randbats_moves = oranguru_state.sanitize_randbats_moves
@@ -1171,6 +1225,10 @@ class OranguruEnginePlayer(RuleBotPlayer):
         return best_move, best_score
 
     _switch_faints_to_entry_hazards = oranguru_tactical.switch_faints_to_entry_hazards
+    _last_opponent_move_id = oranguru_tactical.last_opponent_move_id
+    _move_id_is_damaging = oranguru_tactical.move_id_is_damaging
+    _move_has_recharge = oranguru_tactical.move_has_recharge
+    _best_non_recharge_damage_move = oranguru_tactical.best_non_recharge_damage_move
 
     def _status_choice_is_obviously_bad(
         self,

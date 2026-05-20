@@ -75,6 +75,8 @@ def heuristic_action_score(self, battle: Battle, choice: str) -> Optional[float]
         if self._sleep_clause_blocked(battle) and self._move_inflicts_sleep(move):
             return 0.0
         if move.category == MoveCategory.STATUS:
+            if self._target_blocks_status_move(move, opponent):
+                return 0.0
             if self.STATUS_KO_GUARD:
                 opp_hp = opponent.current_hp_fraction or 0.0
                 best_damage = self._estimate_best_damage_score(active, opponent, battle)
@@ -978,6 +980,12 @@ def maybe_force_finish_blow_choice(
         acc = _accuracy(move)
         return max(0.0, 1.0 - acc) + _crash_rate(move) + _recoil_rate(move)
 
+    def _priority(move) -> int:
+        try:
+            return int(getattr(move, "priority", 0) or 0)
+        except Exception:
+            return 0
+
     def _maybe_take_safer_ko(
         active: Pokemon,
         opponent: Pokemon,
@@ -1019,6 +1027,62 @@ def maybe_force_finish_blow_choice(
             candidate = normalize_name(getattr(move, "id", ""))
             if candidate and candidate not in seen:
                 candidate_choices.append((candidate, 0.0))
+
+        if bool(getattr(self, "EFFICIENT_KO_GUARD", True)) and opp_hp <= float(
+            getattr(self, "EFFICIENT_KO_MAX_OPP_HP", 0.12)
+        ):
+            min_policy = float(getattr(self, "EFFICIENT_KO_MIN_POLICY_RATIO", 0.0))
+            efficient_choice = chosen_choice
+            efficient_move = chosen_move
+            efficient_score = chosen_score
+            efficient_risk = chosen_risk
+            efficient_weight = chosen_weight
+            efficient_priority = _priority(chosen_move)
+            efficient_key = (
+                efficient_priority,
+                -efficient_risk,
+                -efficient_score,
+                efficient_weight,
+            )
+            for choice, weight in candidate_choices:
+                if choice.startswith("switch ") or not self._is_damaging_move_choice(battle, choice):
+                    continue
+                move = _move_for_choice(choice)
+                if move is None:
+                    continue
+                score = _damage_score(move)
+                if score < ko_threshold * min_overkill:
+                    continue
+                candidate_weight = float(weight or 0.0)
+                if chosen_weight > 0.0 and candidate_weight / max(chosen_weight, 1e-6) < min_policy:
+                    continue
+                risk = _finish_risk(move)
+                priority = _priority(move)
+                key = (priority, -risk, -score, candidate_weight)
+                if key > efficient_key:
+                    efficient_choice = choice
+                    efficient_move = move
+                    efficient_score = score
+                    efficient_risk = risk
+                    efficient_weight = candidate_weight
+                    efficient_priority = priority
+                    efficient_key = key
+            if efficient_choice != chosen_choice:
+                _record(
+                    "take_efficient_critical_ko",
+                    opp_hp=float(opp_hp),
+                    ko_threshold=float(ko_threshold),
+                    chosen_damage_score=float(chosen_score),
+                    efficient_damage_score=float(efficient_score),
+                    chosen_priority=int(_priority(chosen_move)),
+                    efficient_priority=int(efficient_priority),
+                    chosen_finish_risk=float(chosen_risk),
+                    efficient_finish_risk=float(efficient_risk),
+                    chosen_weight=float(chosen_weight),
+                    efficient_weight=float(efficient_weight),
+                    finish_choice=efficient_choice,
+                )
+                return efficient_choice
 
         for choice, weight in candidate_choices:
             if choice == chosen_choice or choice.startswith("switch "):
@@ -1130,7 +1194,13 @@ def maybe_force_finish_blow_choice(
             if heur <= 0.0 and damage <= 0.0:
                 continue
             risk = _finish_risk(move)
-            key = (heur, damage, candidate_weight, -risk)
+            priority = _priority(move)
+            if opponent.current_hp_fraction is not None and opponent.current_hp_fraction <= float(
+                getattr(self, "EFFICIENT_KO_MAX_OPP_HP", 0.12)
+            ):
+                key = (priority, -risk, damage, heur, candidate_weight)
+            else:
+                key = (heur, damage, candidate_weight, -risk)
             if best_key is None or key > best_key:
                 best_choice = choice
                 best_key = key

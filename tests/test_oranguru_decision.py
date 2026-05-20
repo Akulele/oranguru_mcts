@@ -19,6 +19,7 @@ class DummyMove:
 
 class DummyPokemon:
     def __init__(self, current_hp_fraction=1.0, status=None):
+        self.species = "dummy"
         self.current_hp_fraction = current_hp_fraction
         self.status = status
         self.boosts = {}
@@ -130,6 +131,41 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "firepunch")
         self.assertEqual(memory["finish_blow_last"]["reason"], "take_safe_ko")
         self.assertEqual(memory["finish_blow_last"]["finish_choice"], "firepunch")
+
+    def test_finish_blow_guard_prefers_priority_for_critical_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.SAFE_KO_GUARD = True
+        engine.SAFE_KO_MIN_OVERKILL = 1.0
+        engine.SAFE_KO_MIN_POLICY_RATIO = 0.0
+        engine.EFFICIENT_KO_GUARD = True
+        engine.EFFICIENT_KO_MAX_OPP_HP = 0.12
+        engine.EFFICIENT_KO_MIN_POLICY_RATIO = 0.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._is_damaging_move_choice = OranguruEnginePlayer._is_damaging_move_choice.__get__(engine)
+        engine._move_recoil_rate = lambda _move: 0.0
+        engine._get_move_entry = lambda _move: {}
+        engine._calculate_move_score = lambda move, *_args, **_kwargs: {
+            "storedpower": 260.0,
+            "quickattack": 20.0,
+        }.get(move.id, 0.0)
+        stored_power = DummyMove("storedpower", category=MoveCategory.SPECIAL, base_power=120, accuracy=100)
+        quick_attack = DummyMove("quickattack", category=MoveCategory.PHYSICAL, base_power=40, accuracy=100)
+        quick_attack.priority = 1
+        battle = DummyBattle()
+        battle.active_pokemon = DummyPokemon(0.8)
+        battle.opponent_active_pokemon = DummyPokemon(0.01)
+        battle.available_moves = [stored_power, quick_attack]
+
+        adjusted = engine._maybe_force_finish_blow_choice(
+            battle,
+            [("storedpower", 0.80), ("quickattack", 0.01)],
+            "storedpower",
+        )
+
+        self.assertEqual(adjusted, "quickattack")
+        self.assertEqual(memory["finish_blow_last"]["reason"], "take_efficient_critical_ko")
 
     def test_finish_blow_guard_attacks_critical_hp_target_over_recovery(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
@@ -440,6 +476,107 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "dragontail")
         self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_anti_sweeper_control")
         self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "phaze")
+
+    def test_tactical_safety_rejects_encore_into_lethal_attack_lock(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.MOVE_SAFETY_GUARD = True
+        engine.BAD_ENCORE_ATTACK_LOCK_GUARD = True
+        engine.BAD_ENCORE_ATTACK_LOCK_REPLY_KO = 185.0
+        engine.BAD_ENCORE_ATTACK_LOCK_MIN_DAMAGE = 20.0
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.PROTECT_MOVES = set()
+        engine.LOOP_BREAKER_ENABLED = False
+        engine.ENCORE_CONVERSION_GUARD = False
+        memory = {
+            "opponent_item_flags": {
+                "rampardos": {"last_move_id": "rockslide", "last_move_turn": 16}
+            }
+        }
+        engine._get_battle_memory = lambda _battle: memory
+        engine._best_damaging_move = lambda *_args: (
+            DummyMove("hydropump", category=MoveCategory.SPECIAL, base_power=110),
+            120.0,
+        )
+        engine._estimate_best_reply_score = lambda *_args: 260.0
+        engine._high_defense_counter_switch = lambda *_args: None
+        engine._has_effect = lambda *_args: False
+        engine._predict_opponent_move = lambda *_args: {
+            "kind": "damage",
+            "damage_score": 260.0,
+            "move_id": "rockslide",
+        }
+        engine._get_move_entry_by_id = lambda move_id: {"category": "physical"} if move_id == "rockslide" else {}
+        engine._is_recovery_move = lambda _move: False
+        engine._setup_move_is_encore_bait = lambda *_args: False
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._passive_choice_kind = lambda _move: ""
+        engine._progress_need_score = lambda *_args: 0
+        battle = DummyBattle()
+        battle.turn = 17
+        battle.active_pokemon = DummyPokemon(1.0)
+        battle.active_pokemon.species = "ironbundle"
+        battle.opponent_active_pokemon = DummyPokemon(0.73)
+        battle.opponent_active_pokemon.species = "rampardos"
+        battle.available_moves = [
+            DummyMove("encore", category=MoveCategory.STATUS),
+            DummyMove("hydropump", category=MoveCategory.SPECIAL, base_power=110),
+        ]
+        battle.available_switches = []
+
+        adjusted = engine._apply_tactical_safety(
+            battle,
+            "encore",
+            battle.active_pokemon,
+            battle.opponent_active_pokemon,
+        )
+
+        self.assertEqual(adjusted, "hydropump")
+        self.assertEqual(memory["bad_encore_last"]["reason"], "reject_locking_lethal_attack")
+
+    def test_tactical_safety_rejects_lategame_sack_switch(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.MOVE_SAFETY_GUARD = True
+        engine.LATEGAME_SACK_SWITCH_GUARD = True
+        engine.LATEGAME_SACK_SWITCH_MAX_MY_ALIVE = 3
+        engine.LATEGAME_SACK_SWITCH_REPLY_KO = 185.0
+        engine.LATEGAME_SACK_SWITCH_MIN_DAMAGE = 20.0
+        engine.LATEGAME_SACK_SWITCH_MIN_GAIN = 0.35
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._best_damaging_move = lambda *_args: (
+            DummyMove("psychic", category=MoveCategory.SPECIAL, base_power=90),
+            45.0,
+        )
+        engine._estimate_best_reply_score = lambda _opp, target, _battle: 230.0 if target.species == "clefable" else 90.0
+        engine._switch_faints_to_entry_hazards = lambda *_args: False
+        engine._score_switch = lambda *_args: 0.05
+        engine._estimate_matchup = lambda *_args: 0.0
+        clefable = DummyPokemon(1.0)
+        clefable.species = "clefable"
+        battle = DummyBattle()
+        battle.turn = 19
+        battle.active_pokemon = DummyPokemon(0.55)
+        battle.active_pokemon.species = "rabsca"
+        battle.opponent_active_pokemon = DummyPokemon(0.25)
+        battle.opponent_active_pokemon.species = "flareon"
+        battle.available_moves = [DummyMove("psychic", category=MoveCategory.SPECIAL, base_power=90)]
+        battle.available_switches = [clefable]
+        battle.team = {
+            "active": battle.active_pokemon,
+            "clefable": clefable,
+            "fainted": DummyPokemon(0.0),
+        }
+
+        adjusted = engine._apply_tactical_safety(
+            battle,
+            "switch clefable",
+            battle.active_pokemon,
+            battle.opponent_active_pokemon,
+        )
+
+        self.assertEqual(adjusted, "psychic")
+        self.assertEqual(memory["sack_switch_last"]["reason"], "reject_lategame_sack_switch")
 
     def test_recovery_guard_blocks_large_policy_drop_from_top_attack(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)

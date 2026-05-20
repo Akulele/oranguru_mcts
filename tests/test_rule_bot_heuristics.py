@@ -11,13 +11,23 @@ from src.utils.damage_calc import get_type_effectiveness
 
 
 class DummyMove:
-    def __init__(self, move_id, accuracy=100, move_type=None, boosts=None, category=MoveCategory.STATUS, base_power=0):
+    def __init__(
+        self,
+        move_id,
+        accuracy=100,
+        move_type=None,
+        boosts=None,
+        category=MoveCategory.STATUS,
+        base_power=0,
+        target="normal",
+    ):
         self.id = move_id
         self.accuracy = accuracy
         self.type = move_type
         self.category = category
         self.boosts = boosts or {}
         self.base_power = base_power
+        self.target = target
 
 
 class DummyPokemon:
@@ -35,7 +45,9 @@ class DummyPokemon:
         types=None,
         effects=None,
         data=None,
+        species="dummy",
     ):
+        self.species = species
         self.stats = stats or {}
         self.boosts = boosts or {}
         self.status = status
@@ -47,6 +59,7 @@ class DummyPokemon:
         self.types = types if types is not None else [type_1, type_2]
         self.effects = effects or {}
         self._data = data
+        self.moves = {}
 
     def damage_multiplier(self, move_type):
         if move_type is None:
@@ -145,6 +158,27 @@ class RuleBotHeuristicTests(unittest.TestCase):
         score = self.bot._should_use_status_move(move, active, opponent, SimpleNamespace(available_moves=[]))
         self.assertGreaterEqual(score, 220.0)
 
+    def test_strength_sap_blocked_by_revealed_sap_sipper(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            stats={"hp": 300, "atk": 100, "def": 120, "spa": 100, "spd": 120, "spe": 80},
+            current_hp_fraction=0.5,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            stats={"hp": 320, "atk": 200, "def": 120, "spa": 90, "spd": 110, "spe": 80},
+            boosts={"attack": 4},
+            current_hp_fraction=0.9,
+            type_1=PokemonType.WATER,
+            data=data,
+        )
+        opponent.ability = "Sap Sipper"
+        move = DummyMove("strengthsap", accuracy=100, move_type=PokemonType.GRASS)
+
+        score = self.bot._should_use_status_move(move, active, opponent, SimpleNamespace(available_moves=[]))
+
+        self.assertEqual(score, 0.0)
+
     def test_status_moves_blocked_when_target_already_statused(self):
         active = DummyPokemon(stats={"hp": 300, "atk": 100, "def": 120, "spa": 100, "spd": 120, "spe": 80})
         opponent = DummyPokemon(
@@ -154,6 +188,74 @@ class RuleBotHeuristicTests(unittest.TestCase):
         move = DummyMove("sleeppowder", accuracy=75)
         score = self.bot._should_use_status_move(move, active, opponent, SimpleNamespace())
         self.assertEqual(score, 0.0)
+
+    def test_status_pivot_absorber_blocks_repeated_glare(self):
+        self.bot.STATUS_PIVOT_ABSORBER_GUARD = True
+        self.bot.STATUS_PIVOT_ABSORBER_TURNS = 8
+        active = DummyPokemon(
+            species="dudunsparce",
+            stats={"hp": 343, "atk": 214, "def": 180, "spa": 189, "spd": 172, "spe": 139},
+        )
+        donphan = DummyPokemon(
+            species="donphan",
+            stats={"hp": 300, "atk": 220, "def": 220, "spa": 80, "spd": 120, "spe": 180},
+            status=None,
+        )
+        slither = DummyPokemon(
+            species="slitherwing",
+            stats={"hp": 300, "atk": 220, "def": 160, "spa": 80, "spd": 160, "spe": 200},
+            status="brn",
+        )
+        battle = SimpleNamespace(
+            battle_tag="status-pivot",
+            turn=31,
+            opponent_active_pokemon=slither,
+            opponent_team={"donphan": donphan, "slitherwing": slither},
+        )
+        mem = self.bot._get_battle_memory(battle)
+        mem["last_action"] = "move"
+        mem["last_action_turn"] = 30
+        mem["last_move_id"] = "glare"
+        mem["last_move_category"] = "status"
+        mem["last_opponent_species"] = "Donphan"
+
+        self.bot._update_status_pivot_absorber_memory(battle)
+
+        battle.turn = 32
+        battle.opponent_active_pokemon = donphan
+        score = self.bot._should_use_status_move(DummyMove("glare"), active, donphan, battle)
+
+        self.assertEqual(score, 0.0)
+
+    def test_spore_blocked_by_grass_target(self):
+        active = DummyPokemon(
+            species="amoonguss",
+            stats={"hp": 300, "atk": 100, "def": 150, "spa": 180, "spd": 160, "spe": 60},
+        )
+        opponent = DummyPokemon(
+            species="sceptile",
+            stats={"hp": 260, "atk": 190, "def": 120, "spa": 200, "spd": 140, "spe": 240},
+            type_1=PokemonType.GRASS,
+        )
+
+        score = self.bot._should_use_status_move(DummyMove("spore"), active, opponent, SimpleNamespace())
+
+        self.assertEqual(score, 0.0)
+
+    def test_known_encore_threat_blocks_setup(self):
+        self.bot.ENCORE_SETUP_GUARD = True
+        active = DummyPokemon(
+            species="ironcrown",
+            stats={"hp": 300, "atk": 120, "def": 170, "spa": 220, "spd": 170, "spe": 180},
+        )
+        opponent = DummyPokemon(
+            species="whimsicott",
+            stats={"hp": 250, "atk": 100, "def": 140, "spa": 170, "spd": 150, "spe": 260},
+        )
+        opponent.moves = {"encore": DummyMove("encore")}
+        calm_mind = DummyMove("calmmind", boosts={"spa": 1, "spd": 1}, target="self")
+
+        self.assertFalse(self.bot._should_setup_move(calm_mind, active, opponent))
 
     def test_tera_defensive_types_used_in_type_checks(self):
         data = GenData.from_gen(9)
@@ -201,6 +303,41 @@ class RuleBotHeuristicTests(unittest.TestCase):
         )
         matchup = self.bot._estimate_matchup(attacker, opponent)
         self.assertLess(matchup, 0.0)
+
+    def test_move_score_respects_tera_type_and_long_boost_alias(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            stats={"hp": 300, "atk": 200, "def": 120, "spa": 100, "spd": 120, "spe": 95},
+            type_1=PokemonType.FIRE,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        normal_gogoat = DummyPokemon(
+            stats={"hp": 320, "atk": 150, "def": 100, "spa": 90, "spd": 100, "spe": 80},
+            type_1=PokemonType.GRASS,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        tera_water_boosted = DummyPokemon(
+            stats={"hp": 320, "atk": 150, "def": 100, "spa": 90, "spd": 100, "spe": 80},
+            boosts={"defense": 4},
+            type_1=PokemonType.GRASS,
+            tera_type=PokemonType.WATER,
+            is_terastallized=True,
+            current_hp_fraction=1.0,
+            data=data,
+        )
+        pyro_ball = DummyMove(
+            "pyroball",
+            move_type=PokemonType.FIRE,
+            category=MoveCategory.PHYSICAL,
+            base_power=120,
+        )
+
+        normal_score = self.bot._calculate_move_score(pyro_ball, active, normal_gogoat, None)
+        tera_score = self.bot._calculate_move_score(pyro_ball, active, tera_water_boosted, None)
+
+        self.assertLess(tera_score, normal_score * 0.25)
 
     def test_canonicalize_move_id_handles_prefix(self):
         self.assertEqual(self.bot._canonicalize_move_id("Move: Thunder Wave"), "thunderwave")

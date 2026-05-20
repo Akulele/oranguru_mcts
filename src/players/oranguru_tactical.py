@@ -149,7 +149,13 @@ def status_choice_is_obviously_bad(
     if status_type is None:
         return False
 
+    if self._ability_blocks_move(move, opponent):
+        return True
+    if self._target_blocks_status_move(move, opponent):
+        return True
     if opponent.status is not None and status_type in {"poison", "burn", "para", "sleep", "yawn"}:
+        return True
+    if self._status_pivot_absorber_blocks(battle, move, status_type, opponent):
         return True
     if status_type == "sleep" and self._sleep_clause_blocked(battle):
         return True
@@ -181,6 +187,85 @@ def status_choice_is_obviously_bad(
     return False
 
 
+def _alive_count(team: object) -> int:
+    if not isinstance(team, dict):
+        return 0
+    return sum(1 for mon in team.values() if mon is not None and not bool(getattr(mon, "fainted", False)))
+
+
+def last_opponent_move_id(self, battle: Battle, opponent: Pokemon) -> str:
+    if battle is None or opponent is None:
+        return ""
+    mem = self._get_battle_memory(battle)
+    species = normalize_name(getattr(opponent, "species", "") or "")
+    flags = (mem.get("opponent_item_flags", {}) or {}).get(species, {}) or {}
+    last_turn = int(flags.get("last_move_turn", -99) or -99)
+    if last_turn >= int(getattr(battle, "turn", 0) or 0) - 1:
+        return normalize_name(flags.get("last_move_id", "") or "")
+    return ""
+
+
+def move_id_is_damaging(self, move_id: str) -> bool:
+    if not move_id:
+        return False
+    entry = self._get_move_entry_by_id(move_id)
+    return str(entry.get("category", "")).lower() not in {"", "status"}
+
+
+def move_has_recharge(self, move) -> bool:
+    if move is None:
+        return False
+    entry = self._get_move_entry(move)
+    flags = entry.get("flags", {}) if isinstance(entry, dict) else {}
+    self_data = entry.get("self", {}) if isinstance(entry, dict) else {}
+    return bool(
+        (isinstance(flags, dict) and flags.get("recharge"))
+        or (isinstance(self_data, dict) and self_data.get("volatileStatus") == "mustrecharge")
+    )
+
+
+def best_non_recharge_damage_move(self, battle: Battle, active: Pokemon, opponent: Pokemon):
+    best_move = None
+    best_score = -1.0
+    for move in battle.available_moves or []:
+        try:
+            if move.category == MoveCategory.STATUS:
+                continue
+        except Exception:
+            pass
+        if self._move_has_recharge(move):
+            continue
+        try:
+            score = float(self._calculate_move_score(move, active, opponent, battle, apply_recoil=False) or 0.0)
+        except TypeError:
+            try:
+                score = float(self._calculate_move_score(move, active, opponent, battle) or 0.0)
+            except Exception:
+                score = 0.0
+        except Exception:
+            score = 0.0
+        if score > best_score:
+            best_move = move
+            best_score = score
+    return best_move, best_score
+
+
+def boosted_offense_pressure(mon: Pokemon) -> float:
+    boosts = getattr(mon, "boosts", {}) or {}
+    if not isinstance(boosts, dict):
+        return 0.0
+    vals = []
+    for keys in (("attack", "atk"), ("special-attack", "spa"), ("speed", "spe")):
+        cur = 0.0
+        for key in keys:
+            try:
+                cur = max(cur, float(boosts.get(key, 0) or 0.0))
+            except Exception:
+                pass
+        vals.append(cur)
+    return vals[0] + vals[1] + max(0.0, vals[2] - 1.0)
+
+
 def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, opponent: Pokemon) -> str:
     if not self.MOVE_SAFETY_GUARD:
         return choice
@@ -206,6 +291,74 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
                 return f"switch {normalize_name(best_sw.species)}"
             if best_damage_move is not None and not battle.force_switch:
                 return best_damage_move.id
+        if (
+            chosen_switch is not None
+            and not battle.force_switch
+            and bool(getattr(self, "LATEGAME_SACK_SWITCH_GUARD", True))
+        ):
+            my_alive = _alive_count(getattr(battle, "team", {}) or {})
+            if my_alive <= 0:
+                my_alive = 1 + sum(
+                    1 for sw in (battle.available_switches or []) if not bool(getattr(sw, "fainted", False))
+                )
+            switch_hp = chosen_switch.current_hp_fraction if chosen_switch.current_hp_fraction is not None else 1.0
+            active_hp_for_switch = active.current_hp_fraction if active.current_hp_fraction is not None else 1.0
+            switch_reply = float(self._estimate_best_reply_score(opponent, chosen_switch, battle) or 0.0)
+            switch_fatal = switch_reply >= float(getattr(self, "LATEGAME_SACK_SWITCH_REPLY_KO", 185.0)) * max(
+                switch_hp,
+                0.05,
+            )
+            switch_score = float(self._score_switch(chosen_switch, opponent, battle) or 0.0)
+            active_matchup = float(self._estimate_matchup(active, opponent) or 0.0)
+            min_damage = float(getattr(self, "LATEGAME_SACK_SWITCH_MIN_DAMAGE", 20.0))
+            endgame_mons = int(getattr(self, "LATEGAME_SACK_SWITCH_MAX_MY_ALIVE", 3))
+            boosted_pressure = boosted_offense_pressure(opponent)
+            switch_large_hit = switch_reply >= float(getattr(self, "LATEGAME_BAD_SWITCH_REPLY", 120.0)) * max(
+                switch_hp,
+                0.05,
+            )
+            if (
+                (switch_fatal or (switch_large_hit and boosted_pressure >= 2.0))
+                and my_alive <= endgame_mons
+                and best_damage_move is not None
+                and best_damage_score >= min_damage
+                and switch_hp >= active_hp_for_switch + 0.12
+                and switch_score <= active_matchup + float(getattr(self, "LATEGAME_SACK_SWITCH_MIN_GAIN", 0.35))
+            ):
+                mem = self._get_battle_memory(battle)
+                mem["sack_switch_last"] = {
+                    "reason": "reject_lategame_sack_switch",
+                    "choice": choice,
+                    "replacement": best_damage_move.id,
+                    "switch_reply": float(switch_reply),
+                    "switch_hp": float(switch_hp),
+                    "active_hp": float(active_hp_for_switch),
+                    "my_alive": int(my_alive),
+                    "boosted_pressure": float(boosted_pressure),
+                    "best_damage_score": float(best_damage_score),
+                }
+                return best_damage_move.id
+            if (
+                bool(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_GUARD", True))
+                and boosted_pressure >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_PRESSURE", 4.0))
+                and best_damage_move is not None
+                and best_damage_score >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_DAMAGE", 28.0))
+                and switch_reply >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_REPLY", 85.0)) * max(
+                    switch_hp,
+                    0.05,
+                )
+            ):
+                mem = self._get_battle_memory(battle)
+                mem["boosted_damage_dominance_last"] = {
+                    "reason": "reject_switch_into_boosted_foe",
+                    "choice": choice,
+                    "replacement": best_damage_move.id,
+                    "switch_reply": float(switch_reply),
+                    "switch_hp": float(switch_hp),
+                    "boosted_pressure": float(boosted_pressure),
+                    "best_damage_score": float(best_damage_score),
+                }
+                return best_damage_move.id
         return choice
 
     tera_suffix = choice.endswith("-tera")
@@ -227,6 +380,7 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
         selected_move.target and "self" in str(selected_move.target).lower()
     )
     is_protect = selected_move.id in self.PROTECT_MOVES
+    is_phaze = move_id in {"roar", "whirlwind", "dragontail", "circlethrow"}
     mem = self._get_battle_memory(battle)
     stall = int(mem.get("status_stall_streak", 0) or 0)
     passive_streak = int(mem.get("passive_no_progress_streak", 0) or 0)
@@ -245,6 +399,171 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
         opponent,
         best_damage_score,
     )
+
+    try:
+        selected_damage_score = float(
+            self._calculate_move_score(selected_move, active, opponent, battle, apply_recoil=False) or 0.0
+        )
+    except TypeError:
+        try:
+            selected_damage_score = float(self._calculate_move_score(selected_move, active, opponent, battle) or 0.0)
+        except Exception:
+            selected_damage_score = 0.0
+    except Exception:
+        selected_damage_score = 0.0
+
+    if (
+        tera_suffix
+        and bool(getattr(self, "LOW_HP_DEFENSIVE_TERA_GUARD", True))
+        and active_hp <= float(getattr(self, "LOW_HP_DEFENSIVE_TERA_MAX_HP", 0.35))
+        and selected_damage_score < ko_threshold
+        and best_damage_score < ko_threshold
+    ):
+        mem["tera_sanity_last"] = {
+            "reason": "strip_low_hp_non_ko_defensive_tera",
+            "choice": choice,
+            "move": move_id,
+            "active_hp": float(active_hp),
+            "opp_hp": float(opp_hp),
+            "selected_damage_score": float(selected_damage_score),
+            "best_damage_score": float(best_damage_score),
+            "ko_threshold": float(ko_threshold),
+        }
+        return move_id
+
+    if (
+        bool(getattr(self, "RECHARGE_MOVE_GUARD", True))
+        and self._move_has_recharge(selected_move)
+        and selected_damage_score < ko_threshold
+        and not battle.force_switch
+    ):
+        alt_move, alt_score = self._best_non_recharge_damage_move(battle, active, opponent)
+        min_ratio = float(getattr(self, "RECHARGE_MOVE_MIN_ALT_RATIO", 0.35))
+        if alt_move is not None and alt_move.id != move_id and alt_score >= max(8.0, selected_damage_score * min_ratio):
+            mem["recharge_guard_last"] = {
+                "reason": "reject_non_ko_recharge",
+                "choice": choice,
+                "replacement": alt_move.id,
+                "selected_damage_score": float(selected_damage_score),
+                "alt_damage_score": float(alt_score),
+                "ko_threshold": float(ko_threshold),
+            }
+            return alt_move.id
+
+    wallbreaker_switch = self._high_defense_counter_switch(battle, active, opponent, best_damage_score)
+    if wallbreaker_switch is not None and not battle.force_switch:
+        mem["high_defense_counter_last"] = {
+            "reason": "take_counter_switch",
+            "choice": choice,
+            "switch": normalize_name(wallbreaker_switch.species),
+            "best_damage_score": float(best_damage_score),
+        }
+        return f"switch {normalize_name(wallbreaker_switch.species)}"
+
+    if tera_suffix and self._passive_tera_is_bad(battle, selected_move):
+        mem["tera_sanity_last"] = {
+            "reason": "passive_tera_no_immediate_defensive_gain",
+            "choice": choice,
+            "move": move_id,
+        }
+        return move_id
+
+    if (
+        tera_suffix
+        and bool(getattr(self, "NO_UNNECESSARY_TERA_KO_GUARD", True))
+        and not is_status
+        and selected_damage_score >= ko_threshold
+        and opp_hp <= float(getattr(self, "NO_UNNECESSARY_TERA_KO_MAX_HP", 0.15))
+        and reply_score < float(getattr(self, "NO_UNNECESSARY_TERA_REPLY_KO", 185.0)) * max(active_hp, 0.05)
+    ):
+        mem["tera_sanity_last"] = {
+            "reason": "strip_unnecessary_low_hp_ko_tera",
+            "choice": choice,
+            "move": move_id,
+            "opp_hp": float(opp_hp),
+            "selected_damage_score": float(selected_damage_score),
+            "reply_score": float(reply_score),
+        }
+        return move_id
+
+    if (
+        bool(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_GUARD", True))
+        and boosted_offense_pressure(opponent) >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_PRESSURE", 4.0))
+        and reply_score >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_REPLY", 85.0))
+        and best_damage_move is not None
+        and best_damage_move.id != move_id
+        and best_damage_score >= float(getattr(self, "BOOSTED_FOE_DAMAGE_DOMINANCE_MIN_DAMAGE", 28.0))
+        and not battle.force_switch
+        and (is_status or is_recovery or is_setup or is_protect or is_phaze)
+    ):
+        mem["boosted_damage_dominance_last"] = {
+            "reason": "reject_passive_into_boosted_foe",
+            "choice": choice,
+            "replacement": best_damage_move.id,
+            "reply_score": float(reply_score),
+            "boosted_pressure": float(boosted_offense_pressure(opponent)),
+            "best_damage_score": float(best_damage_score),
+        }
+        return best_damage_move.id
+
+    if is_phaze and self._bad_endgame_phaze(battle, selected_move, opponent):
+        mem["phase_endgame_last"] = {
+            "reason": "reject_endgame_phaze",
+            "choice": choice,
+            "opponent": normalize_name(getattr(opponent, "species", "") or ""),
+        }
+        if best_damage_move is not None and best_damage_move.id != move_id:
+            return best_damage_move.id
+        if battle.available_switches:
+            best_sw = max(battle.available_switches, key=lambda s: self._score_switch(s, opponent, battle))
+            return f"switch {normalize_name(best_sw.species)}"
+
+    if (
+        bool(getattr(self, "ENCORE_CONVERSION_GUARD", True))
+        and self._has_effect(opponent, "encore")
+        and battle.available_switches
+        and ((active.current_hp_fraction or 0.0) <= 0.55 or getattr(active, "status", None) is not None)
+    ):
+        best_sw = max(battle.available_switches, key=lambda s: self._score_switch(s, opponent, battle))
+        if self._score_switch(best_sw, opponent, battle) > self._estimate_matchup(active, opponent) - 0.15:
+            mem["encore_conversion_last"] = {
+                "reason": "pivot_on_encored_target",
+                "choice": choice,
+                "switch": normalize_name(best_sw.species),
+            }
+            return f"switch {normalize_name(best_sw.species)}"
+
+    if (
+        bool(getattr(self, "BAD_ENCORE_ATTACK_LOCK_GUARD", True))
+        and move_id == "encore"
+        and best_damage_move is not None
+        and not battle.force_switch
+    ):
+        last_opp_move = self._last_opponent_move_id(battle, opponent)
+        predicted = self._predict_opponent_move(opponent, active, battle)
+        predicted_kind = str((predicted or {}).get("kind", "") or "")
+        predicted_damage = float((predicted or {}).get("damage_score", 0.0) or 0.0)
+        last_was_damage = self._move_id_is_damaging(last_opp_move)
+        fatal_reply = reply_score >= float(getattr(self, "BAD_ENCORE_ATTACK_LOCK_REPLY_KO", 185.0)) * max(
+            active_hp,
+            0.05,
+        )
+        min_damage = float(getattr(self, "BAD_ENCORE_ATTACK_LOCK_MIN_DAMAGE", 20.0))
+        if (
+            fatal_reply
+            and best_damage_score >= min_damage
+            and (last_was_damage or predicted_kind == "damage" or predicted_damage >= reply_score * 0.70)
+        ):
+            mem["bad_encore_last"] = {
+                "reason": "reject_locking_lethal_attack",
+                "choice": choice,
+                "replacement": best_damage_move.id,
+                "last_opp_move": last_opp_move,
+                "reply_score": float(reply_score),
+                "active_hp": float(active_hp),
+                "best_damage_score": float(best_damage_score),
+            }
+            return best_damage_move.id
 
     if (
         self.LOOP_BREAKER_ENABLED
@@ -266,6 +585,33 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
     if is_status and self._status_choice_is_obviously_bad(battle, selected_move, active, opponent):
         if best_damage_move is not None:
             return best_damage_move.id
+        if battle.available_switches:
+            best_sw = max(battle.available_switches, key=lambda s: self._score_switch(s, opponent, battle))
+            return f"switch {normalize_name(best_sw.species)}"
+
+    if is_setup and (self._has_effect(active, "encore") or self._setup_move_is_encore_bait(selected_move, active, opponent)):
+        if best_damage_move is not None and best_damage_move.id != move_id:
+            return best_damage_move.id
+        if battle.available_switches:
+            best_sw = max(battle.available_switches, key=lambda s: self._score_switch(s, opponent, battle))
+            return f"switch {normalize_name(best_sw.species)}"
+
+    if (
+        bool(getattr(self, "BOOSTED_FOE_SETUP_RACE_GUARD", True))
+        and is_setup
+        and best_damage_move is not None
+        and best_damage_move.id != move_id
+        and boosted_offense_pressure(opponent) >= float(getattr(self, "BOOSTED_FOE_SETUP_RACE_MIN_PRESSURE", 2.0))
+        and reply_score >= float(getattr(self, "BOOSTED_FOE_SETUP_RACE_MIN_REPLY", 70.0))
+    ):
+        mem["setup_race_last"] = {
+            "reason": "reject_setup_into_boosted_foe",
+            "choice": choice,
+            "replacement": best_damage_move.id,
+            "reply_score": float(reply_score),
+            "boosted_pressure": float(boosted_offense_pressure(opponent)),
+        }
+        return best_damage_move.id
 
     if (
         is_setup

@@ -47,6 +47,11 @@ from evaluation.ladder_metrics import (
 
 
 def prompt_account_credentials() -> tuple[str, str]:
+    env_username = os.getenv("ORANGURU_SHOWDOWN_USERNAME", "").strip()
+    env_password = os.getenv("ORANGURU_SHOWDOWN_PASSWORD", "").strip()
+    if env_username and env_password:
+        return env_username, env_password
+
     username = input("Showdown username: ").strip()
     password = getpass.getpass("Showdown password: ").strip()
     if not username or not password:

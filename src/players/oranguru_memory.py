@@ -298,6 +298,87 @@ def update_damage_observation(self, battle: Battle) -> None:
         mem["damage_observations"][species] = mem["damage_observations"][species][-8:]
 
 
+def opponent_behavior_scalar(self, battle: Battle) -> float:
+    mem = self._get_battle_memory(battle)
+    try:
+        return max(0.0, min(1.0, float(mem.get("opp_behavior_scalar", 0.5) or 0.5)))
+    except Exception:
+        return 0.5
+
+
+def update_opponent_behavior(self, battle: Battle) -> None:
+    """Track recent opponent style: 1.0 = attack-heavy, 0.0 = passive/switch-heavy."""
+    if not bool(getattr(self, "OPP_BEHAVIOR_MODEL", True)):
+        return
+    if battle is None:
+        return
+    mem = self._get_battle_memory(battle)
+    last_turn = int(getattr(battle, "turn", 0) or 0) - 1
+    if last_turn < 1 or last_turn <= int(mem.get("opp_behavior_last_turn", -1) or -1):
+        return
+
+    observations = getattr(battle, "observations", {}) or {}
+    obs = observations.get(last_turn)
+    role = getattr(battle, "player_role", None)
+    if obs is None or not role:
+        return
+
+    opp_prefix = "p2" if role == "p1" else "p1"
+    opp_move_id = ""
+    opp_species = ""
+    saw_opp_switch = False
+    for event in getattr(obs, "events", []) or []:
+        if len(event) < 3:
+            continue
+        kind = event[1]
+        who = event[2]
+        if not isinstance(who, str) or not who.startswith(opp_prefix):
+            continue
+        if kind in {"switch", "drag", "replace"}:
+            saw_opp_switch = True
+            if not opp_species:
+                opp_species = self._species_from_event(battle, event) or ""
+            continue
+        if kind == "move" and len(event) >= 4 and not opp_move_id:
+            opp_move_id = normalize_name(event[3])
+            opp_species = self._species_from_event(battle, event) or opp_species
+
+    if not opp_move_id and not saw_opp_switch:
+        return
+
+    current = opponent_behavior_scalar(self, battle)
+    damage_step = float(getattr(self, "OPP_BEHAVIOR_DAMAGE_STEP", 0.15))
+    status_step = float(getattr(self, "OPP_BEHAVIOR_STATUS_STEP", 0.07))
+    switch_step = float(getattr(self, "OPP_BEHAVIOR_SWITCH_STEP", 0.10))
+    alpha = max(0.0, min(1.0, float(getattr(self, "OPP_BEHAVIOR_ALPHA", 0.25))))
+
+    kind = "switch"
+    target = max(0.0, current - switch_step)
+    if opp_move_id:
+        entry = self._get_move_entry_by_id(opp_move_id)
+        category = str(entry.get("category", "") or "").lower()
+        if category in {"physical", "special"}:
+            kind = "damage_pivot" if saw_opp_switch else "damage"
+            target = min(1.0, current + (damage_step * (0.5 if saw_opp_switch else 1.0)))
+        else:
+            kind = "status_pivot" if saw_opp_switch else "status"
+            target = max(0.0, current - (switch_step if saw_opp_switch else status_step))
+
+    updated = current + alpha * (target - current)
+    mem["opp_behavior_scalar"] = max(0.0, min(1.0, updated))
+    mem["opp_behavior_last_turn"] = last_turn
+    mem["opp_behavior_last"] = {
+        "turn": int(last_turn),
+        "species": normalize_name(opp_species),
+        "move_id": opp_move_id,
+        "kind": kind,
+        "saw_switch": bool(saw_opp_switch),
+        "previous": float(current),
+        "target": float(target),
+        "updated": float(mem["opp_behavior_scalar"]),
+    }
+
+
 def parse_hp_fraction(hp_str: str) -> Optional[float]:
     if not hp_str:
         return None
