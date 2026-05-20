@@ -46,9 +46,13 @@ class DummyPokemon:
         effects=None,
         data=None,
         species="dummy",
+        level=None,
+        base_stats=None,
+        item=None,
     ):
         self.species = species
         self.stats = stats or {}
+        self.base_stats = base_stats or {}
         self.boosts = boosts or {}
         self.status = status
         self.current_hp_fraction = current_hp_fraction
@@ -60,6 +64,8 @@ class DummyPokemon:
         self.effects = effects or {}
         self._data = data
         self.moves = {}
+        self.level = level
+        self.item = item
 
     def damage_multiplier(self, move_type):
         if move_type is None:
@@ -136,7 +142,7 @@ class SwitchChurnHeuristicTests(unittest.TestCase):
 
 class RuleBotHeuristicTests(unittest.TestCase):
     def setUp(self):
-        self.bot = RuleBotPlayer(start_listening=False)
+        self.bot = RuleBotPlayer.__new__(RuleBotPlayer)
         self.bot.STATUS_KO_GUARD = True
         self.bot.STATUS_KO_THRESHOLD = 200.0
 
@@ -338,6 +344,74 @@ class RuleBotHeuristicTests(unittest.TestCase):
         tera_score = self.bot._calculate_move_score(pyro_ball, active, tera_water_boosted, None)
 
         self.assertLess(tera_score, normal_score * 0.25)
+
+    def test_variable_base_power_scores_grass_knot(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            species="delphox",
+            stats={"hp": 260, "atk": 140, "def": 150, "spa": 260, "spd": 220, "spe": 260},
+            type_1=PokemonType.GRASS,
+            tera_type=PokemonType.GRASS,
+            is_terastallized=True,
+            current_hp_fraction=0.5,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            species="basculinbluestriped",
+            level=84,
+            current_hp_fraction=0.3,
+            type_1=PokemonType.WATER,
+            data=data,
+        )
+        grass_knot = DummyMove(
+            "grassknot",
+            move_type=PokemonType.GRASS,
+            category=MoveCategory.SPECIAL,
+            base_power=0,
+        )
+
+        score = self.bot._calculate_move_score(grass_knot, active, opponent, SimpleNamespace())
+
+        self.assertGreater(score, 150.0)
+
+    def test_switch_out_blocked_when_faster_ko_available(self):
+        data = GenData.from_gen(9)
+        active = DummyPokemon(
+            species="delphox",
+            stats={"hp": 260, "atk": 140, "def": 150, "spa": 260, "spd": 220, "spe": 260},
+            type_1=PokemonType.GRASS,
+            tera_type=PokemonType.GRASS,
+            is_terastallized=True,
+            current_hp_fraction=0.48,
+            data=data,
+        )
+        opponent = DummyPokemon(
+            species="basculinbluestriped",
+            level=84,
+            current_hp_fraction=0.25,
+            type_1=PokemonType.WATER,
+            data=data,
+        )
+        grass_knot = DummyMove(
+            "grassknot",
+            move_type=PokemonType.GRASS,
+            category=MoveCategory.SPECIAL,
+            base_power=0,
+        )
+        battle = SimpleNamespace(
+            battle_tag="outspeed-ko",
+            available_moves=[grass_knot],
+            available_switches=[DummyPokemon(species="goodra", current_hp_fraction=1.0, data=data)],
+            active_pokemon=active,
+            opponent_active_pokemon=opponent,
+            fields={},
+            force_switch=False,
+        )
+        self.bot._estimate_matchup = lambda *_: -2.0
+        self.bot._estimate_best_reply_score = lambda *_: 500.0
+        self.bot._score_switch = lambda *_: 10.0
+
+        self.assertFalse(self.bot._should_switch_out(battle))
 
     def test_canonicalize_move_id_handles_prefix(self):
         self.assertEqual(self.bot._canonicalize_move_id("Move: Thunder Wave"), "thunderwave")

@@ -177,6 +177,8 @@ class RuleBotPlayer(Player):
     SWITCH_HAZARD_MULT = float(os.getenv("ORANGURU_SWITCH_HAZARD_MULT", "1.35"))
     SWITCH_STREAK_PENALTY = float(os.getenv("ORANGURU_SWITCH_STREAK_PENALTY", "0.18"))
     SWITCH_LOW_GAIN_PENALTY = float(os.getenv("ORANGURU_SWITCH_LOW_GAIN_PENALTY", "1.25"))
+    OUTSPEED_KO_SWITCH_GUARD = bool(int(os.getenv("ORANGURU_OUTSPEED_KO_SWITCH_GUARD", "1")))
+    OUTSPEED_KO_SWITCH_FACTOR = float(os.getenv("ORANGURU_OUTSPEED_KO_SWITCH_FACTOR", "0.95"))
     SWITCH_CHURN_MIN_STREAK = int(os.getenv("ORANGURU_SWITCH_CHURN_MIN_STREAK", "1"))
     SWITCH_CHURN_MIN_DAMAGE = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_DAMAGE", "40.0"))
     SWITCH_CHURN_MIN_HAZARD_HP = float(os.getenv("ORANGURU_SWITCH_CHURN_MIN_HAZARD_HP", "0.08"))
@@ -214,7 +216,8 @@ class RuleBotPlayer(Player):
     def _get_battle_memory(self, battle: Battle) -> dict:
         if not hasattr(self, "_battle_memory"):
             self._battle_memory = {}
-        mem = self._battle_memory.setdefault(battle.battle_tag, {})
+        tag = getattr(battle, "battle_tag", "default")
+        mem = self._battle_memory.setdefault(tag, {})
         mem.setdefault("last_protect_turn", -99)
         mem.setdefault("last_future_sight_turn", -99)
         mem.setdefault("opponent_hp", {})
@@ -293,6 +296,183 @@ class RuleBotPlayer(Player):
         except Exception:
             return {}
         return {}
+
+    def _pokedex_entry(self, mon: Pokemon) -> dict:
+        if mon is None:
+            return {}
+        dex = self._load_pokedex()
+        species = normalize_name(getattr(mon, "species", ""))
+        candidates = [species]
+        try:
+            base_species = getattr(mon, "base_species", None) or getattr(mon, "baseSpecies", None)
+            if base_species:
+                candidates.append(normalize_name(str(base_species)))
+        except Exception:
+            pass
+        for key in candidates:
+            entry = dex.get(key)
+            if isinstance(entry, dict):
+                return entry
+        return {}
+
+    def _randbattle_level_estimate(self, mon: Pokemon) -> int:
+        if mon is None:
+            return 80
+        level = getattr(mon, "level", None)
+        try:
+            if level:
+                return int(level)
+        except Exception:
+            pass
+
+        species = normalize_name(getattr(mon, "species", ""))
+        sets = self._load_randombattle_sets().get(species, {})
+        counts: Dict[int, int] = {}
+        if isinstance(sets, dict):
+            for key, count in sets.items():
+                parsed = self._parse_randombattle_set_key(key)
+                if not parsed:
+                    continue
+                try:
+                    lvl = int(parsed.get("level") or 80)
+                    counts[lvl] = counts.get(lvl, 0) + int(count or 0)
+                except Exception:
+                    continue
+        if counts:
+            return max(counts.items(), key=lambda item: item[1])[0]
+        return 80
+
+    def _randbattle_neutral_stat(self, mon: Pokemon, stat: str) -> Optional[float]:
+        entry = self._pokedex_entry(mon)
+        base_stats = entry.get("baseStats") if isinstance(entry, dict) else None
+        if not isinstance(base_stats, dict):
+            base_stats = getattr(mon, "base_stats", None) or {}
+        aliases = {
+            "atk": ("atk", "attack"),
+            "def": ("def", "defense"),
+            "spa": ("spa", "special-attack", "special_attack"),
+            "spd": ("spd", "special-defense", "special_defense"),
+            "spe": ("spe", "speed"),
+            "hp": ("hp",),
+        }
+        base = None
+        for key in aliases.get(stat, (stat,)):
+            if key in base_stats:
+                base = base_stats[key]
+                break
+        if base is None:
+            return None
+        try:
+            base = float(base)
+            level = float(self._randbattle_level_estimate(mon))
+        except Exception:
+            return None
+        ev = 85.0
+        iv = 31.0
+        if stat == "hp":
+            return int(((2 * base + iv + ev // 4) * level) / 100 + level + 10)
+        return int(((2 * base + iv + ev // 4) * level) / 100 + 5)
+
+    def _pokemon_weight_kg(self, mon: Pokemon) -> float:
+        if mon is None:
+            return 0.0
+        for attr in ("weightkg", "weight_kg", "weight"):
+            value = getattr(mon, attr, None)
+            try:
+                if value:
+                    return float(value)
+            except Exception:
+                continue
+        entry = self._pokedex_entry(mon)
+        try:
+            return float(entry.get("weightkg") or 0.0)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _weight_based_power(weight_kg: float) -> int:
+        if weight_kg >= 200:
+            return 120
+        if weight_kg >= 100:
+            return 100
+        if weight_kg >= 50:
+            return 80
+        if weight_kg >= 25:
+            return 60
+        if weight_kg >= 10:
+            return 40
+        return 20
+
+    @staticmethod
+    def _weight_ratio_power(attacker_weight: float, defender_weight: float) -> int:
+        if attacker_weight <= 0 or defender_weight <= 0:
+            return 40
+        ratio = attacker_weight / defender_weight
+        if ratio >= 5:
+            return 120
+        if ratio >= 4:
+            return 100
+        if ratio >= 3:
+            return 80
+        if ratio >= 2:
+            return 60
+        return 40
+
+    def _dynamic_base_power(self, move_id: str, base_power: float, attacker: Pokemon, defender: Pokemon) -> float:
+        move_id = normalize_name(move_id)
+        try:
+            base_power = float(base_power or 0.0)
+        except Exception:
+            base_power = 0.0
+
+        if move_id in {"grassknot", "lowkick"}:
+            return float(self._weight_based_power(self._pokemon_weight_kg(defender)))
+        if move_id in {"heavyslam", "heatcrash"}:
+            return float(self._weight_ratio_power(self._pokemon_weight_kg(attacker), self._pokemon_weight_kg(defender)))
+        if move_id == "gyroball":
+            my_speed = max(1, self._get_effective_speed(attacker))
+            opp_speed = max(1, self._get_effective_speed(defender))
+            return float(max(1, min(150, int(25 * opp_speed / my_speed) + 1)))
+        if move_id == "electroball":
+            my_speed = max(1, self._get_effective_speed(attacker))
+            opp_speed = max(1, self._get_effective_speed(defender))
+            ratio = my_speed / opp_speed
+            if ratio >= 4:
+                return 150.0
+            if ratio >= 3:
+                return 120.0
+            if ratio >= 2:
+                return 80.0
+            if ratio >= 1:
+                return 60.0
+            return 40.0
+        if move_id in {"storedpower", "powertrip"}:
+            boosts = getattr(attacker, "boosts", None) or {}
+            positive = 0
+            if isinstance(boosts, dict):
+                positive = sum(max(0, int(v or 0)) for v in boosts.values())
+            return float(20 + 20 * positive)
+        if move_id == "acrobatics":
+            item = self._canon_id(getattr(attacker, "item", None))
+            return 110.0 if not item else max(base_power, 55.0)
+        if move_id == "facade":
+            status_id = self._pokemon_status_id(attacker)
+            if status_id in {"brn", "psn", "tox", "par"}:
+                return 140.0
+
+        return base_power
+
+    def _move_base_power(self, move: Move, attacker: Pokemon, defender: Pokemon) -> float:
+        if move is None:
+            return 0.0
+        base_power = getattr(move, "base_power", 0) or 0
+        return self._dynamic_base_power(getattr(move, "id", ""), base_power, attacker, defender)
+
+    def _entry_base_power(self, entry: dict, attacker: Pokemon, defender: Pokemon) -> float:
+        if not entry:
+            return 0.0
+        move_id = entry.get("id") or entry.get("name") or ""
+        return self._dynamic_base_power(move_id, entry.get("basePower") or 0, attacker, defender)
 
     def _parse_randombattle_set_key(self, key: str) -> dict:
         parts = [normalize_name(p) for p in key.split(",")]
@@ -2310,7 +2490,7 @@ class RuleBotPlayer(Player):
         category = str(entry.get("category", "")).lower()
         if category == "status":
             return 0.0
-        base_power = entry.get("basePower") or 0
+        base_power = self._entry_base_power(entry, attacker, defender)
         if base_power <= 0:
             return 0.0
         if category == "physical":
@@ -2421,11 +2601,19 @@ class RuleBotPlayer(Player):
 
     def _estimate_best_damage_score(self, active: Pokemon, opponent: Pokemon, battle: Battle) -> float:
         """Estimate our best damaging move score."""
+        _, best_score = self._best_damage_move_and_score(active, opponent, battle)
+        return best_score
+
+    def _best_damage_move_and_score(
+        self, active: Pokemon, opponent: Pokemon, battle: Battle
+    ) -> Tuple[Optional[Move], float]:
+        """Return the best available damaging move and its damage score."""
         if not active or not opponent:
-            return 0.0
+            return None, 0.0
         available_moves = getattr(battle, "available_moves", None) if battle else None
         if not available_moves:
-            return 0.0
+            return None, 0.0
+        best_move = None
         best_score = 0.0
         for move in available_moves:
             try:
@@ -2436,7 +2624,32 @@ class RuleBotPlayer(Player):
             score = self._calculate_move_score(move, active, opponent, battle)
             if score > best_score:
                 best_score = score
-        return best_score
+                best_move = move
+        return best_move, best_score
+
+    def _move_likely_before_opponent(self, move: Move, active: Pokemon, opponent: Pokemon, battle: Battle) -> bool:
+        if move is None or active is None or opponent is None:
+            return False
+        priority = self._move_priority_value(move)
+        if priority > 0:
+            return True
+        if priority < 0:
+            return False
+        my_speed = self._get_effective_speed(active)
+        opp_speed = self._get_effective_speed(opponent)
+        if self._is_trick_room_active(battle):
+            return my_speed < opp_speed
+        return my_speed > opp_speed
+
+    def _has_outspeed_ko_available(self, battle: Battle, active: Pokemon, opponent: Pokemon) -> bool:
+        if not bool(getattr(self, "OUTSPEED_KO_SWITCH_GUARD", True)):
+            return False
+        if not battle or not active or not opponent:
+            return False
+        move, damage_score = self._best_damage_move_and_score(active, opponent, battle)
+        opp_hp = opponent.current_hp_fraction if opponent.current_hp_fraction is not None else 1.0
+        threshold = 220.0 * max(opp_hp, 0.01) * float(getattr(self, "OUTSPEED_KO_SWITCH_FACTOR", 0.95))
+        return damage_score >= threshold and self._move_likely_before_opponent(move, active, opponent, battle)
 
     def _opponent_known_move_ids(self, opponent: Pokemon) -> set:
         """Return a set of known move ids for opponent."""
@@ -2713,10 +2926,16 @@ class RuleBotPlayer(Player):
         base_stats = getattr(mon, "base_stats", None) or {}
         if stats and stats.get('spe'):
             base_speed = stats['spe']
+        elif self._randbattle_neutral_stat(mon, "spe") is not None:
+            base_speed = self._randbattle_neutral_stat(mon, "spe")
         elif base_stats and base_stats.get('spe'):
             base_speed = base_stats['spe']
         else:
             base_speed = 100
+        try:
+            base_speed = float(base_speed)
+        except Exception:
+            base_speed = 100.0
 
         # Apply boosts
         if mon.boosts:
@@ -2734,7 +2953,7 @@ class RuleBotPlayer(Player):
         if status_id in {"par", "paralysis"}:
             base_speed = base_speed // 2
 
-        return base_speed
+        return int(base_speed)
 
     def _is_trick_room_active(self, battle: Optional[Battle] = None) -> bool:
         if battle is None:
@@ -2970,13 +3189,19 @@ class RuleBotPlayer(Player):
         if mon is None:
             return 100.0
 
-        # Get base stat
+        # Get an actual battle stat when Showdown exposes it. Opponent stats are
+        # usually hidden, so fall back to randbats level + pokedex stats rather
+        # than raw base stats; raw base stats badly distort damage estimates.
         if mon.stats and stat in mon.stats and mon.stats[stat]:
             base = mon.stats[stat]
-        elif mon.base_stats and stat in mon.base_stats:
-            base = mon.base_stats[stat]
         else:
-            base = 100
+            estimated = self._randbattle_neutral_stat(mon, stat)
+            if estimated is not None:
+                base = estimated
+            elif mon.base_stats and stat in mon.base_stats:
+                base = mon.base_stats[stat]
+            else:
+                base = 100
         try:
             base = float(base)
         except Exception:
@@ -3025,6 +3250,13 @@ class RuleBotPlayer(Player):
         # Check if there's a better switch option
         if not battle.available_switches:
             return False
+
+        # Do not let matchup/switch heuristics override a clean faster KO.
+        # This catches cases like Delphox vs low-HP Basculin where a variable-BP
+        # move (Grass Knot) wins immediately but the switch model wants a pivot.
+        if self._has_outspeed_ko_available(battle, active, opponent):
+            return False
+
         current_matchup = self._estimate_matchup(active, opponent)
         current_reply = self._estimate_best_reply_score(opponent, active, battle)
         active_hp = active.current_hp_fraction if active.current_hp_fraction is not None else 0.5
@@ -3238,8 +3470,8 @@ class RuleBotPlayer(Player):
         if move_category == MoveCategory.STATUS:
             return 0.0
 
-        base_power = move.base_power or 0
-        if base_power == 0:
+        base_power = self._move_base_power(move, active, opponent)
+        if base_power <= 0:
             return 0.0
 
         if respect_immunity_memory and battle and opponent:
