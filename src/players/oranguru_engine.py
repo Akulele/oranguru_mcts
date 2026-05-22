@@ -367,6 +367,11 @@ class OranguruEnginePlayer(RuleBotPlayer):
     CRITICAL_RECOVERY_MIN_POLICY_RATIO = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MIN_POLICY_RATIO", "0.40"))
     CRITICAL_RECOVERY_MAX_SCORE_DROP = float(os.getenv("ORANGURU_CRITICAL_RECOVERY_MAX_SCORE_DROP", "0.12"))
     CRITICAL_RECOVERY_ALLOW_REST = bool(int(os.getenv("ORANGURU_CRITICAL_RECOVERY_ALLOW_REST", "0")))
+    LOW_HP_DEFENSIVE_TOP_GUARD = bool(int(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TOP_GUARD", "1")))
+    LOW_HP_DEFENSIVE_TOP_MAX_HP = float(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TOP_MAX_HP", "0.40"))
+    LOW_HP_DEFENSIVE_TOP_MIN_MARGIN = float(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TOP_MIN_MARGIN", "0.08"))
+    LOW_HP_DEFENSIVE_TOP_MIN_RATIO = float(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TOP_MIN_RATIO", "1.25"))
+    LOW_HP_DEFENSIVE_TOP_KO_FACTOR = float(os.getenv("ORANGURU_LOW_HP_DEFENSIVE_TOP_KO_FACTOR", "1.05"))
     SWITCH_GUARD_MIN_ACTIVE_HP = float(os.getenv("ORANGURU_SWITCH_GUARD_MIN_ACTIVE_HP", "0.45"))
     SWITCH_GUARD_POLICY_RATIO = float(os.getenv("ORANGURU_SWITCH_GUARD_POLICY_RATIO", "0.70"))
     SWITCH_GUARD_HEUR_GAIN = float(os.getenv("ORANGURU_SWITCH_GUARD_HEUR_GAIN", "1.0"))
@@ -1246,6 +1251,7 @@ class OranguruEnginePlayer(RuleBotPlayer):
     _maybe_take_setup_window_choice = oranguru_decision.maybe_take_setup_window_choice
     _maybe_take_safe_recovery_choice = oranguru_decision.maybe_take_safe_recovery_choice
     _maybe_take_critical_recovery_choice = oranguru_decision.maybe_take_critical_recovery_choice
+    _maybe_preserve_low_hp_defensive_top_choice = oranguru_decision.maybe_preserve_low_hp_defensive_top_choice
     _maybe_take_progress_when_behind_choice = oranguru_decision.maybe_take_progress_when_behind_choice
     _maybe_reduce_negative_matchup_switch = oranguru_decision.maybe_reduce_negative_matchup_switch
     _maybe_commit_late_game_attack_choice = oranguru_decision.maybe_commit_late_game_attack_choice

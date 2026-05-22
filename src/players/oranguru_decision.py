@@ -1911,6 +1911,129 @@ def maybe_take_critical_recovery_choice(
     return best_recovery_choice
 
 
+def maybe_preserve_low_hp_defensive_top_choice(
+    self,
+    battle: Battle,
+    ordered: List[Tuple[str, float]],
+    chosen_choice: str,
+) -> str:
+    def _record(reason: str, **extra) -> None:
+        try:
+            mem = self._get_battle_memory(battle)
+        except Exception:
+            return
+        if not isinstance(mem, dict):
+            return
+        payload = {
+            "reason": reason,
+            "chosen_choice": str(chosen_choice or ""),
+        }
+        payload.update(extra)
+        mem["low_hp_defensive_top_last"] = payload
+
+    if not bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", True)):
+        return chosen_choice
+    if not chosen_choice or not ordered or getattr(battle, "force_switch", False):
+        _record("empty_or_forced")
+        return chosen_choice
+
+    active = battle.active_pokemon
+    opponent = battle.opponent_active_pokemon
+    if active is None or opponent is None:
+        _record("missing_active")
+        return chosen_choice
+
+    active_hp = active.current_hp_fraction or 0.0
+    max_hp = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_MAX_HP", 0.40))
+    if active_hp > max_hp:
+        _record("high_hp", active_hp=float(active_hp), max_hp=float(max_hp))
+        return chosen_choice
+
+    top_choice, top_weight = ordered[0]
+    if top_choice == chosen_choice:
+        _record("already_top", top_choice=top_choice, active_hp=float(active_hp))
+        return chosen_choice
+
+    if not self._is_damaging_move_choice(battle, chosen_choice):
+        _record("chosen_not_damage", top_choice=top_choice, active_hp=float(active_hp))
+        return chosen_choice
+
+    top_kind = ""
+    if top_choice.startswith("switch "):
+        switch_name = normalize_name(top_choice.split("switch ", 1)[1])
+        for sw in battle.available_switches or []:
+            if normalize_name(getattr(sw, "species", "")) != switch_name:
+                continue
+            if self._switch_faints_to_entry_hazards(battle, sw):
+                _record("top_switch_hazard_faint", top_choice=top_choice, active_hp=float(active_hp))
+                return chosen_choice
+            top_kind = "switch"
+            break
+    else:
+        move = _choice_move(battle, top_choice)
+        if move is not None:
+            if normalize_name(getattr(move, "id", "")) in self.PROTECT_MOVES:
+                top_kind = "protect"
+            elif self._is_recovery_move(move):
+                top_kind = "recovery"
+    if top_kind not in {"switch", "protect", "recovery"}:
+        _record("top_not_defensive", top_choice=top_choice, active_hp=float(active_hp))
+        return chosen_choice
+
+    weights = {choice: float(weight or 0.0) for choice, weight in ordered}
+    top_weight = float(top_weight or 0.0)
+    chosen_weight = weights.get(chosen_choice, 0.0)
+    margin = top_weight - chosen_weight
+    min_margin = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_MIN_MARGIN", 0.08))
+    min_ratio = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_MIN_RATIO", 1.25))
+    enough_policy = margin >= min_margin or top_weight >= max(chosen_weight * min_ratio, chosen_weight + 1e-6)
+    if not enough_policy:
+        _record(
+            "policy_gap_small",
+            top_choice=top_choice,
+            top_kind=top_kind,
+            active_hp=float(active_hp),
+            top_weight=float(top_weight),
+            chosen_weight=float(chosen_weight),
+            margin=float(margin),
+            min_margin=float(min_margin),
+            min_ratio=float(min_ratio),
+        )
+        return chosen_choice
+
+    move = _choice_move(battle, chosen_choice)
+    damage_score = _move_damage_score(self, battle, active, opponent, move) if move is not None else 0.0
+    opp_hp = opponent.current_hp_fraction or 0.0
+    ko_threshold = self.TACTICAL_KO_THRESHOLD * max(opp_hp, 0.05) * float(
+        getattr(self, "LOW_HP_DEFENSIVE_TOP_KO_FACTOR", 1.05)
+    )
+    if damage_score >= ko_threshold:
+        _record(
+            "damage_ko_guard",
+            top_choice=top_choice,
+            top_kind=top_kind,
+            active_hp=float(active_hp),
+            opp_hp=float(opp_hp),
+            damage_score=float(damage_score),
+            ko_threshold=float(ko_threshold),
+        )
+        return chosen_choice
+
+    _record(
+        "take_low_hp_defensive_top",
+        top_choice=top_choice,
+        top_kind=top_kind,
+        active_hp=float(active_hp),
+        opp_hp=float(opp_hp),
+        top_weight=float(top_weight),
+        chosen_weight=float(chosen_weight),
+        margin=float(margin),
+        damage_score=float(damage_score),
+        ko_threshold=float(ko_threshold),
+    )
+    return top_choice
+
+
 def _choice_move(battle: Battle, choice: str):
     move_id = normalize_name(str(choice or "").replace("-tera", ""))
     if not move_id:
@@ -2626,6 +2749,15 @@ def select_move_from_results(
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "late_attack"
+        if chosen_choice and bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", True)):
+            adjusted_choice = self._maybe_preserve_low_hp_defensive_top_choice(
+                battle,
+                ordered,
+                chosen_choice,
+            )
+            if adjusted_choice != chosen_choice:
+                chosen_choice = adjusted_choice
+                path = "defensive_top"
         if chosen_choice:
             _record_shadow_windows(chosen_choice)
             self._diag_record_choice(
