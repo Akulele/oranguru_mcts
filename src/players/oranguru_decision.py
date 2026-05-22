@@ -1976,7 +1976,17 @@ def maybe_preserve_low_hp_defensive_top_choice(
                 top_kind = "protect"
             elif self._is_recovery_move(move):
                 top_kind = "recovery"
-    if top_kind not in {"switch", "protect", "recovery"}:
+            elif bool(getattr(self, "LOW_HP_CONTROL_TOP_GUARD", True)):
+                move_id = normalize_name(getattr(move, "id", ""))
+                status_type = self._status_type_for_move_id(move_id)
+                if status_type in {"yawn", "para", "burn", "sleep", "poison"} and not self._status_choice_is_obviously_bad(
+                    battle,
+                    move,
+                    active,
+                    opponent,
+                ):
+                    top_kind = "control_status"
+    if top_kind not in {"switch", "protect", "recovery", "control_status"}:
         _record("top_not_defensive", top_choice=top_choice, active_hp=float(active_hp))
         return chosen_choice
 
@@ -1986,7 +1996,23 @@ def maybe_preserve_low_hp_defensive_top_choice(
     margin = top_weight - chosen_weight
     min_margin = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_MIN_MARGIN", 0.08))
     min_ratio = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_MIN_RATIO", 1.25))
+    critical_hp = float(getattr(self, "LOW_HP_DEFENSIVE_TOP_CRITICAL_HP", 0.12))
+    if top_kind == "control_status":
+        control_max_hp = float(getattr(self, "LOW_HP_CONTROL_TOP_MAX_HP", 0.12))
+        if active_hp > control_max_hp:
+            _record(
+                "control_high_hp",
+                top_choice=top_choice,
+                top_kind=top_kind,
+                active_hp=float(active_hp),
+                max_hp=float(control_max_hp),
+            )
+            return chosen_choice
+        min_margin = float(getattr(self, "LOW_HP_CONTROL_TOP_MIN_MARGIN", 0.05))
+        min_ratio = float(getattr(self, "LOW_HP_CONTROL_TOP_MIN_RATIO", 1.20))
     enough_policy = margin >= min_margin or top_weight >= max(chosen_weight * min_ratio, chosen_weight + 1e-6)
+    if active_hp <= critical_hp and top_kind in {"recovery", "protect"} and top_weight >= chosen_weight:
+        enough_policy = True
     if not enough_policy:
         _record(
             "policy_gap_small",
@@ -1998,6 +2024,7 @@ def maybe_preserve_low_hp_defensive_top_choice(
             margin=float(margin),
             min_margin=float(min_margin),
             min_ratio=float(min_ratio),
+            critical_hp=float(critical_hp),
         )
         return chosen_choice
 
