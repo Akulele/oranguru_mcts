@@ -14,6 +14,17 @@ from poke_env.battle import Battle, MoveCategory
 from src.players.rule_bot import RuleBotPlayer
 from src.utils.damage_calc import normalize_name
 
+_PIVOT_MOVES = {
+    "batonpass",
+    "chillyreception",
+    "flipturn",
+    "partingshot",
+    "shedtail",
+    "teleport",
+    "uturn",
+    "voltswitch",
+}
+
 FP_ROOT = Path(__file__).resolve().parents[2] / "third_party" / "foul-play"
 if str(FP_ROOT) not in sys.path:
     sys.path.insert(0, str(FP_ROOT))
@@ -41,6 +52,18 @@ def record_last_action(self, battle: Battle, order) -> None:
         mem["last_opponent_species"] = opponent_species
     if hasattr(order_obj, "category"):
         move_id = normalize_name(getattr(order_obj, "id", "") or "")
+        same_opponent = bool(prev_opponent_species and prev_opponent_species == opponent_species)
+        if move_id in _PIVOT_MOVES:
+            if (
+                prev_action == "move"
+                and prev_turn == int(getattr(battle, "turn", 0) or 0) - 1
+                and same_opponent
+            ):
+                mem["pivot_move_streak"] = int(mem.get("pivot_move_streak", 0) or 0) + 1
+            else:
+                mem["pivot_move_streak"] = 1
+        else:
+            mem["pivot_move_streak"] = 0
         same_matchup_repeat = bool(
             prev_action == "move"
             and prev_turn == int(getattr(battle, "turn", 0) or 0) - 1
@@ -54,6 +77,7 @@ def record_last_action(self, battle: Battle, order) -> None:
             mem["same_move_repeat_streak"] = 1
     else:
         mem["same_move_repeat_streak"] = 0
+        mem["pivot_move_streak"] = 0
     passive_kind = self._passive_choice_kind(order_obj)
     if passive_kind:
         mem["pending_passive_action"] = {

@@ -467,6 +467,18 @@ def append_search_trace_example(
     rerank_gate = mem.get("rerank_gate_last") if isinstance(mem, dict) else None
     if not isinstance(rerank_gate, dict):
         rerank_gate = None
+    tera_sanity = mem.get("tera_sanity_last") if isinstance(mem, dict) else None
+    if not isinstance(tera_sanity, dict):
+        tera_sanity = None
+    rapid_spin_guard = mem.get("rapid_spin_guard_last") if isinstance(mem, dict) else None
+    if not isinstance(rapid_spin_guard, dict):
+        rapid_spin_guard = None
+    pivot_churn_guard = mem.get("pivot_churn_guard_last") if isinstance(mem, dict) else None
+    if not isinstance(pivot_churn_guard, dict):
+        pivot_churn_guard = None
+    low_hp_defensive_top = mem.get("low_hp_defensive_top_last") if isinstance(mem, dict) else None
+    if not isinstance(low_hp_defensive_top, dict):
+        low_hp_defensive_top = None
     fp_oracle_battle = None
     if self.SEARCH_TRACE_INCLUDE_FP_ORACLE:
         try:
@@ -516,6 +528,10 @@ def append_search_trace_example(
             "progress_window": progress_window,
             "passive_breaker": passive_breaker,
             "rerank_gate": rerank_gate,
+            "tera_sanity": tera_sanity,
+            "rapid_spin_guard": rapid_spin_guard,
+            "pivot_churn_guard": pivot_churn_guard,
+            "low_hp_defensive_top": low_hp_defensive_top,
             "fp_oracle_battle": fp_oracle_battle,
         }
     )

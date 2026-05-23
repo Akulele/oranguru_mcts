@@ -13,6 +13,17 @@ from poke_env.battle import Battle, MoveCategory, Pokemon, SideCondition
 
 from src.utils.damage_calc import get_type_effectiveness, normalize_name
 
+_PIVOT_MOVES = {
+    "batonpass",
+    "chillyreception",
+    "flipturn",
+    "partingshot",
+    "shedtail",
+    "teleport",
+    "uturn",
+    "voltswitch",
+}
+
 
 def switch_faints_to_entry_hazards(self, battle: Battle, mon: Pokemon) -> bool:
     if battle is None or mon is None:
@@ -114,6 +125,35 @@ def passive_choice_kind(self, move) -> str:
     except Exception:
         return ""
     return ""
+
+
+def _best_non_pivot_damage_move(self, battle: Battle, active: Pokemon, opponent: Pokemon, blocked_move_id: str):
+    best_move = None
+    best_score = 0.0
+    for move in getattr(battle, "available_moves", None) or []:
+        move_id = normalize_name(getattr(move, "id", "") or "")
+        if not move_id or move_id == blocked_move_id or move_id in _PIVOT_MOVES:
+            continue
+        try:
+            if move.category == MoveCategory.STATUS:
+                continue
+        except Exception:
+            continue
+        try:
+            score = float(self._calculate_move_score(move, active, opponent, battle, apply_recoil=False) or 0.0)
+        except TypeError:
+            try:
+                score = float(self._calculate_move_score(move, active, opponent, battle) or 0.0)
+            except Exception:
+                score = 0.0
+        except Exception:
+            score = 0.0
+        if move_id == "knockoff" and getattr(opponent, "item", None):
+            score += 12.0
+        if best_move is None or score > best_score:
+            best_move = move
+            best_score = score
+    return best_move, best_score
 
 
 def progress_need_score(
@@ -414,6 +454,30 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
 
     if (
         tera_suffix
+        and bool(getattr(self, "NONBENEFICIAL_ATTACK_TERA_GUARD", True))
+        and not is_status
+        and not is_recovery
+        and not is_setup
+        and not is_protect
+        and not is_phaze
+    ):
+        tera_id = self._type_id(getattr(active, "tera_type", None))
+        move_type_id = self._move_type_id(selected_move)
+        has_offensive_gain = bool(tera_id and (move_type_id == tera_id or move_id == "terablast"))
+        has_defensive_gain = bool(self._tera_has_immediate_defensive_gain(battle))
+        if tera_id and not has_offensive_gain and not has_defensive_gain:
+            mem["tera_sanity_last"] = {
+                "reason": "strip_nonbeneficial_attack_tera",
+                "choice": choice,
+                "move": move_id,
+                "tera_type": tera_id,
+                "move_type": move_type_id,
+                "selected_damage_score": float(selected_damage_score),
+            }
+            return move_id
+
+    if (
+        tera_suffix
         and bool(getattr(self, "LOW_HP_DEFENSIVE_TERA_GUARD", True))
         and active_hp <= float(getattr(self, "LOW_HP_DEFENSIVE_TERA_MAX_HP", 0.35))
         and selected_damage_score < ko_threshold
@@ -449,6 +513,45 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
                 "ko_threshold": float(ko_threshold),
             }
             return alt_move.id
+
+    if move_id == "rapidspin" and bool(getattr(self, "RAPID_SPIN_VALUE_GUARD", True)):
+        hazard_pressure = float(self._side_hazard_pressure(battle) or 0.0)
+        min_reply_factor = float(getattr(self, "RAPID_SPIN_MIN_REPLY_FACTOR", 95.0))
+        min_alt_gain = float(getattr(self, "RAPID_SPIN_MIN_ALT_DAMAGE_GAIN", 8.0))
+        if (
+            hazard_pressure <= float(getattr(self, "RAPID_SPIN_MAX_HAZARD_PRESSURE", 0.01))
+            and selected_damage_score < ko_threshold
+            and reply_score >= min_reply_factor * max(active_hp, 0.05)
+        ):
+            alt_move, alt_score = _best_non_pivot_damage_move(self, battle, active, opponent, move_id)
+            if alt_move is not None and alt_score >= selected_damage_score + min_alt_gain:
+                mem["rapid_spin_guard_last"] = {
+                    "reason": "reject_low_value_speed_spin",
+                    "choice": choice,
+                    "replacement": normalize_name(getattr(alt_move, "id", "") or ""),
+                    "hazard_pressure": float(hazard_pressure),
+                    "selected_damage_score": float(selected_damage_score),
+                    "alt_damage_score": float(alt_score),
+                    "reply_score": float(reply_score),
+                }
+                return normalize_name(getattr(alt_move, "id", "") or "")
+
+    if move_id in _PIVOT_MOVES and bool(getattr(self, "PIVOT_CHURN_GUARD", True)):
+        pivot_streak = int(mem.get("pivot_move_streak", 0) or 0)
+        min_streak = max(1, int(getattr(self, "PIVOT_CHURN_MIN_STREAK", 2)))
+        min_alt_gain = float(getattr(self, "PIVOT_CHURN_MIN_ALT_DAMAGE_GAIN", 6.0))
+        if pivot_streak >= min_streak and selected_damage_score < ko_threshold:
+            alt_move, alt_score = _best_non_pivot_damage_move(self, battle, active, opponent, move_id)
+            if alt_move is not None and alt_score >= selected_damage_score + min_alt_gain:
+                mem["pivot_churn_guard_last"] = {
+                    "reason": "reject_repeated_low_value_pivot",
+                    "choice": choice,
+                    "replacement": normalize_name(getattr(alt_move, "id", "") or ""),
+                    "pivot_streak": int(pivot_streak),
+                    "selected_damage_score": float(selected_damage_score),
+                    "alt_damage_score": float(alt_score),
+                }
+                return normalize_name(getattr(alt_move, "id", "") or "")
 
     wallbreaker_switch = self._high_defense_counter_switch(battle, active, opponent, best_damage_score)
     if wallbreaker_switch is not None and not battle.force_switch:
