@@ -1931,7 +1931,7 @@ def maybe_preserve_low_hp_defensive_top_choice(
         payload.update(extra)
         mem["low_hp_defensive_top_last"] = payload
 
-    if not bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", True)):
+    if not bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", False)):
         return chosen_choice
     if not chosen_choice or not ordered or getattr(battle, "force_switch", False):
         _record("empty_or_forced")
@@ -2749,7 +2749,7 @@ def select_move_from_results(
             if adjusted_choice != chosen_choice:
                 chosen_choice = adjusted_choice
                 path = "late_attack"
-        if chosen_choice and bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", True)):
+        if chosen_choice and bool(getattr(self, "LOW_HP_DEFENSIVE_TOP_GUARD", False)):
             adjusted_choice = self._maybe_preserve_low_hp_defensive_top_choice(
                 battle,
                 ordered,
