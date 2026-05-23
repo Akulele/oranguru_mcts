@@ -33,6 +33,8 @@ prompt_secret() {
 
 prompt_secret PS_USERNAME "Pokemon Showdown username: "
 prompt_secret PS_PASSWORD "Pokemon Showdown password: "
+PS_USERNAME="$(printf '%s' "$PS_USERNAME" | tr '[:upper:]' '[:lower:]')"
+export PS_USERNAME
 
 mkdir -p logs/ladder logs/search_traces/current logs/ladder_review training_data/ladder_loss_pretrain
 printf '%s\n' "$RUNNER_LOG" > logs/ladder/latest_headless_log.txt
