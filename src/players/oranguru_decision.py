@@ -407,15 +407,16 @@ def maybe_reduce_negative_matchup_switch(
         )
         return best_move_choice
 
-    if weight_ratio >= 0.75 and move_heur >= switch_heur + 10.0:
-        _record("take_legacy_attack", **_details(min_policy_ratio=0.75, min_heur_gain=10.0))
-        return best_move_choice
-    if weight_ratio >= 0.95 and move_heur >= switch_heur - 5.0 and move_heur > 0.0:
-        _record("take_legacy_near_tie_attack", **_details(min_policy_ratio=0.95, min_heur_gain=-5.0))
-        return best_move_choice
-    if switch_risk >= 35.0 and weight_ratio >= 0.60 and move_heur >= max(0.0, switch_heur - 10.0):
-        _record("take_legacy_risk_attack", **_details(min_policy_ratio=0.60, min_switch_risk=35.0))
-        return best_move_choice
+    if bool(getattr(self, "SWITCH_GUARD_LEGACY_ATTACKS", True)):
+        if weight_ratio >= 0.75 and move_heur >= switch_heur + 10.0:
+            _record("take_legacy_attack", **_details(min_policy_ratio=0.75, min_heur_gain=10.0))
+            return best_move_choice
+        if weight_ratio >= 0.95 and move_heur >= switch_heur - 5.0 and move_heur > 0.0:
+            _record("take_legacy_near_tie_attack", **_details(min_policy_ratio=0.95, min_heur_gain=-5.0))
+            return best_move_choice
+        if switch_risk >= 35.0 and weight_ratio >= 0.60 and move_heur >= max(0.0, switch_heur - 10.0):
+            _record("take_legacy_risk_attack", **_details(min_policy_ratio=0.60, min_switch_risk=35.0))
+            return best_move_choice
     _record(
         "policy_or_heuristic",
         **_details(min_policy_ratio=policy_ratio, min_heur_gain=min_heur_gain),
