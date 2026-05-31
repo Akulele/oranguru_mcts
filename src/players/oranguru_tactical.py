@@ -453,6 +453,45 @@ def apply_tactical_safety(self, battle: Battle, choice: str, active: Pokemon, op
         selected_damage_score = 0.0
 
     if (
+        bool(getattr(self, "YAWN_FORCED_SWITCH_GUARD", True))
+        and not battle.force_switch
+        and self._has_effect(active, "yawn")
+        and battle.available_switches
+    ):
+        opp_alive = _alive_count(getattr(battle, "opponent_team", {}) or {})
+        allow_final_ko = bool(getattr(self, "YAWN_ALLOW_FINAL_KO", True))
+        if not (allow_final_ko and opp_alive <= 1 and selected_damage_score >= ko_threshold):
+            safe_switches = []
+            reply_ko = float(getattr(self, "YAWN_SWITCH_REPLY_KO", 185.0))
+            for sw in battle.available_switches:
+                if self._switch_faints_to_entry_hazards(battle, sw):
+                    continue
+                switch_hp = sw.current_hp_fraction if sw.current_hp_fraction is not None else 1.0
+                switch_reply = float(self._estimate_best_reply_score(opponent, sw, battle) or 0.0)
+                if switch_reply >= reply_ko * max(switch_hp, 0.05):
+                    continue
+                safe_switches.append((sw, switch_reply))
+            if safe_switches:
+                best_sw, best_reply = max(
+                    safe_switches,
+                    key=lambda item: self._score_switch(item[0], opponent, battle),
+                )
+                replacement = f"switch {normalize_name(best_sw.species)}"
+                mem["yawn_forced_switch_last"] = {
+                    "reason": "preserve_drowsy_active",
+                    "choice": choice,
+                    "replacement": replacement,
+                    "active": normalize_name(getattr(active, "species", "") or ""),
+                    "active_hp": float(active_hp),
+                    "opp_hp": float(opp_hp),
+                    "opp_alive": int(opp_alive),
+                    "selected_damage_score": float(selected_damage_score),
+                    "ko_threshold": float(ko_threshold),
+                    "switch_reply": float(best_reply),
+                }
+                return replacement
+
+    if (
         tera_suffix
         and bool(getattr(self, "NONBENEFICIAL_ATTACK_TERA_GUARD", True))
         and not is_status

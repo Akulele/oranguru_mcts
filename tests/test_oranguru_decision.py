@@ -705,6 +705,104 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(adjusted, "psychic")
         self.assertEqual(memory["sack_switch_last"]["reason"], "reject_lategame_sack_switch")
 
+    def test_tactical_safety_switches_drowsy_active_before_sleep(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.MOVE_SAFETY_GUARD = True
+        engine.YAWN_FORCED_SWITCH_GUARD = True
+        engine.YAWN_SWITCH_REPLY_KO = 185.0
+        engine.YAWN_ALLOW_FINAL_KO = True
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.PROTECT_MOVES = set()
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._best_damaging_move = lambda *_args: (
+            DummyMove("discharge", category=MoveCategory.SPECIAL, base_power=80),
+            180.0,
+        )
+        engine._estimate_best_reply_score = lambda _opp, target, _battle: 30.0 if target.species == "piloswine" else 80.0
+        engine._switch_faints_to_entry_hazards = lambda *_args: False
+        engine._score_switch = lambda sw, *_args: 2.0 if sw.species == "piloswine" else 0.4
+        engine._calculate_move_score = lambda *_args, **_kwargs: 180.0
+        engine._is_recovery_move = lambda _move: False
+        engine._move_has_recharge = lambda _move: False
+        engine._passive_tera_is_bad = lambda *_args: False
+        engine._high_defense_counter_switch = lambda *_args: None
+        engine._progress_need_score = lambda *_args: 0.0
+
+        piloswine = DummyPokemon(1.0)
+        piloswine.species = "piloswine"
+        coalossal = DummyPokemon(1.0)
+        coalossal.species = "coalossal"
+        battle = DummyBattle()
+        battle.turn = 19
+        battle.active_pokemon = DummyPokemon(0.66)
+        battle.active_pokemon.species = "ragingbolt"
+        battle.active_pokemon.effects = {"yawn": 1}
+        battle.opponent_active_pokemon = DummyPokemon(0.46)
+        battle.opponent_active_pokemon.species = "empoleon"
+        battle.available_moves = [DummyMove("discharge", category=MoveCategory.SPECIAL, base_power=80)]
+        battle.available_switches = [coalossal, piloswine]
+        battle.opponent_team = {
+            "active": battle.opponent_active_pokemon,
+            "bench": DummyPokemon(1.0),
+        }
+
+        adjusted = engine._apply_tactical_safety(
+            battle,
+            "discharge",
+            battle.active_pokemon,
+            battle.opponent_active_pokemon,
+        )
+
+        self.assertEqual(adjusted, "switch piloswine")
+        self.assertEqual(memory["yawn_forced_switch_last"]["reason"], "preserve_drowsy_active")
+
+    def test_tactical_safety_allows_drowsy_final_ko(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.MOVE_SAFETY_GUARD = True
+        engine.YAWN_FORCED_SWITCH_GUARD = True
+        engine.YAWN_ALLOW_FINAL_KO = True
+        engine.TACTICAL_KO_THRESHOLD = 220.0
+        engine.PROTECT_MOVES = set()
+        memory = {}
+        engine._get_battle_memory = lambda _battle: memory
+        engine._best_damaging_move = lambda *_args: (
+            DummyMove("discharge", category=MoveCategory.SPECIAL, base_power=80),
+            180.0,
+        )
+        engine._estimate_best_reply_score = lambda *_args: 30.0
+        engine._switch_faints_to_entry_hazards = lambda *_args: False
+        engine._score_switch = lambda *_args: 1.0
+        engine._calculate_move_score = lambda *_args, **_kwargs: 180.0
+        engine._is_recovery_move = lambda _move: False
+        engine._move_has_recharge = lambda _move: False
+        engine._passive_tera_is_bad = lambda *_args: False
+        engine._high_defense_counter_switch = lambda *_args: None
+        engine._progress_need_score = lambda *_args: 0.0
+
+        bench = DummyPokemon(1.0)
+        bench.species = "piloswine"
+        battle = DummyBattle()
+        battle.turn = 29
+        battle.active_pokemon = DummyPokemon(0.66)
+        battle.active_pokemon.species = "ragingbolt"
+        battle.active_pokemon.effects = {"yawn": 1}
+        battle.opponent_active_pokemon = DummyPokemon(0.40)
+        battle.opponent_active_pokemon.species = "empoleon"
+        battle.available_moves = [DummyMove("discharge", category=MoveCategory.SPECIAL, base_power=80)]
+        battle.available_switches = [bench]
+        battle.opponent_team = {"active": battle.opponent_active_pokemon}
+
+        adjusted = engine._apply_tactical_safety(
+            battle,
+            "discharge",
+            battle.active_pokemon,
+            battle.opponent_active_pokemon,
+        )
+
+        self.assertEqual(adjusted, "discharge")
+        self.assertNotIn("yawn_forced_switch_last", memory)
+
     def test_recovery_guard_blocks_large_policy_drop_from_top_attack(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.RECOVERY_WINDOW_MAX_HP = 0.40
