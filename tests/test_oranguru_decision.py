@@ -477,6 +477,133 @@ class OranguruDecisionTests(unittest.TestCase):
         self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_anti_sweeper_control")
         self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "phaze")
 
+    def test_setup_capture_encores_recent_setup_despite_policy_gap(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.ANTI_SWEEPER_CONTROL_GUARD_ENABLED = True
+        engine.ANTI_SWEEPER_CONTROL_MIN_TURN = 8
+        engine.ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE = 2.0
+        engine.ANTI_SWEEPER_CONTROL_HIGH_PRESSURE = 5.0
+        engine.ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO = 0.35
+        engine.ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP = 0.35
+        engine.SETUP_CAPTURE_GUARD_ENABLED = True
+        engine.SETUP_CAPTURE_MIN_POLICY_RATIO = 0.0
+        engine.SETUP_CAPTURE_MAX_SCORE_DROP = 0.75
+        engine.SETUP_CAPTURE_SPEED_RATIO = 0.95
+        engine.STATUS_MOVES = OranguruEnginePlayer.STATUS_MOVES
+        memory = {
+            "opponent_item_flags": {
+                "overqwil": {"last_move_id": "swordsdance", "last_move_turn": 12}
+            }
+        }
+        engine._get_battle_memory = lambda _battle: memory
+        engine._get_effective_speed = lambda mon: 280 if mon is battle.active_pokemon else 220
+        engine._get_move_entry = lambda _move: {}
+        engine._get_move_entry_by_id = lambda move_id: {
+            "category": "Status",
+            "boosts": {"atk": 2},
+            "target": "self",
+        } if move_id == "swordsdance" else {}
+        engine._status_from_move_entry = lambda _entry: None
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._sleep_clause_blocked = lambda _battle: False
+        engine._move_inflicts_sleep = lambda _move: False
+        engine._heuristic_action_score = lambda _battle, _choice: 0.0
+        engine._get_ability_id = lambda _mon: ""
+        engine._opponent_has_type = lambda *_args: False
+
+        battle = DummyBattle()
+        battle.turn = 13
+        battle.active_pokemon = DummyPokemon(0.58)
+        battle.active_pokemon.species = "mew"
+        battle.opponent_active_pokemon = DummyPokemon(0.88)
+        battle.opponent_active_pokemon.species = "overqwil"
+        battle.opponent_active_pokemon.boosts = {"attack": 2}
+        battle.team = {
+            "active": battle.active_pokemon,
+            "bench1": DummyPokemon(1.0),
+            "bench2": DummyPokemon(1.0),
+            "bench3": DummyPokemon(1.0),
+        }
+        battle.opponent_team = {
+            "active": battle.opponent_active_pokemon,
+            "bench1": DummyPokemon(1.0),
+            "bench2": DummyPokemon(1.0),
+            "bench3": DummyPokemon(1.0),
+        }
+        battle.available_moves = [
+            DummyMove("encore", category=MoveCategory.STATUS),
+            DummyMove("knockoff", category=MoveCategory.PHYSICAL, base_power=65),
+        ]
+
+        adjusted = engine._maybe_take_anti_sweeper_control_choice(
+            battle,
+            [("knockoff", 0.52), ("encore", 0.04)],
+            "knockoff",
+        )
+
+        self.assertEqual(adjusted, "encore")
+        self.assertEqual(memory["anti_sweeper_last"]["reason"], "take_setup_capture_control")
+        self.assertEqual(memory["anti_sweeper_last"]["control_kind"], "encore")
+
+    def test_setup_capture_does_not_encore_when_too_slow_without_priority(self):
+        engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
+        engine.ANTI_SWEEPER_CONTROL_GUARD_ENABLED = True
+        engine.ANTI_SWEEPER_CONTROL_MIN_TURN = 8
+        engine.ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE = 2.0
+        engine.ANTI_SWEEPER_CONTROL_HIGH_PRESSURE = 5.0
+        engine.ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE = 3
+        engine.ANTI_SWEEPER_CONTROL_MIN_POLICY_RATIO = 0.35
+        engine.ANTI_SWEEPER_CONTROL_MAX_SCORE_DROP = 0.35
+        engine.SETUP_CAPTURE_GUARD_ENABLED = True
+        engine.SETUP_CAPTURE_MIN_POLICY_RATIO = 0.0
+        engine.SETUP_CAPTURE_MAX_SCORE_DROP = 0.75
+        engine.SETUP_CAPTURE_SPEED_RATIO = 0.95
+        engine.STATUS_MOVES = OranguruEnginePlayer.STATUS_MOVES
+        memory = {
+            "opponent_item_flags": {
+                "gyarados": {"last_move_id": "dragondance", "last_move_turn": 10}
+            }
+        }
+        engine._get_battle_memory = lambda _battle: memory
+        engine._get_effective_speed = lambda mon: 120 if mon is battle.active_pokemon else 300
+        engine._get_move_entry = lambda _move: {}
+        engine._get_move_entry_by_id = lambda move_id: {
+            "category": "Status",
+            "boosts": {"atk": 1, "spe": 1},
+            "target": "self",
+        } if move_id == "dragondance" else {}
+        engine._status_from_move_entry = lambda _entry: None
+        engine._status_choice_is_obviously_bad = lambda *_args: False
+        engine._sleep_clause_blocked = lambda _battle: False
+        engine._move_inflicts_sleep = lambda _move: False
+        engine._heuristic_action_score = lambda _battle, _choice: 0.0
+        engine._get_ability_id = lambda _mon: ""
+        engine._opponent_has_type = lambda *_args: False
+
+        battle = DummyBattle()
+        battle.turn = 11
+        battle.active_pokemon = DummyPokemon(0.70)
+        battle.active_pokemon.species = "slowbro"
+        battle.opponent_active_pokemon = DummyPokemon(0.88)
+        battle.opponent_active_pokemon.species = "gyarados"
+        battle.opponent_active_pokemon.boosts = {"attack": 1, "speed": 1}
+        battle.available_moves = [
+            DummyMove("encore", category=MoveCategory.STATUS),
+            DummyMove("psychic", category=MoveCategory.SPECIAL, base_power=90),
+        ]
+
+        adjusted = engine._maybe_take_anti_sweeper_control_choice(
+            battle,
+            [("psychic", 0.48), ("encore", 0.07)],
+            "psychic",
+        )
+
+        self.assertEqual(adjusted, "psychic")
+        self.assertEqual(memory["anti_sweeper_last"]["reason"], "no_control_candidate")
+
     def test_tactical_safety_rejects_encore_into_lethal_attack_lock(self):
         engine = OranguruEnginePlayer.__new__(OranguruEnginePlayer)
         engine.MOVE_SAFETY_GUARD = True

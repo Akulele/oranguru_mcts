@@ -2431,6 +2431,71 @@ def maybe_take_anti_sweeper_control_choice(
             return str(status_type)
         return ""
 
+    def _last_move_was_setup(move_id: str) -> bool:
+        move_id = normalize_name(move_id)
+        if not move_id:
+            return False
+        if move_id in {
+            "agility",
+            "autotomize",
+            "bellydrum",
+            "bulkup",
+            "calmmind",
+            "clangoroussoul",
+            "coil",
+            "curse",
+            "dragondance",
+            "filletaway",
+            "geomancy",
+            "growth",
+            "honeclaws",
+            "irondefense",
+            "nastyplot",
+            "noretreat",
+            "quiverdance",
+            "rockpolish",
+            "shellsmash",
+            "shiftgear",
+            "swordsdance",
+            "tailglow",
+            "victorydance",
+            "workup",
+        }:
+            return True
+        try:
+            entry = self._get_move_entry_by_id(move_id)
+        except Exception:
+            entry = {}
+        if not isinstance(entry, dict):
+            return False
+        boosts = entry.get("boosts") or {}
+        target = str(entry.get("target", "") or "").lower()
+        category = str(entry.get("category", "") or "").lower()
+        return category == "status" and bool(boosts) and target == "self"
+
+    def _status_control_can_land(move) -> bool:
+        move_id = normalize_name(getattr(move, "id", ""))
+        if move_id not in {"encore", "taunt"}:
+            return True
+        try:
+            active_speed = float(self._get_effective_speed(active) or 0.0)
+            opp_speed = float(self._get_effective_speed(opponent) or 0.0)
+        except Exception:
+            active_speed = 0.0
+            opp_speed = 0.0
+        min_ratio = float(getattr(self, "SETUP_CAPTURE_SPEED_RATIO", 0.95))
+        if active_speed >= opp_speed * min_ratio:
+            return True
+        try:
+            ability_id = normalize_name(str(self._get_ability_id(active) or ""))
+        except Exception:
+            ability_id = normalize_name(str(getattr(active, "ability", "") or ""))
+        try:
+            opponent_dark = bool(self._opponent_has_type(opponent, "dark"))
+        except Exception:
+            opponent_dark = False
+        return ability_id == "prankster" and not opponent_dark
+
     if not bool(getattr(self, "ANTI_SWEEPER_CONTROL_GUARD_ENABLED", False)):
         return chosen_choice
     if not chosen_choice or getattr(battle, "force_switch", False):
@@ -2446,11 +2511,19 @@ def maybe_take_anti_sweeper_control_choice(
     turn = int(getattr(battle, "turn", 0) or 0)
     min_turn = int(getattr(self, "ANTI_SWEEPER_CONTROL_MIN_TURN", 8))
     boost_pressure, offensive_boost, speed_boost = _boost_pressure(opponent)
+    try:
+        last_opp_move = self._last_opponent_move_id(battle, opponent)
+    except Exception:
+        last_opp_move = ""
+    setup_capture = (
+        bool(getattr(self, "SETUP_CAPTURE_GUARD_ENABLED", False))
+        and _last_move_was_setup(last_opp_move)
+    )
     min_boost_pressure = float(getattr(self, "ANTI_SWEEPER_CONTROL_MIN_BOOST_PRESSURE", 2.0))
-    if turn < min_turn and boost_pressure < min_boost_pressure + 2.0:
+    if not setup_capture and turn < min_turn and boost_pressure < min_boost_pressure + 2.0:
         _record("too_early", turn=int(turn), min_turn=int(min_turn), boost_pressure=float(boost_pressure))
         return chosen_choice
-    if boost_pressure < min_boost_pressure:
+    if not setup_capture and boost_pressure < min_boost_pressure:
         _record(
             "low_boost_pressure",
             boost_pressure=float(boost_pressure),
@@ -2468,7 +2541,7 @@ def maybe_take_anti_sweeper_control_choice(
     max_my_alive = int(getattr(self, "ANTI_SWEEPER_CONTROL_MAX_MY_ALIVE", 3))
     max_opp_alive = int(getattr(self, "ANTI_SWEEPER_CONTROL_MAX_OPP_ALIVE", 3))
     high_pressure = boost_pressure >= float(getattr(self, "ANTI_SWEEPER_CONTROL_HIGH_PRESSURE", 5.0))
-    if my_alive > max_my_alive and opp_alive > max_opp_alive and not high_pressure:
+    if not setup_capture and my_alive > max_my_alive and opp_alive > max_opp_alive and not high_pressure:
         _record(
             "not_endgame_or_high_pressure",
             my_alive=int(my_alive),
@@ -2516,6 +2589,9 @@ def maybe_take_anti_sweeper_control_choice(
         kind = _control_kind(move, speed_pressure, opp_alive)
         if not kind:
             continue
+        capture_candidate = setup_capture and kind in {"encore", "taunt"}
+        if capture_candidate and not _status_control_can_land(move):
+            continue
         if kind in {"para", "burn", "yawn", "taunt", "encore"} and self._status_choice_is_obviously_bad(
             battle,
             move,
@@ -2526,9 +2602,19 @@ def maybe_take_anti_sweeper_control_choice(
         if self._sleep_clause_blocked(battle) and self._move_inflicts_sleep(move):
             continue
         candidate_weight = float(weight or weights.get(choice, 0.0) or 0.0)
-        if chosen_weight > 0.0 and candidate_weight < chosen_weight * min_policy_ratio:
+        active_min_ratio = (
+            float(getattr(self, "SETUP_CAPTURE_MIN_POLICY_RATIO", 0.0))
+            if capture_candidate
+            else min_policy_ratio
+        )
+        active_max_drop = (
+            float(getattr(self, "SETUP_CAPTURE_MAX_SCORE_DROP", 0.75))
+            if capture_candidate
+            else max_score_drop
+        )
+        if chosen_weight > 0.0 and candidate_weight < chosen_weight * active_min_ratio:
             continue
-        if chosen_weight > 0.0 and chosen_weight - candidate_weight > max_score_drop:
+        if chosen_weight > 0.0 and chosen_weight - candidate_weight > active_max_drop:
             continue
         heur = float(self._heuristic_action_score(battle, choice) or 0.0)
         kind_bonus = {
@@ -2541,6 +2627,8 @@ def maybe_take_anti_sweeper_control_choice(
             "burn": 22.0,
             "yawn": 18.0,
         }.get(kind, 0.0)
+        if capture_candidate:
+            kind_bonus += 55.0 if kind == "encore" else 35.0
         score = candidate_weight + 0.001 * heur + 0.01 * kind_bonus
         if score > best_score:
             best_choice = choice
@@ -2558,11 +2646,13 @@ def maybe_take_anti_sweeper_control_choice(
             offensive_boost=float(offensive_boost),
             speed_boost=float(speed_boost),
             chosen_weight=float(chosen_weight),
+            last_opp_move=str(last_opp_move or ""),
+            setup_capture=bool(setup_capture),
         )
         return chosen_choice
 
     _record(
-        "take_anti_sweeper_control",
+        "take_setup_capture_control" if setup_capture and best_kind in {"encore", "taunt"} else "take_anti_sweeper_control",
         turn=int(turn),
         my_alive=int(my_alive),
         opp_alive=int(opp_alive),
@@ -2573,6 +2663,8 @@ def maybe_take_anti_sweeper_control_choice(
         control_choice=best_choice,
         control_weight=float(best_weight),
         control_kind=best_kind,
+        last_opp_move=str(last_opp_move or ""),
+        setup_capture=bool(setup_capture),
     )
     return best_choice
 
